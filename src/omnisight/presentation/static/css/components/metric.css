@@ -1,0 +1,51 @@
+/* 指标卡（06 文档 §5.1）。delta 不做价值判断——只有方向，没有颜色。 */
+.metric__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.metric__value {
+  margin-top: var(--space-2);
+  font-size: var(--text-4xl);
+  font-weight: var(--weight-semibold);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-tight);
+}
+
+.metric__row { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; }
+
+.metric__delta {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.metric__bar {
+  margin-top: var(--space-3);
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+.metric__bar > i {
+  display: block;
+  height: 100%;
+  width: calc(var(--fill, 0) * 100%);
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  transition: width var(--duration-normal) var(--ease-out);
+}
+
+.metric__foot {
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+@media (max-width: 767px) {
+  .metric__value { font-size: var(--text-3xl); }
+}

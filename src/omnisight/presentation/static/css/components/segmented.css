@@ -1,0 +1,36 @@
+/* 分段控件：周期范围、指标、时间粒度共用一套（06 文档 §4 的三层控件合并）。 */
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-sm);
+  flex-wrap: wrap;
+}
+
+.segmented__item {
+  padding: 3px var(--space-3);
+  border-radius: var(--radius-xs);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.segmented__item:hover { color: var(--text-primary); }
+.segmented__item[aria-pressed="true"] {
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+  box-shadow: var(--shadow-sm);
+}
+
+.segmented--sm .segmented__item { padding: 2px var(--space-2); font-size: var(--text-xs); }
+
+.chip {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.chip[aria-pressed="true"] { background: var(--accent-subtle); color: var(--accent-text); }

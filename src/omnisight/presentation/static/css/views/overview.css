@@ -1,0 +1,40 @@
+/* 总览：一眼看出"时长"和"键盘"的关系（06 文档 §5）。 */
+.overview__pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+
+.timeline-toggle { display: flex; align-items: center; gap: var(--space-2); }
+
+.highlights { display: flex; flex-direction: column; gap: var(--space-2); }
+.highlight {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  font-size: var(--text-sm);
+}
+.highlight__mark { flex: none; color: var(--accent-text); }
+
+.intensity { display: flex; flex-direction: column; gap: var(--space-3); }
+.intensity__row {
+  display: grid;
+  grid-template-columns: 5.5em minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+.intensity__name { color: var(--text-secondary); }
+.intensity__value { font-variant-numeric: tabular-nums; text-align: right; min-width: 9ch; }
+
+.category-list { display: flex; flex-direction: column; gap: var(--space-3); }
+.category-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+}
+.category-row__percent { color: var(--text-secondary); font-variant-numeric: tabular-nums; min-width: 5ch; text-align: right; }
+.category-row__value { font-variant-numeric: tabular-nums; min-width: 8ch; text-align: right; }
+.category-row__bar { grid-column: 2 / -1; }
+
+@media (max-width: 1023px) {
+  .overview__pair { grid-template-columns: minmax(0, 1fr); }
+}

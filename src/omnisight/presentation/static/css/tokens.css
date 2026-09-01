@@ -1,0 +1,246 @@
+/* 设计令牌（06 文档 §3）。**唯一定义颜色、间距、字号的地方**——其余 CSS 只引用变量。
+ *
+ * 与 06 文档的三处刻意差异，都是为了让"深色模式全页无对比度低于 4.5:1 的文本"这条
+ * 判据真的成立（数值由 tests/unit/test_design_tokens.py 机械核对）：
+ *
+ * 1. --text-secondary / --text-tertiary 比文档给的值更深（浅色）/更亮（深色）。
+ *    文档的 #77777d 在白底上是 4.45:1、在 --surface-sunken 上只有 3.84:1，而
+ *    #9a9aa3 只有 2.4:1——它们本来就达不到文档自己写的 4.6:1。
+ * 2. 状态色分成"填充色"与"文字色"两套。#d98613 作为文字在白底上是 2.85:1，
+ *    作为色块（配文字标签）才够用。凡是状态文字一律用 --status-*-text。
+ * 3. 数据分类色同理保留原值：它们只出现在图例色块与图表填充里，从不单独承载文字。
+ */
+:root {
+  color-scheme: light;
+
+  /* 中性灰阶 —— UI 骨架专用，绝不用于数据编码 */
+  --gray-0:  #ffffff;
+  --gray-25: #fbfbfd;
+  --gray-50: #f5f5f7;
+  --gray-100:#eeeef1;
+  --gray-150:#e6e6ea;
+  --gray-200:#d8d8de;
+  --gray-300:#c2c2ca;
+  --gray-400:#9a9aa3;
+  --gray-500:#77777d;
+  --gray-600:#5b5b61;
+  --gray-700:#3d3d42;
+  --gray-800:#2a2a2e;
+  --gray-900:#1d1d1f;
+
+  --surface-page:    var(--gray-50);
+  --surface-card:    var(--gray-0);
+  --surface-sunken:  var(--gray-100);
+  --surface-hover:   rgba(0, 0, 0, .035);
+  --surface-active:  rgba(0, 0, 0, .06);
+  --surface-overlay: rgba(255, 255, 255, .86);
+  --surface-scrim:   rgba(20, 20, 24, .32);
+
+  --text-primary:   var(--gray-900);
+  --text-secondary: #5f5f66;
+  --text-tertiary:  #6b6b73;
+  --text-inverse:   var(--gray-0);
+
+  --border-subtle:  rgba(60, 60, 67, .10);
+  --border-default: rgba(60, 60, 67, .16);
+  --border-strong:  rgba(60, 60, 67, .28);
+
+  --accent:        #2f7cf6;
+  --accent-hover:  #1f6ae4;
+  --accent-subtle: #e8f1fe;
+  --accent-text:   #1257c4;
+
+  /* 数据分类色 —— 色相间隔 ≥ 40°，只用于色块与图表填充 */
+  --cat-productivity:  #2f7cf6;
+  --cat-communication: #16a394;
+  --cat-entertainment: #f2933c;
+  --cat-development:   #7c62e0;
+  --cat-system:        #8b8b91;
+  --cat-uncategorized: #b4b4bb;
+
+  /* 热力标尺 —— 单色渐进 */
+  --heat-0: var(--gray-100);
+  --heat-1: #dbe8fb;
+  --heat-2: #a8caf7;
+  --heat-3: #6ba6f2;
+  --heat-4: #2f7cf6;
+  --heat-5: #1a56b8;
+  --heat-ink: #ffffff;         /* 高热档上的数字颜色 */
+
+  --status-ok:    #1a9d54;
+  --status-warn:  #d98613;
+  --status-error: #d6453d;
+  --status-info:  var(--accent);
+  --status-ok-text:    #0f7a3d;
+  --status-warn-text:  #8a5a0b;
+  --status-error-text: #b3352e;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.04), 0 1px 3px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.06), 0 1px 3px rgba(0,0,0,.04);
+  --shadow-lg: 0 12px 32px rgba(0,0,0,.08), 0 2px 8px rgba(0,0,0,.04);
+  --shadow-focus: 0 0 0 3px var(--accent-subtle), 0 0 0 1px var(--accent);
+
+  /* 排版 */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display",
+               "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+               "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas,
+               "SF Mono", monospace;
+
+  --text-2xs: 11px;  --text-xs: 12px;  --text-sm: 13px;
+  --text-base:14px;  --text-md: 15px;  --text-lg: 17px;
+  --text-xl: 20px;   --text-2xl:26px;  --text-3xl:34px;  --text-4xl:44px;
+
+  --weight-normal: 400; --weight-medium: 500;
+  --weight-semibold: 600; --weight-bold: 700;
+
+  --leading-tight: 1.25; --leading-normal: 1.5; --leading-relaxed: 1.7;
+  --tracking-tight: -0.015em; --tracking-normal: 0; --tracking-wide: 0.02em;
+
+  /* 4px 基准栅格 */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10:40px;
+  --space-12:48px; --space-16:64px;
+
+  --radius-xs: 4px;  --radius-sm: 6px;  --radius-md: 10px;
+  --radius-lg: 14px; --radius-xl: 18px; --radius-full: 999px;
+
+  --duration-instant: 80ms;  --duration-fast: 140ms;
+  --duration-normal: 220ms;  --duration-slow: 360ms;
+  --ease-out:    cubic-bezier(.22, 1, .36, 1);
+  --ease-in-out: cubic-bezier(.4, 0, .2, 1);
+  --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+
+  --layout-max: 1240px;
+  --layout-gutter: var(--space-6);
+  --header-height: 56px;
+  --periodbar-height: 48px;
+}
+
+/* 深色令牌只写一次，两个选择器共用（媒体查询下 data-theme="light" 可反悔）。 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-page:    #16161a;
+    --surface-card:    #202024;
+    --surface-sunken:  #2a2a2f;
+    --surface-hover:   rgba(255,255,255,.05);
+    --surface-active:  rgba(255,255,255,.09);
+    --surface-overlay: rgba(32,32,36,.88);
+    --surface-scrim:   rgba(0, 0, 0, .52);
+
+    --text-primary:   #f2f2f5;
+    --text-secondary: #a8a8b2;
+    --text-tertiary:  #93939e;
+
+    --border-subtle:  rgba(255,255,255,.07);
+    --border-default: rgba(255,255,255,.12);
+    --border-strong:  rgba(255,255,255,.22);
+
+    --accent:        #5b9bff;
+    --accent-hover:  #7fb0ff;
+    --accent-subtle: #1c2c4a;
+    --accent-text:   #8fbaff;
+
+    --cat-productivity:  #5b9bff;
+    --cat-communication: #2bbfae;
+    --cat-entertainment: #f5a55c;
+    --cat-development:   #9b85f0;
+    --cat-system:        #9a9aa3;
+    --cat-uncategorized: #6e6e77;
+
+    --heat-0: #26262b;
+    --heat-1: #1e3358;
+    --heat-2: #24528f;
+    --heat-3: #3574c9;
+    --heat-4: #5b9bff;
+    --heat-5: #8fbaff;
+    --heat-ink: #0d1526;
+
+    --status-ok:    #3ddc84;
+    --status-warn:  #f5a55c;
+    --status-error: #ff7a72;
+    --status-ok-text:    #4ade80;
+    --status-warn-text:  #fbbf6b;
+    --status-error-text: #ff9a94;
+
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,.35);
+    --shadow-lg: 0 12px 32px rgba(0,0,0,.45);
+    --shadow-focus: 0 0 0 3px var(--accent-subtle), 0 0 0 1px var(--accent);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-page:    #16161a;
+  --surface-card:    #202024;
+  --surface-sunken:  #2a2a2f;
+  --surface-hover:   rgba(255,255,255,.05);
+  --surface-active:  rgba(255,255,255,.09);
+  --surface-overlay: rgba(32,32,36,.88);
+  --surface-scrim:   rgba(0, 0, 0, .52);
+
+  --text-primary:   #f2f2f5;
+  --text-secondary: #a8a8b2;
+  --text-tertiary:  #93939e;
+
+  --border-subtle:  rgba(255,255,255,.07);
+  --border-default: rgba(255,255,255,.12);
+  --border-strong:  rgba(255,255,255,.22);
+
+  --accent:        #5b9bff;
+  --accent-hover:  #7fb0ff;
+  --accent-subtle: #1c2c4a;
+  --accent-text:   #8fbaff;
+
+  --cat-productivity:  #5b9bff;
+  --cat-communication: #2bbfae;
+  --cat-entertainment: #f5a55c;
+  --cat-development:   #9b85f0;
+  --cat-system:        #9a9aa3;
+  --cat-uncategorized: #6e6e77;
+
+  --heat-0: #26262b;
+  --heat-1: #1e3358;
+  --heat-2: #24528f;
+  --heat-3: #3574c9;
+  --heat-4: #5b9bff;
+  --heat-5: #8fbaff;
+  --heat-ink: #0d1526;
+
+  --status-ok:    #3ddc84;
+  --status-warn:  #f5a55c;
+  --status-error: #ff7a72;
+  --status-ok-text:    #4ade80;
+  --status-warn-text:  #fbbf6b;
+  --status-error-text: #ff9a94;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.35);
+  --shadow-lg: 0 12px 32px rgba(0,0,0,.45);
+  --shadow-focus: 0 0 0 3px var(--accent-subtle), 0 0 0 1px var(--accent);
+}
+
+/* 暖色热力备选（06 文档 §3.1 的"橙色备选主题"）。只换热力标尺，不换主色。 */
+:root[data-heat="warm"] {
+  --heat-1: #fdeacc;
+  --heat-2: #fbcf8d;
+  --heat-3: #f2a94e;
+  --heat-4: #dd7f1b;
+  --heat-5: #a75410;
+  --heat-ink: #ffffff;
+}
+:root[data-theme="dark"][data-heat="warm"],
+:root[data-heat="warm"] {
+  --heat-0: var(--surface-sunken);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

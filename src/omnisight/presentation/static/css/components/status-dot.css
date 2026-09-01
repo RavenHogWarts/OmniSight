@@ -1,0 +1,56 @@
+/* 采集状态指示器：绿=正常、黄=暂停、红=后端故障（06 文档 §4.1）。
+ * 点击展开采集详情浮层，这是旧版完全缺失的能力。 */
+/* 浮层相对这个容器定位：按钮与浮层是兄弟节点，定位上下文必须在它们的父级。 */
+.status-wrap { position: relative; display: flex; }
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: var(--surface-sunken);
+}
+.status:hover { color: var(--text-primary); }
+
+.status__dot {
+  width: 7px; height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--text-tertiary);
+  flex: none;
+}
+.status[data-state="ok"] .status__dot     { background: var(--status-ok); }
+.status[data-state="paused"] .status__dot { background: var(--status-warn); }
+.status[data-state="error"] .status__dot  { background: var(--status-error); }
+.status[data-state="ok"][data-live="true"] .status__dot { animation: status-pulse 2.4s var(--ease-in-out) infinite; }
+
+@keyframes status-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-ok) 60%, transparent); }
+  50%      { box-shadow: 0 0 0 4px color-mix(in srgb, var(--status-ok) 0%, transparent); }
+}
+
+.status-panel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 50;
+  width: 300px;
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  text-align: left;
+}
+.status-panel dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+}
+.status-panel dt { color: var(--text-secondary); }
+.status-panel dd { margin: 0; font-variant-numeric: tabular-nums; word-break: break-all; }

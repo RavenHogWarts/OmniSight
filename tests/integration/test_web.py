@@ -108,11 +108,23 @@ def test_security_headers_present(client: FlaskClient):
     assert "Access-Control-Allow-Origin" not in headers
 
 
-def test_placeholder_page_has_no_inline_script(client: FlaskClient):
-    """CSP 的 ``script-src 'self'`` 禁止内联脚本——这与 07 文档的前端决定互为前提。"""
+def test_shell_page_has_no_inline_script(client: FlaskClient):
+    """CSP 的 ``script-src 'self'`` 禁止内联脚本——这与 07 文档的前端决定互为前提。
+
+    06 文档 §3.2 给的防闪白方案是内联 ``<script>``，那会被 CSP 直接拒掉；M3 改成
+    同源的外部阻塞脚本（``/static/js/theme.js``），效果一致而不破 CSP。
+    """
     body = client.get("/").get_data(as_text=True)
-    assert "<script type=\"module\" src=" in body
+    assert '<script type="module" src=' in body
+    assert '<script src="/static/js/theme.js"></script>' in body
     assert "onclick=" not in body
+
+
+def test_favicon_is_served_without_a_token(client: FlaskClient):
+    """``<link rel="icon">`` 发出的请求带不了自定义头，因此这个端点必须免令牌。"""
+    response = client.get("/favicon.svg")
+    assert response.status_code == 200
+    assert b"<svg" in response.get_data()
 
 
 def test_unknown_route_returns_structured_error(client: FlaskClient):

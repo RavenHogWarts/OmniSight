@@ -1,0 +1,47 @@
+/* 设置抽屉。焦点陷阱与 Esc 关闭在 components/drawer.js 里，样式只管形与动。 */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: var(--surface-scrim);
+  animation: fade-in var(--duration-fast) var(--ease-out);
+}
+
+.drawer {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  z-index: 90;
+  width: min(420px, 100vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-card);
+  border-left: 1px solid var(--border-default);
+  box-shadow: var(--shadow-lg);
+  animation: drawer-in var(--duration-normal) var(--ease-out);
+}
+
+.drawer__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
+  flex: none;
+}
+.drawer__body { flex: 1 1 auto; overflow-y: auto; padding: var(--space-4) var(--space-5) var(--space-10); }
+.drawer__foot {
+  flex: none;
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+@keyframes drawer-in {
+  from { transform: translateX(16px); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }

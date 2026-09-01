@@ -1,0 +1,50 @@
+.card {
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-5);
+  min-width: 0;
+}
+
+.card--sunken { background: var(--surface-sunken); box-shadow: none; }
+.card--flush  { padding: 0; overflow: hidden; }
+
+.card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  min-height: 24px;
+}
+.card__head .spacer { flex: 1 1 auto; }
+
+.card__title { font-size: var(--text-md); font-weight: var(--weight-semibold); }
+.card__hint  { font-size: var(--text-xs); color: var(--text-tertiary); }
+
+.card__link {
+  font-size: var(--text-sm);
+  color: var(--accent-text);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+}
+.card__link:hover { background: var(--accent-subtle); text-decoration: none; }
+
+/* 刷新中：保留旧数据，只在卡片顶沿走一条细进度条（06 文档 §10.1"不清空"）。 */
+.card[data-refreshing="true"] { position: relative; }
+.card[data-refreshing="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: card-refresh 1.1s var(--ease-in-out) infinite;
+}
+
+@keyframes card-refresh {
+  from { background-position: -40% 0; }
+  to   { background-position: 140% 0; }
+}

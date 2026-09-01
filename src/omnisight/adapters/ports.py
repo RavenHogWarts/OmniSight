@@ -18,7 +18,10 @@ from typing import Literal, Protocol, runtime_checkable
 
 PlatformId = Literal["windows", "macos", "linux_x11", "linux_wayland", "generic"]
 IdentityKind = Literal["process", "bundle", "desktop", "wm_class"]
-Severity = Literal["error", "warning"]
+#: ``info`` 是 M3 加的：图标不可用这类"知道就行"的说明既不该上全局横幅，也不该
+#: 被当成警告——前端只把 ``error`` 做成横幅，其余进设置页的能力说明。适配器里
+#: 已经在用 ``info``（windows/factory.py 的 icons_unavailable），类型跟上实际。
+Severity = Literal["error", "warning", "info"]
 
 #: 未知前台（空闲、锁屏、被排除的应用）时按键的归属，见 README 命名约定。
 UNKNOWN_APP_ID = 0

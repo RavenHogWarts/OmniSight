@@ -1,0 +1,24 @@
+/* 骨架屏：形状要与真实内容一致，否则内容到位时会跳版（06 文档 §10.1）。 */
+.skeleton {
+  border-radius: var(--radius-sm);
+  /* 同上：渐变里含 color-mix()，不支持时整条无效，骨架屏会变成看不见的空块。 */
+  background: var(--surface-sunken);
+  background: linear-gradient(
+    90deg,
+    var(--surface-sunken) 0%,
+    color-mix(in srgb, var(--surface-sunken) 60%, var(--surface-card)) 50%,
+    var(--surface-sunken) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.4s var(--ease-in-out) infinite;
+}
+.skeleton--text { height: 12px; margin-bottom: var(--space-2); }
+.skeleton--value { height: 38px; width: 60%; margin: var(--space-2) 0; }
+.skeleton--bar { height: 6px; }
+.skeleton--chart { height: 150px; }
+.skeleton--row { height: 44px; margin-bottom: 1px; border-radius: 0; }
+
+@keyframes skeleton-sweep {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}

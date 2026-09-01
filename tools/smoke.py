@@ -28,6 +28,44 @@ ROOT = Path(__file__).resolve().parents[1]
 STARTUP_TIMEOUT = 30.0
 TOKEN_HEADER = "X-OmniSight-Token"
 
+#: 页面外壳必须带的挂载点。模板改了 id 而 JS 没跟着改，症状是整页空白且控制台安静
+#: （getElementById 返回 null 不报错），因此这条要在产物上验一次。
+SHELL_MARKERS = (
+    b'id="view-root"',
+    b'id="periodbar"',
+    b'id="banners"',
+    b'id="toasts"',
+    b'id="tab-overview"',
+    b'/static/css/app.css',
+    b'/static/js/main.js',
+    b'/static/js/theme.js',
+)
+
+#: 各层抽一个：入口、样式汇总、核心层、领域层、图表层、组件层、视图层、图标。
+SHELL_ASSETS = (
+    "/static/css/app.css",
+    "/static/css/tokens.css",
+    "/static/css/components/key-cap.css",
+    "/static/js/main.js",
+    "/static/js/theme.js",
+    "/static/js/core/store.js",
+    "/static/js/domain/keyboard-layout.js",
+    "/static/js/charts/canvas.js",
+    "/static/js/components/keyboard-view.js",
+    "/static/js/views/overview.js",
+    "/favicon.svg",
+)
+
+
+def _check_shell(body: bytes) -> list[str]:
+    """外壳自检：挂载点齐全，且**不含任何统计数据**（06 文档 §14 的模板零数据）。"""
+    problems = [f"首页缺少 {marker.decode()}" for marker in SHELL_MARKERS if marker not in body]
+    for leak in (b"press_count", b"total_seconds", b"capabilities"):
+        if leak in body:
+            problems.append(f"首页注入了数据（{leak.decode()}），模板应当零数据")
+    return problems
+
+
 #: 每个端点配一个校验函数：只断言 200 等于放过"返回了 200 但内容是空壳"这类打包事故。
 #: M2 起遍历真实接口（M1 的 ``/_debug/attribution`` 已删除）。挑的这几个各有理由：
 #: ``overview`` 一次请求横跨三个服务，``keyboard/layout`` 证明布局数据被收进了产物，
@@ -151,12 +189,13 @@ def run(executable: Path, *, keep: bool = False) -> int:
         status_code, body = _get(urljoin(base, "/"), token)
         if status_code != 200 or b"OmniSight" not in body:
             failures.append("首页未正常返回（可能漏了 --add-data 的模板）")
-        if b"/static/css/placeholder.css" not in body:
-            failures.append("首页未引用静态资源")
-
-        css_code, _ = _get(urljoin(base, "/static/css/placeholder.css"))
-        if css_code != 200:
-            failures.append("静态资源 404（--add-data 未收进 static/）")
+        failures.extend(_check_shell(body))
+        # M3 起前端是 39 个 ES 模块 + 26 个样式文件。逐个校验太慢，抽查入口与
+        # 每一层各一个：`--add-data` 收的是整棵目录树，漏就是整层都漏。
+        for asset in SHELL_ASSETS:
+            code, _ = _get(urljoin(base, asset))
+            if code != 200:
+                failures.append(f"静态资源 404：{asset}（--add-data 未收进 static/）")
 
         for endpoint in CHECKED_ENDPOINTS:
             code, payload = _get(urljoin(base, endpoint), token)

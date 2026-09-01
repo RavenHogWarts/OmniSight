@@ -1,0 +1,27 @@
+/* 数据列表用真实 table（06 文档 §13"语义化"）。canvas 的 sr-only 数据表也用它。 */
+.data-table { font-size: var(--text-sm); }
+.data-table th,
+.data-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+.data-table th { font-size: var(--text-xs); }
+.data-table tbody tr:last-child td { border-bottom: 0; }
+.data-table tbody tr:hover { background: var(--surface-hover); }
+.data-table td.numeric,
+.data-table th.numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.data-table td.wide { white-space: normal; min-width: 0; }
+.data-table__scroll { overflow-x: auto; }
+
+.rank { color: var(--text-tertiary); font-variant-numeric: tabular-nums; width: 3ch; }
+
+.kv-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+.kv-list dt { color: var(--text-secondary); }
+.kv-list dd { margin: 0; font-variant-numeric: tabular-nums; }

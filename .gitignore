@@ -51,3 +51,6 @@ desktop.ini
 # ── 打补丁与合并残留 ──────────────────────────────────────
 *.orig
 *.rej
+
+# M3：键盘渲染器测试用的布局 fixture，由 tests/unit/test_frontend_js.py 现场导出
+tests/frontend/layouts.json

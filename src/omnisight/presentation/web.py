@@ -11,11 +11,12 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, send_from_directory
 from werkzeug.serving import make_server
 
 from .. import __version__
@@ -75,7 +76,23 @@ class AppContext:
     stream: Any = None
 
 
+#: 静态资源的 MIME 类型**显式注册**，不靠系统猜。
+#:
+#: Windows 的 ``mimetypes`` 会读 HKCR：某些安装程序把 ``.js`` 写成 ``text/plain``
+#: 或 ``application/x-javascript``，而浏览器对 ES 模块严格要求 JavaScript MIME——
+#: 类型不对就整页拒绝执行，症状是**空白页加一条控制台报错**，而且只在那台机器上出现。
+#: 前端零构建、全靠原生模块，这条必须锁死（07 文档 §2 的代价之一）。
+_STATIC_TYPES = (
+    ("text/javascript", ".js"),
+    ("text/css", ".css"),
+    ("image/svg+xml", ".svg"),
+    ("application/json", ".json"),
+)
+
+
 def create_app(context: AppContext) -> Flask:
+    for mime_type, suffix in _STATIC_TYPES:
+        mimetypes.add_type(mime_type, suffix)
     resources = paths.resource_dir() / "presentation"
     app = Flask(
         __name__,
@@ -100,14 +117,28 @@ def create_app(context: AppContext) -> Flask:
 def _register_routes(app: Flask, context: AppContext) -> None:
     @app.get("/")
     def index():
-        # 令牌通过 URL 交给页面，页面存进 sessionStorage 后续用请求头带上
-        # （08 文档 §3.2b）。这里不校验，否则用户点托盘打开的链接会被自己拦掉。
+        """页面外壳。**零数据、零内联脚本**——数据一律经 API 取（06 文档 §14）。
+
+        令牌通过 URL 交给页面，页面存进 sessionStorage 后续用请求头带上
+        （08 文档 §3.2b）。这里不校验，否则用户点托盘打开的链接会被自己拦掉。
+
+        模板里不注入 capabilities：前端只信 ``/api/v1/status``，注入一份就等于
+        多一个可能过期的副本（07 文档 §10）。
+        """
         return render_template(
-            "placeholder.html",
+            "dashboard.html",
             version=__version__,
             token=request.args.get("token", ""),
-            capabilities=context.capabilities,
         )
+
+    @app.get("/favicon.svg")
+    def favicon():
+        """免令牌，因为它由 ``<link rel="icon">`` 发出——那条请求带不了自定义头。
+
+        它不返回任何统计数据，因此在 ``PUBLIC_ENDPOINTS`` 里是安全的。
+        """
+        assets = paths.resource_dir() / "presentation" / "static" / "assets"
+        return send_from_directory(str(assets), "favicon.svg")
 
     @app.get("/healthz")
     def healthz():

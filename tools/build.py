@@ -61,8 +61,8 @@ PLATFORM: dict[str, list[str]] = {
 
 def build(*, clean: bool = True, exclude_pynput: bool = False) -> int:
     if clean:
-        for path in (DIST, BUILD):
-            shutil.rmtree(path, ignore_errors=True)
+        _clean_dist()
+        shutil.rmtree(BUILD, ignore_errors=True)
 
     args = [*COMMON, *PLATFORM.get(sys.platform, ["--onefile"])]
     if exclude_pynput:
@@ -80,6 +80,30 @@ def build(*, clean: bool = True, exclude_pynput: bool = False) -> int:
         return completed.returncode
     _write_portable_marker()
     return 0
+
+
+def _clean_dist() -> None:
+    """清 ``dist/`` 但**保留 ``dist/data/``**。
+
+    这是踩过的坑。``dist/portable.marker`` 一旦存在（冒烟测试会创建它），手动双击
+    ``dist/OmniSight.exe`` 就以便携模式运行，数据落在 ``dist/data/``——而旧版这里
+    一句 ``rmtree(DIST)`` 会把它连库一起删掉，且毫无提示。症状是"我明明跑了一下午，
+    统计全没了"，而真正的原因在打包脚本里。
+
+    与 M2 的 ``.bench/`` 是同一类问题（基准库原本落在 ``build/``，被下一次打包删掉），
+    所以处理方式也一样：**构建产物目录里的用户数据一律不碰。**
+    """
+    if not DIST.exists():
+        return
+    data_dir = DIST / "data"
+    for path in DIST.iterdir():
+        if path == data_dir:
+            print(f"保留 {path}（便携模式的数据目录，打包不碰它）")
+            continue
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+        else:
+            path.unlink(missing_ok=True)
 
 
 def _write_portable_marker() -> None:

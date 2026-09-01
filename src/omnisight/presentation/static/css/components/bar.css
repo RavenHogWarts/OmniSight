@@ -1,0 +1,37 @@
+/* 行内条形：占比条与 KPM 强度条。用 --fill（0..1）驱动，JS 只写这一个变量。 */
+.bar {
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--surface-sunken);
+  overflow: hidden;
+  min-width: 40px;
+}
+.bar > i {
+  display: block;
+  height: 100%;
+  width: calc(var(--fill, 0) * 100%);
+  background: var(--bar-color, var(--accent));
+  border-radius: var(--radius-full);
+  transition: width var(--duration-normal) var(--ease-out);
+}
+
+.bar--thin { height: 4px; }
+.bar--kpm  { --bar-color: var(--cat-communication); width: 56px; min-width: 56px; }
+
+/* 分类色由 data-category 决定，不在 JS 里查表（06 文档 §11 的"颜色硬编码"修正）。 */
+[data-category="productivity"]  { --bar-color: var(--cat-productivity); }
+[data-category="communication"] { --bar-color: var(--cat-communication); }
+[data-category="entertainment"] { --bar-color: var(--cat-entertainment); }
+[data-category="development"]   { --bar-color: var(--cat-development); }
+[data-category="system"]        { --bar-color: var(--cat-system); }
+[data-category="uncategorized"] { --bar-color: var(--cat-uncategorized); }
+
+.swatch {
+  width: 10px; height: 10px;
+  border-radius: 3px;
+  background: var(--bar-color, var(--cat-uncategorized));
+  flex: none;
+}
+
+.legend { display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); }
+.legend__item { display: flex; align-items: center; gap: var(--space-1); color: var(--text-secondary); }

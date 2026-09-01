@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OmniSight</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/app.css">
+  <link rel="modulepreload" href="/static/js/core/store.js">
+  <link rel="modulepreload" href="/static/js/core/api.js">
+  <link rel="modulepreload" href="/static/js/views/overview.js">
+  {#
+    主题在 CSS 之后、模块之前用一个**阻塞的普通脚本**设置。
+    06 文档 §3.2 给的是内联 <script>，但 CSP 是 script-src 'self'（无 nonce），
+    内联脚本会被浏览器拒掉——同源的外部脚本同样是阻塞的，效果一致而不破 CSP。
+  #}
+  <script src="/static/js/theme.js"></script>
+</head>
+<body>
+  <div class="app" id="app">
+    <noscript>
+      <div class="banner" data-severity="error">
+        <span class="banner__mark" aria-hidden="true">!</span>
+        <div class="banner__body">
+          <div class="banner__title">本仪表盘需要 JavaScript</div>
+          <div class="banner__detail">
+            数据采集不受影响，仍在后台运行。请在浏览器中允许本页面执行脚本后刷新。
+          </div>
+        </div>
+      </div>
+    </noscript>
+
+    {# 全局降级横幅（06 文档 §4.2 第一级）。由 components/degraded.js 填充。 #}
+    <div id="banners" aria-live="polite"></div>
+
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand__dot" aria-hidden="true"></span>
+        <span>OmniSight</span>
+      </div>
+
+      <nav class="pill-tabs" id="tabs" role="tablist" aria-label="视图">
+        <button class="pill-tab" role="tab" id="tab-overview" type="button"
+                data-action="route:go" data-route="overview"
+                aria-selected="true" aria-controls="view-root">总览</button>
+        <button class="pill-tab" role="tab" id="tab-apps" type="button"
+                data-action="route:go" data-route="apps"
+                aria-selected="false" aria-controls="view-root">应用</button>
+        <button class="pill-tab" role="tab" id="tab-keyboard" type="button"
+                data-action="route:go" data-route="keyboard"
+                aria-selected="false" aria-controls="view-root">键盘</button>
+        <button class="pill-tab" role="tab" id="tab-insights" type="button"
+                data-action="route:go" data-route="insights"
+                aria-selected="false" aria-controls="view-root">洞察</button>
+      </nav>
+
+      <div class="topbar__end">
+        <div id="status-host"></div>
+        <button class="icon-button" type="button" id="theme-toggle"
+                data-action="theme:cycle" title="切换主题" aria-label="切换主题">
+          <span aria-hidden="true">◐</span>
+        </button>
+        <button class="icon-button" type="button"
+                data-action="settings:open" title="设置" aria-label="打开设置">
+          <span aria-hidden="true">⚙</span>
+        </button>
+      </div>
+    </header>
+
+    {# 周期栏在所有视图间共享状态（06 文档 §4）。 #}
+    <div class="periodbar" id="periodbar"></div>
+
+    <main class="main" id="main">
+      <div id="view-root" role="tabpanel" aria-labelledby="tab-overview"></div>
+    </main>
+  </div>
+
+  <div class="toast-host" id="toasts" aria-live="polite" aria-atomic="false"></div>
+  <div id="overlays"></div>
+
+  {# 令牌只从 URL 交接一次，随后存进 sessionStorage 并从地址栏抹掉（08 文档 §3.2b）。 #}
+  <script type="module" src="/static/js/main.js" data-token="{{ token }}"></script>
+</body>
+</html>

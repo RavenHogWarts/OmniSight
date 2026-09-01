@@ -1,0 +1,15 @@
+/* 四种状态必须长得不一样（06 文档 §10.1）。"能力不可用"走 .notice，不在这里。 */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-10) var(--space-4);
+  text-align: center;
+  color: var(--text-secondary);
+}
+.empty__mark { font-size: var(--text-2xl); color: var(--text-tertiary); line-height: 1; }
+.empty__title { font-weight: var(--weight-medium); color: var(--text-primary); }
+.empty__detail { font-size: var(--text-sm); max-width: 42ch; }
+.empty--error .empty__mark { color: var(--status-error-text); }
+.empty--compact { padding: var(--space-6) var(--space-4); }

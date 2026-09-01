@@ -1,0 +1,131 @@
+/* 全局框架：顶栏 56px + 周期栏 48px + 内容区（06 文档 §4.1）。 */
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 顶栏 ──────────────────────────────────────────────────────────── */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--layout-gutter);
+  background: var(--surface-overlay);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  flex: none;
+}
+
+.brand__dot {
+  width: 10px; height: 10px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  flex: none;
+}
+
+.topbar__end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+}
+
+.icon-button {
+  width: 32px; height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  transition: background var(--duration-fast) var(--ease-out);
+}
+.icon-button:hover { background: var(--surface-hover); color: var(--text-primary); }
+.icon-button[aria-pressed="true"] { background: var(--accent-subtle); color: var(--accent-text); }
+
+/* ── 周期栏 ────────────────────────────────────────────────────────── */
+.periodbar {
+  position: sticky;
+  top: var(--header-height);
+  z-index: 20;
+  min-height: var(--periodbar-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--layout-gutter);
+  background: var(--surface-page);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+}
+
+.periodbar__nav { display: flex; align-items: center; gap: var(--space-1); }
+
+.period-label {
+  min-width: 12ch;
+  text-align: center;
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.period-custom {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.period-custom input[type="date"] {
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 3px var(--space-2);
+  color: var(--text-primary);
+}
+
+/* ── 内容区 ────────────────────────────────────────────────────────── */
+.main {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: var(--layout-max);
+  margin: 0 auto;
+  padding: var(--space-6) var(--layout-gutter) var(--space-16);
+}
+
+.view { display: flex; flex-direction: column; gap: var(--space-5); }
+.view__title { font-size: var(--text-xl); }
+.view__title:focus-visible { box-shadow: none; }
+
+/* 双列网格。窄窗口自动落回单列，不需要每个面板各写一次断点。 */
+.grid { display: grid; gap: var(--space-4); }
+.grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+@media (max-width: 1023px) {
+  .grid--2, .grid--3 { grid-template-columns: minmax(0, 1fr); }
+  .grid--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 899px) {
+  :root { --layout-gutter: var(--space-4); }
+  .topbar { gap: var(--space-2); }
+  .brand span:not(.brand__dot) { display: none; }
+}
+
+@media (max-width: 767px) {
+  .grid--4 { grid-template-columns: minmax(0, 1fr); }
+}

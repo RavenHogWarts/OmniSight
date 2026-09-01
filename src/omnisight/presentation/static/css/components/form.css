@@ -1,0 +1,106 @@
+/* 设置表单。**每一项都由 GET /api/v1/settings 的元数据生成**（06 文档 §9）：
+ * 前端不写死"哪个开关在哪个平台上要隐藏"。available: false 的项显示但禁用，
+ * 并在旁边给出 unavailable_reason。 */
+.settings-group { margin-bottom: var(--space-6); }
+.settings-group__title {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-2);
+}
+
+.field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.field:last-child { border-bottom: 0; }
+.field__label { font-size: var(--text-sm); min-width: 0; }
+.field__note {
+  grid-column: 1 / -1;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+.field__error { grid-column: 1 / -1; font-size: var(--text-xs); color: var(--status-error-text); }
+.field[data-available="false"] .field__label { color: var(--text-tertiary); }
+
+.field__tag {
+  font-size: var(--text-2xs);
+  padding: 1px var(--space-1);
+  border-radius: var(--radius-xs);
+  background: var(--surface-sunken);
+  color: var(--text-tertiary);
+  margin-left: var(--space-2);
+  white-space: nowrap;
+}
+
+select.control, input.control {
+  min-width: 132px;
+  max-width: 200px;
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+input.control[type="number"] { width: 92px; min-width: 0; font-variant-numeric: tabular-nums; }
+.control:disabled { background: var(--surface-sunken); color: var(--text-tertiary); }
+
+/* 开关。原生 checkbox 保留在 DOM 里（可访问性 + 键盘），只是画成滑块。 */
+.switch { position: relative; width: 40px; height: 22px; flex: none; }
+.switch input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  width: 100%; height: 100%;
+  cursor: pointer;
+}
+.switch__track {
+  display: block;
+  width: 100%; height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--border-strong);
+  transition: background var(--duration-fast) var(--ease-out);
+  pointer-events: none;
+}
+.switch__track::after {
+  content: "";
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 16px; height: 16px;
+  border-radius: var(--radius-full);
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.switch input:checked + .switch__track { background: var(--accent); }
+.switch input:checked + .switch__track::after { transform: translateX(18px); }
+.switch input:focus-visible + .switch__track { box-shadow: var(--shadow-focus); }
+.switch input:disabled + .switch__track { opacity: .5; }
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  background: var(--surface-sunken);
+  min-width: 200px;
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+.search input {
+  border: 0;
+  background: none;
+  outline: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+.search__mark { color: var(--text-tertiary); flex: none; }

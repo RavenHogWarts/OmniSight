@@ -1,0 +1,145 @@
+/* 键盘与键位（06 文档 §7.1）。
+ *
+ * 几何的三条规则，全部由 CSS 承担，JS 只下发倍数：
+ *
+ * 1. 每 1 单位的步距是 `u + key-gap`，所以宽 w 的键是 `w*u + (w-1)*gap`，
+ *    宽 w 的空隙用同一个式子。于是每一行的总宽都是 `23u + 22gap`，行与行天然对齐，
+ *    渲染器不需要知道"这一行为什么短了一格"。
+ * 2. 行高固定为 u。双高键（小键盘的 + 与 Enter、ISO 回车）**溢出**到下一行，
+ *    下一行的布局数据里已如实留出空隙（layouts.py 的 _NUMPAD_MID）。行高不固定的话，
+ *    一个双高键会把后面所有行顶下去 1 个键位。
+ * 3. ISO 回车是唯一的非矩形键：用 clip-path 在左下角挖掉 0.25 单位的缺口。
+ *    代价是缺口那两条短边没有描边（clip-path 会把 border 一起裁掉）；换来的是
+ *    几何完全精确、没有两块拼接的接缝。只此一例，不引入通用多边形机制。
+ */
+.keyboard-wrap { overflow-x: auto; padding-bottom: var(--space-2); }
+
+.keyboard {
+  --u: clamp(26px, 3.2vw, 44px);
+  --key-gap: calc(var(--u) * 0.14);
+  --pitch: calc(var(--u) + var(--key-gap));
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--key-gap);
+  padding: var(--space-3);
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.keyboard__row {
+  display: flex;
+  gap: var(--key-gap);
+  align-items: flex-start;
+  height: var(--u);
+  flex: none;
+}
+
+.key-spacer {
+  flex: none;
+  width: calc(var(--u) * var(--w, 1) + var(--key-gap) * (var(--w, 1) - 1));
+}
+
+.key-cap {
+  --w: 1;
+  --h: 1;
+  --heat: 0;
+  position: relative;
+  flex: none;
+  align-self: flex-start;
+  width: calc(var(--u) * var(--w) + var(--key-gap) * (var(--w) - 1));
+  height: calc(var(--u) * var(--h) + var(--key-gap) * (var(--h) - 1));
+  border-radius: calc(var(--u) * 0.14);
+  border: 1px solid var(--border-default);
+  /* 先给一个纯色兜底：color-mix() 在 Safari 16.2 之前不支持，而整条声明无效时
+     键面会变成透明的（不是回落到 --heat-0）。13 文档记了这条基线越界。 */
+  background: var(--heat-0);
+  background: color-mix(in srgb, var(--heat-5) calc(var(--heat) * 100%), var(--heat-0));
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: calc(var(--u) * 0.08);
+  overflow: hidden;
+  text-align: left;
+  transition: transform var(--duration-instant) var(--ease-out),
+              background var(--duration-normal) var(--ease-out);
+}
+
+/* 深热档上的文字改用对比色，否则蓝底黑字读不出（06 文档 §13）。 */
+.key-cap[data-level="4"], .key-cap[data-level="5"] { color: var(--heat-ink); }
+
+.key-cap__label {
+  font-size: calc(var(--u) * 0.27);
+  line-height: 1.15;
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.key-cap__value {
+  align-self: flex-end;
+  font-size: calc(var(--u) * 0.21);
+  font-variant-numeric: tabular-nums;
+  opacity: .8;
+  white-space: nowrap;
+}
+
+/* 超过 p95 的键：饱和到最深并加描边标记（06 文档 §7 改进 1）。 */
+.key-cap[data-saturated="true"] { border-color: var(--accent-text); border-width: 2px; }
+
+.key-cap.is-pressed { transform: translateY(1px) scale(.94); }
+@media (prefers-reduced-motion: reduce) {
+  .key-cap.is-pressed { transform: none; box-shadow: inset 0 0 0 2px var(--accent); }
+}
+
+.key-cap.is-current { box-shadow: 0 0 0 2px var(--accent); }
+
+/* ISO 回车。缺口宽度 = 0.25 步距，缺口顶边 = 第一行的底沿（含行间空隙）。 */
+.key-cap[data-shape="iso_enter"] {
+  --notch-x: calc(var(--pitch) * 0.25);
+  --notch-y: calc(var(--u) + var(--key-gap));
+  clip-path: polygon(
+    0 0, 100% 0, 100% 100%,
+    var(--notch-x) 100%,
+    var(--notch-x) var(--notch-y),
+    0 var(--notch-y)
+  );
+}
+
+/* 不在当前布局里但有数据的键（05 文档 §4 的 orphan_keys）。 */
+.orphans { margin-top: var(--space-4); }
+.orphans__title { font-size: var(--text-sm); color: var(--text-secondary); margin-bottom: var(--space-2); }
+.orphans__list { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+.heat-legend {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-top: var(--space-3);
+  flex-wrap: wrap;
+}
+.heat-legend__scale { display: flex; gap: 2px; }
+.heat-legend__step {
+  width: 18px; height: 10px;
+  border-radius: 2px;
+  border: 1px solid var(--border-subtle);
+}
+.heat-legend__step[data-level="0"] { background: var(--heat-0); }
+.heat-legend__step[data-level="1"] { background: var(--heat-1); }
+.heat-legend__step[data-level="2"] { background: var(--heat-2); }
+.heat-legend__step[data-level="3"] { background: var(--heat-3); }
+.heat-legend__step[data-level="4"] { background: var(--heat-4); }
+.heat-legend__step[data-level="5"] { background: var(--heat-5); }
+
+/* 窄窗口下键面放不下数字：藏起来而不是溢出（06 文档 §12 的 768-1024 档）。 */
+@media (max-width: 1023px) {
+  .key-cap__value { display: none; }
+}
+@media (max-width: 767px) {
+  .keyboard { --u: 26px; }
+}

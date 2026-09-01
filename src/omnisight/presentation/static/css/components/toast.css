@@ -1,0 +1,35 @@
+.toast-host {
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-end;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-md);
+  font-size: var(--text-sm);
+  max-width: 380px;
+  animation: toast-in var(--duration-normal) var(--ease-out);
+}
+.toast[data-kind="error"] { border-color: var(--status-error); }
+.toast[data-kind="ok"]    { border-color: var(--status-ok); }
+.toast__dot { width: 6px; height: 6px; border-radius: var(--radius-full); flex: none; }
+.toast[data-kind="error"] .toast__dot { background: var(--status-error); }
+.toast[data-kind="ok"] .toast__dot    { background: var(--status-ok); }
+.toast[data-kind="info"] .toast__dot  { background: var(--accent); }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}

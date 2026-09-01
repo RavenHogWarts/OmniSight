@@ -1,0 +1,26 @@
+/* 单例浮动提示。跟随指针，靠近边界时翻转（06 文档 §10）。 */
+.tooltip {
+  position: fixed;
+  z-index: 60;
+  max-width: 280px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-md);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.tooltip[data-open="true"] { opacity: 1; }
+.tooltip__title { font-weight: var(--weight-semibold); margin-bottom: 2px; }
+.tooltip__row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.tooltip__note { color: var(--status-warn-text); margin-top: 2px; }

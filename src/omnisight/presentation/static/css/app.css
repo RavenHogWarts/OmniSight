@@ -1,0 +1,31 @@
+/* 唯一被 HTML 引用的样式表。文件仍按 06 文档 §10 一组件一文件拆开，这里只做汇总。
+ *
+ * 用 @import 而不是在 HTML 里排 20 个 <link>：新增一个组件样式只改这一处，
+ * 不必同时记得改模板。代价是多一次往返，而资源来自 127.0.0.1。 */
+@import url("tokens.css");
+@import url("base.css");
+@import url("layout.css");
+
+@import url("components/card.css");
+@import url("components/pill-tabs.css");
+@import url("components/segmented.css");
+@import url("components/metric.css");
+@import url("components/bar.css");
+@import url("components/app-row.css");
+@import url("components/key-cap.css");
+@import url("components/heat-cell.css");
+@import url("components/chart.css");
+@import url("components/tooltip.css");
+@import url("components/toast.css");
+@import url("components/banner.css");
+@import url("components/status-dot.css");
+@import url("components/empty-state.css");
+@import url("components/skeleton.css");
+@import url("components/drawer.css");
+@import url("components/form.css");
+@import url("components/table.css");
+
+@import url("views/overview.css");
+@import url("views/apps.css");
+@import url("views/keyboard.css");
+@import url("views/insights.css");

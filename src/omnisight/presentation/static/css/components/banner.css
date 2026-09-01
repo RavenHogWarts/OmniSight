@@ -1,0 +1,50 @@
+/* 降级表达的前两级（06 文档 §4.2）：全局横幅与面板内说明块。
+ * 第三级（图表斜纹）在 heat-cell.css / base.css 的 .hatched 里。
+ *
+ * 文案的验收标准是"缺什么 / 什么仍然正常 / 怎么解决"三段齐全，这三段由后端
+ * degraded[] 的 title / detail / hint 提供——前端不编文案，也不判断平台。
+ */
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--layout-gutter);
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--border-default);
+  font-size: var(--text-sm);
+}
+.banner[data-severity="error"] { border-left: 3px solid var(--status-error); }
+.banner[data-severity="warning"] { border-left: 3px solid var(--status-warn); }
+
+.banner__mark { flex: none; color: var(--status-warn-text); }
+.banner[data-severity="error"] .banner__mark { color: var(--status-error-text); }
+.banner__body { flex: 1 1 auto; min-width: 0; }
+.banner__title { font-weight: var(--weight-medium); }
+.banner__detail { color: var(--text-secondary); }
+.banner__hint { color: var(--text-tertiary); font-size: var(--text-xs); margin-top: 2px; }
+.banner__close { flex: none; color: var(--text-tertiary); padding: 0 var(--space-1); }
+.banner__close:hover { color: var(--text-primary); }
+
+/* 面板内说明块：保留面板标题与边框，只替换正文。**不带重试按钮**——重试不改变结果。 */
+.notice {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  border: 1px dashed var(--border-default);
+  font-size: var(--text-sm);
+}
+.notice__mark {
+  flex: none;
+  width: 20px; height: 20px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+  display: grid;
+  place-items: center;
+  font-size: var(--text-xs);
+}
+.notice__title { font-weight: var(--weight-medium); margin-bottom: 2px; }
+.notice__detail { color: var(--text-secondary); }
+.notice__hint { color: var(--text-tertiary); font-size: var(--text-xs); margin-top: var(--space-1); }

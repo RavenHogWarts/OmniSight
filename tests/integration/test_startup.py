@@ -7,8 +7,10 @@
 
 from __future__ import annotations
 
+import sys
 import threading
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -20,9 +22,25 @@ from omnisight.storage.migrations import TARGET_VERSION
 
 @pytest.fixture
 def isolated_root(tmp_path: Path, monkeypatch) -> Path:
-    """把整个数据根目录挪到 tmp_path，绝不碰用户真实的 %LOCALAPPDATA%。"""
+    """把整个数据根目录挪到 tmp_path，绝不碰用户真实的 %LOCALAPPDATA%。
+
+    单实例锁也要隔离：Windows 上它是**机器全局**的命名互斥体，用户自己开着
+    OmniSight 时这一组用例会集体返回 ``EXIT_ALREADY_RUNNING``——失败原因与被测
+    行为毫无关系，而症状（``assert 2 == 0``）完全不提示这一点。锁名按用例生成，
+    同一个用例内的两个实例仍然共用它，于是"第二实例被挡住"照样测得到。
+    """
     monkeypatch.setattr(paths, "exe_dir", lambda: tmp_path)
     monkeypatch.setattr(paths, "_platform_app_dir", lambda: tmp_path / "root")
+    if sys.platform == "win32":
+        from omnisight.adapters.windows import factory as windows_factory
+        from omnisight.adapters.windows.single_instance import NamedMutexInstanceLock
+
+        name = rf"Local\OmniSight.Test.{uuid4().hex}"
+        monkeypatch.setattr(
+            windows_factory,
+            "NamedMutexInstanceLock",
+            lambda mutex=name: NamedMutexInstanceLock(mutex),
+        )
     return tmp_path / "root"
 
 
