@@ -1,0 +1,18 @@
+# ── 与平台无关 ─────────────────────────────────────────────
+flask==3.1.1
+pystray==0.19.5
+Pillow==11.3.0
+psutil==7.1.0
+
+# ── Windows（一级平台，首期唯一实现）───────────────────────
+pywin32==311             ; sys_platform == "win32"
+tzdata==2026.3           ; sys_platform == "win32"
+
+# ── macOS（二级，M9 启用；环境标记保证此处不会在别处被安装）─
+pyobjc-framework-Cocoa==11.1                ; sys_platform == "darwin"
+pyobjc-framework-Quartz==11.1               ; sys_platform == "darwin"
+pyobjc-framework-ApplicationServices==11.1  ; sys_platform == "darwin"
+
+# ── Linux（二级/三级，M8 启用）─────────────────────────────
+python-xlib==0.33        ; sys_platform == "linux"
+evdev==1.9.2             ; sys_platform == "linux"

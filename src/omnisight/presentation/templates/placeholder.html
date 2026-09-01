@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OmniSight — 施工中</title>
+  <link rel="stylesheet" href="/static/css/placeholder.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="shell__head">
+      <span class="brand" aria-hidden="true"></span>
+      <h1>OmniSight</h1>
+      <p class="version">v{{ version }} · 地基阶段（M0）</p>
+    </header>
+
+    <section class="card">
+      <h2>这里还在施工</h2>
+      <p>
+        当前版本只包含地基：配置、数据库、托盘、状态接口。
+        <strong>它不会记录任何按键，也不会统计应用时长</strong>——采集功能将在下一个里程碑加入。
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>运行状态</h2>
+      <dl class="kv" id="status" data-token="{{ token }}">
+        <dt>加载中</dt><dd>正在读取 /api/v1/status …</dd>
+      </dl>
+    </section>
+
+    <section class="card" id="degraded-card" hidden>
+      <h2>能力说明</h2>
+      <ul class="notices" id="degraded"></ul>
+    </section>
+  </main>
+  <script type="module" src="/static/js/bootstrap.js"></script>
+</body>
+</html>

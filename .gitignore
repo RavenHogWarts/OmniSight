@@ -1,2 +1,42 @@
+# 设计文档与参考项目（不进版本库）
 dev
 refer
+
+# ── Python ────────────────────────────────────────────────
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# ── 构建产物 ──────────────────────────────────────────────
+build/
+dist/
+*.spec
+
+# ── 本地运行产生的数据 ────────────────────────────────────
+# 便携模式（同级存在 portable.marker）会把这些写在仓库根目录。
+# 全部锚定到根目录：不加 / 前缀会连 tests/fixtures/data/ 与
+# tests/fixtures/config.json 一起吞掉，而 M5 的迁移测试正需要这类夹具。
+/data/
+/logs/
+/config.json
+/portable.marker
+/STARTUP_ERROR.txt
+
+# ── 编辑器与操作系统 ──────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── 本地环境变量 ──────────────────────────────────────────
+.env
+.env.local

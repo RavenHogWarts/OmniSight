@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omnisight"
+version = "0.1.0.dev0"
+description = "本地运行的应用使用时长与键盘统计工具（TimeLens + KeyTrace 合并）"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "RavenHogwarts" }]
+
+[project.scripts]
+omnisight = "omnisight.__main__:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+omnisight = [
+    "presentation/templates/*.html",
+    "presentation/static/css/*.css",
+    "presentation/static/js/*.js",
+    "presentation/static/assets/*",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q --strict-markers"
+markers = [
+    "windows_only: 需要真实 Windows API，其他平台跳过（数量应保持极少，见 11 文档 §1）",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests", "tools"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]

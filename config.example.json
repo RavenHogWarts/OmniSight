@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 6100
+  },
+  "capture": {
+    "foreground_poll_seconds": 1.0,
+    "idle_threshold_seconds": 1800,
+    "session_flush_seconds": 10,
+    "keyboard_backend": "auto",
+    "store_raw_key_events": true,
+    "paused": false
+  },
+  "storage": {
+    "data_dir": null,
+    "raw_event_retention_days": 0,
+    "checkpoint_interval_seconds": 300
+  },
+  "ui": {
+    "theme": "system",
+    "locale": "zh-CN",
+    "default_view": "daily",
+    "timezone": null,
+    "keyboard_layout": "auto",
+    "shell": "browser"
+  },
+  "privacy": {
+    "record_window_titles": false,
+    "excluded_processes": [],
+    "realtime_stream": true
+  },
+  "apps": {
+    "aliases": {},
+    "merges": {},
+    "categories": {}
+  }
+}

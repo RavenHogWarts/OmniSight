@@ -1,0 +1,10 @@
+# 仓库内一律存 LF，检出时由各自的 core.autocrlf 决定。
+# 显式声明而不依赖每个人的 git 配置：M8/M9 会在 Linux 与 macOS 上构建，
+# 行尾不确定会产出大片无意义的 diff。
+* text=auto eol=lf
+
+# 二进制资源不做任何转换
+*.png binary
+*.ico binary
+*.icns binary
+*.db  binary

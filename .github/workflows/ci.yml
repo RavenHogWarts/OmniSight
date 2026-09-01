@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  # 一级平台：全量。发布物只从这里产出。
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt -r requirements-optional.txt
+      - run: ruff check .
+      # 平台泄漏静态检查：01 文档「平台无关性」那条非功能需求的执行机制
+      - run: python tools/check_platform_leaks.py
+      - run: pytest -q --cov=omnisight --cov-report=term-missing
+      - run: python tools/build.py
+      - run: python tools/smoke.py dist/OmniSight.exe
+      - run: pip-licenses --fail-on="GPL"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OmniSight-windows
+          path: dist/
+
+  # 二级平台：只跑与平台无关的测试。
+  #
+  # 首期这里没有任何适配器可测，价值在于**证伪**：如果有人在 services/ 里
+  # import win32api，Windows 上一切正常，只有这个 job 会红。它是"核心层真的不
+  # 依赖 Win32"这一架构主张的唯一持续证据（11 文档 §1）。
+  posix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: python tools/check_platform_leaks.py
+      - run: pytest -q -m "not windows_only"
