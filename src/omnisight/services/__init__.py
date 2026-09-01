@@ -120,6 +120,9 @@ class Services:
                 keyboard=keyboard or self.keyboard.summary(period),
                 app_keyboard=self.insights.app_keyboard(period, limit=20),
                 timeline=self.usage.timeline(period),
+                # 只算"打字最密集 vs 屏幕最长"所需的两张小时表，不为结论卡跑完整
+                # rhythm（分钟极值 + 专注块在三年库上 ~100ms，概览付不起）。
+                rhythm=self.insights.hour_contrast(period),
             )
         return payload
 

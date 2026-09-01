@@ -13,6 +13,7 @@ from ..validators import (
     parse_int,
     parse_limit,
     parse_offset,
+    parse_query,
     parse_sort,
 )
 from . import envelope, resolved_period
@@ -30,6 +31,8 @@ def register(app: Flask, context: Any) -> None:
             period,
             sort=parse_sort(request.args),
             category=request.args.get("category") or None,
+            # 服务端搜索（M4）：让搜索跨过"一次取回 500 行"的上限，且保持周期口径。
+            query=parse_query(request.args),
             limit=parse_limit(request.args, default=50),
             offset=parse_offset(request.args),
         )

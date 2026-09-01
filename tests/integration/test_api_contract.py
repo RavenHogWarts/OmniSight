@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from seeded import EXPECTED
+from seeded import BLIND_DAY, EXPECTED
 
 #: 全部带周期外壳的统计端点。新增端点必须补进来。
 ENVELOPE_PATHS = (
@@ -116,6 +116,38 @@ def test_usage_period_pagination_reports_the_untruncated_total(seeded_client):
 def test_usage_period_sorting_is_stable_and_complete(seeded_client, sort: str):
     payload = seeded_client.get(f"/api/v1/usage/period?range=day&sort={sort}").get_json()
     assert len(payload["apps"]) == 2
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_process"),
+    [
+        ("code", "code.exe"),        # 匹配进程名
+        ("visual", "code.exe"),      # 匹配展示名，不区分大小写
+        ("CHROME", "chrome.exe"),    # 大小写不敏感
+    ],
+)
+def test_usage_period_filters_by_query_on_the_server(
+    seeded_client, seeded, query, expected_process
+):
+    """服务端搜索（M4）：搜索结果与列表保持同一套周期口径，且能跨过单次取回上限。"""
+    payload = seeded_client.get(
+        f"/api/v1/usage/period?range=day&q={query}"
+    ).get_json()
+    assert [app["process_name"] for app in payload["apps"]] == [expected_process]
+    assert payload["filtered_by"] == query
+    assert payload["total_seconds"] == pytest.approx(payload["apps"][0]["seconds"])
+
+
+def test_usage_period_query_with_no_match_is_an_empty_list_not_an_error(seeded_client):
+    payload = seeded_client.get("/api/v1/usage/period?range=day&q=zzz").get_json()
+    assert payload["apps"] == []
+    assert payload["app_count"] == 0
+
+
+def test_usage_period_states_the_kpm_denominator(seeded_client):
+    """行内 KPM 的口径随响应下发（M4 判据 2 的后端半边）。"""
+    payload = seeded_client.get("/api/v1/usage/period?range=day").get_json()
+    assert "前台时长" in payload["kpm_basis"]
 
 
 def test_usage_timeline_folds_the_same_hour_across_days(seeded_client, seeded):
@@ -346,6 +378,80 @@ def test_rhythm_states_the_switch_basis(seeded_client):
     assert seeded_client.get("/api/v1/insights/rhythm?range=day").get_json()["switches_basis"]
 
 
+def test_app_keyboard_gives_the_modifier_breakdown(seeded_client, seeded):
+    """快捷键偏好（M4）：每个应用里哪个修饰键用得多。口径与 modifier_percent 一致。"""
+    payload = seeded_client.get("/api/v1/insights/app-keyboard?range=day").get_json()
+    code = next(app for app in payload["apps"] if app["app_id"] == seeded.code)
+    assert code["modifier_breakdown"] == [
+        {"id": "control_left", "label": "Ctrl", "press_count": 1, "percent": 100.0}
+    ]
+
+
+def test_rhythm_hourly_contrasts_typing_density_with_screen_time(seeded_client):
+    """M4 节奏分析：一天中打字最密集的时段 vs 屏幕时间最长的时段。
+
+    播种日：10 点 Code（30 分钟、4 键）、11 点 Chrome（10 分钟、1 键）、
+    12 点无前台（2 键，不计入任何小时时长）。两个峰值都落在 10 点。
+    """
+    payload = seeded_client.get("/api/v1/insights/rhythm?range=day").get_json()
+    hourly = {item["hour"]: item for item in payload["hourly"]}
+    assert len(payload["hourly"]) == 24
+    assert hourly[10] == {"hour": 10, "seconds": 1800.0, "presses": 4, "kpm": 0.1}
+    assert hourly[11] == {"hour": 11, "seconds": 600.0, "presses": 1, "kpm": 0.1}
+    # 无前台时段的按键仍在 hourly 里（presses 计入），但时长为 0，KPM 也为 0——
+    # 不静默丢弃，也不拿它除出一个人为的 KPM。
+    assert hourly[12] == {"hour": 12, "seconds": 0.0, "presses": 2, "kpm": 0.0}
+    peaks = payload["hour_peaks"]
+    assert peaks["typing"]["hour"] == 10
+    assert peaks["screen"] == {"hour": 10, "seconds": 1800.0}
+    assert peaks["same_hour"] is True
+    assert "前台" in payload["hourly_basis"]
+    assert "分钟" in peaks["typing_basis"]
+
+
+def test_rhythm_hourly_ignores_undersized_hours_for_the_typing_peak(seeded_client):
+    """只开过几分钟的应用若恰好一直在打字，算出的 KPM 会压过真正的密集时段。
+
+    播种数据没有这样的小时，因此这里断言的是门槛常量本身——它承载的是口径决策。
+    """
+    from omnisight.services.insights import MIN_PEAK_HOUR_SECONDS
+
+    assert MIN_PEAK_HOUR_SECONDS == 300.0
+
+
+def test_overview_highlights_explain_their_basis(seeded_client):
+    """M4 判据 4：每条自然语言结论都带着"怎么算出来的"。没有口径的结论不可验证。"""
+    payload = seeded_client.get("/api/v1/overview?range=day").get_json()
+    codes = {item["code"] for item in payload["highlights"]}
+    assert codes  # 播种日至少有结论
+    for item in payload["highlights"]:
+        assert item["text"]
+        assert item["basis"], f"{item['code']} 缺少计算口径"
+
+
+def test_overview_highlights_include_the_rhythm_contrast(seeded_client):
+    """播种日的打字峰值与屏幕峰值都在 10 点——结论应是"对齐"而不是"错位"。"""
+    highlights = seeded_client.get("/api/v1/overview?range=day").get_json()["highlights"]
+    contrast = [item for item in highlights if item["code"].startswith("rhythm_")]
+    assert [item["code"] for item in contrast] == ["rhythm_aligned"]
+    assert "10:00" in contrast[0]["text"]
+
+
+def test_app_keyboard_on_a_day_without_foreground_reports_unattributed(seeded_client):
+    """M4 判据 3：无归因的日子必须明说，不静默算成 0 个按键。
+
+    BLIND_DAY 有 7 次按键但没有前台数据：应用列表为空、按键单列到
+    ``unattributed_presses``、``coverage.gaps`` 指名缺的是 foreground。
+    """
+    payload = seeded_client.get(
+        f"/api/v1/insights/app-keyboard?range=day&date={BLIND_DAY}"
+    ).get_json()
+    assert payload["apps"] == []
+    assert payload["unattributed_presses"] == 7
+    gaps = [gap for gap in payload["coverage"]["gaps"] if gap["missing"] == "foreground"]
+    assert gaps and gaps[0]["from"] == BLIND_DAY
+
+
 # ── /apps/* ─────────────────────────────────────────────────────────────
 def test_app_list_includes_metadata_the_settings_page_needs(seeded_client, seeded):
     payload = seeded_client.get("/api/v1/apps?range=total").get_json()
@@ -366,6 +472,13 @@ def test_app_detail_reports_every_period_and_the_keyboard_profile(seeded_client,
     assert payload["totals"]["week"]["seconds"] == 3000.0  # 9-01 与 9-02
     assert payload["keyboard"]["top_keys"][0]["id"] == "key_a"
     assert payload["trend"]["granularity"] == "day"
+    # 快捷键偏好（M4）：code 全期 7 键里 control_left 占 1 次 → 14.3%。
+    assert payload["keyboard"]["modifier_percent"] == 14.3
+    assert payload["keyboard"]["modifier_breakdown"] == [
+        {"id": "control_left", "label": "Ctrl", "press_count": 1, "percent": 100.0}
+    ]
+    assert "前台时长" in payload["keyboard"]["kpm_basis"]
+    assert payload["keyboard"]["profile_name"]
 
 
 def test_patching_an_app_alias_takes_effect_immediately(seeded_client, seeded):

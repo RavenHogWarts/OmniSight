@@ -4,13 +4,38 @@
 .timeline-toggle { display: flex; align-items: center; gap: var(--space-2); }
 
 .highlights { display: flex; flex-direction: column; gap: var(--space-2); }
+/* 每条结论是一个 <details>：点开就是它的计算口径（M4 判据 4）。 */
 .highlight {
+  font-size: var(--text-sm);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.highlight:last-child { border-bottom: none; }
+.highlight summary {
   display: flex;
   gap: var(--space-2);
-  align-items: flex-start;
-  font-size: var(--text-sm);
+  align-items: baseline;
+  cursor: pointer;
+  padding: var(--space-1) 0;
+  list-style: none;
 }
-.highlight__mark { flex: none; color: var(--accent-text); }
+.highlight summary::-webkit-details-marker { display: none; }
+.highlight summary > span:first-child { flex: none; color: var(--accent-text); }
+.highlight__toggle {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  padding: 0 var(--space-2);
+}
+.highlight[open] .highlight__toggle { color: var(--accent-text); border-color: var(--accent-subtle); }
+.highlight__basis {
+  margin: 0 0 var(--space-2) calc(1em + var(--space-2));
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+}
 
 .intensity { display: flex; flex-direction: column; gap: var(--space-3); }
 .intensity__row {

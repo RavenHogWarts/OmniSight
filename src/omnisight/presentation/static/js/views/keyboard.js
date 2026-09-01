@@ -180,6 +180,8 @@ export function create(root) {
     handBar.style.setProperty('--left', both ? String(left / both) : '0.5');
     const fingers = payload.fingers || [];
     const top = Math.max(1, ...fingers.map((finger) => Number(finger.press_count) || 0));
+    const rows = payload.rows || [];
+    const rowTop = Math.max(1, ...rows.map((row) => Number(row.press_count) || 0));
     mount(
       fingersHost,
       h(
@@ -199,6 +201,22 @@ export function create(root) {
             h('span', { class: 'finger-row__name', text: finger.name }),
             bar((Number(finger.press_count) || 0) / top),
             h('span', { class: 'finger-row__percent', text: formatPercent(finger.percent) }),
+          ),
+        ),
+      ),
+      // 行分布（M4 人体工学交付物）：哪一排承担了多少输入。与手指负荷同一份数据，
+      // 只是换了切法——服务端已按 keymap 的静态行归属算好。
+      h('div', { class: 'text-sm muted', text: '行分布' }),
+      h(
+        'div',
+        { class: 'fingers' },
+        ...rows.map((row) =>
+          h(
+            'div',
+            { class: 'finger-row' },
+            h('span', { class: 'finger-row__name', text: row.name }),
+            bar((Number(row.press_count) || 0) / rowTop),
+            h('span', { class: 'finger-row__percent', text: formatPercent(row.percent) }),
           ),
         ),
       ),

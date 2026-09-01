@@ -36,3 +36,18 @@
 }
 
 .key-app-split { display: flex; flex-direction: column; gap: var(--space-2); }
+
+/* 排行表的应用名是下钻入口（M4 应用 × 键盘），下面一行是它的常用键小字。 */
+.rank__app {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+.rank__app:hover { color: var(--accent-text); text-decoration: underline; }
+.rank__app:focus-visible { outline: none; box-shadow: var(--shadow-focus); border-radius: var(--radius-xs); }
+.rank__keys { margin-top: 2px; }
+.rank__keys b { font-weight: var(--weight-medium); }

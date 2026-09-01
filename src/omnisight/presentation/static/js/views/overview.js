@@ -14,6 +14,7 @@ import { gapSet, periodParams } from '../domain/period.js';
 import { renderAppRows } from '../components/app-list.js';
 import { capabilityNotice, emptyState, errorState, gapLegend, skeletonRows } from '../components/states.js';
 import { capabilityOf, noticeFor } from '../components/degraded.js';
+import { renderHighlights as renderHighlightList } from '../components/highlights.js';
 import { segmented } from '../components/controls.js';
 import { meterRow, statCard } from '../components/stat-card.js';
 import { card } from '../components/card.js';
@@ -200,17 +201,8 @@ export function create(root) {
   }
 
   function renderHighlights(overview) {
-    const highlights = overview.highlights || [];
-    const rows = highlights.map((item) =>
-      h(
-        'div',
-        { class: 'highlight' },
-        h('span', { class: 'highlight__mark', attrs: { 'aria-hidden': 'true' }, text: '◈' }),
-        h('span', { text: item.text }),
-      ),
-    );
-    const fallback = h('div', { class: 'dim text-sm', text: '数据还不够多，暂时得不出结论' });
-    mount(highlightsHost, ...rows, highlights.length ? null : fallback);
+    // 每条结论可点开看计算口径（M4 判据 4），渲染实现与洞察视图共用一份。
+    renderHighlightList(highlightsHost, overview.highlights);
   }
 
   function renderIntensity(state) {

@@ -58,6 +58,7 @@ FUZZ_PARAMS = (
     ("scope", "everything"),
     ("include_titles", "maybe"),
     ("granularity", "century"),
+    ("q", "x" * 400),                # 搜索词长度上限（M4 的 /usage/period?q=）
 )
 
 
@@ -167,3 +168,10 @@ def test_unimplemented_layout_family_lists_the_options(seeded_client):
 
 def test_unknown_route_returns_a_structured_error(seeded_client):
     assert seeded_client.get("/api/v1/nope").get_json()["error"]["code"] == "not_found"
+
+
+def test_usage_period_query_is_capped_in_length(seeded_client):
+    """搜索词走 URL，长度必须限住——既为缓存键，也为日志不被灌水。"""
+    response = seeded_client.get(f"/api/v1/usage/period?q={'x' * 400}")
+    assert response.status_code == 400
+    assert response.get_json()["error"]["field"] == "q"

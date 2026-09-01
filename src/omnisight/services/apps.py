@@ -336,7 +336,7 @@ class AppService:
                 member, month.start_day, month.end_day
             ).items():
                 series[day] = series.get(day, 0) + value
-        top_keys = self._top_keys(ids)
+        top_keys, modifier_breakdown, modifier_total = self._key_profile(ids)
         kpm = formatting.ratio_per_minute(presses, duration_ms)
         return {
             "app": {
@@ -359,7 +359,12 @@ class AppService:
             "keyboard": {
                 "kpm": kpm,
                 "profile": profile_for(kpm),
+                "profile_name": PROFILE_NAMES[profile_for(kpm)],
                 "top_keys": top_keys,
+                # 快捷键偏好（M4）：修饰键自身的细分。口径同 /insights/app-keyboard。
+                "modifier_percent": formatting.percent(modifier_total, presses),
+                "modifier_breakdown": modifier_breakdown,
+                "kpm_basis": "该应用前台时长（不含空闲与无前台时段），全期口径",
             },
             "trend": {
                 "granularity": "day",
@@ -388,8 +393,14 @@ class AppService:
             "session_count": sum(int((rows.get(i) or {}).get("session_count") or 0) for i in ids),
         }
 
-    def _top_keys(self, ids: set[int], limit: int = 8) -> list[dict[str, object]]:
-        from ..capture.keymap import label_for
+    def _key_profile(
+        self, ids: set[int], limit: int = 8
+    ) -> tuple[list[dict[str, object]], list[dict[str, object]], int]:
+        """常用键 + 修饰键细分，同一次读取算出（两次查询之间落一批数据就会对不上账）。
+
+        返回 ``(top_keys, modifier_breakdown, modifier_total)``。
+        """
+        from ..capture import keymap
 
         merged: dict[str, int] = {}
         per_app = self._ctx.key_repo.app_key_totals_all_time()
@@ -397,10 +408,27 @@ class AppService:
             for key_id, count in per_app.get(member, {}).items():
                 merged[key_id] = merged.get(key_id, 0) + count
         ordered = sorted(merged.items(), key=lambda item: item[1], reverse=True)[:limit]
-        return [
-            {"id": key_id, "label": label_for(key_id), "press_count": count}
+        top_keys = [
+            {"id": key_id, "label": keymap.label_for(key_id), "press_count": count}
             for key_id, count in ordered
         ]
+        modifiers = [
+            (key_id, count)
+            for key_id, count in merged.items()
+            if key_id in keymap.MODIFIER_KEYS and count > 0
+        ]
+        modifiers.sort(key=lambda item: item[1], reverse=True)
+        modifier_total = sum(count for _key_id, count in modifiers)
+        breakdown = [
+            {
+                "id": key_id,
+                "label": keymap.label_for(key_id),
+                "press_count": count,
+                "percent": formatting.percent(count, modifier_total),
+            }
+            for key_id, count in modifiers
+        ]
+        return (top_keys, breakdown, modifier_total)
 
 
 #: 输入强度画像的阈值（05 文档 §5）。KPM = 每前台分钟按键数。

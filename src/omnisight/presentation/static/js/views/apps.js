@@ -1,16 +1,13 @@
 // 应用视图（06 文档 §6）。
 //
-// 取数的一个刻意选择：**一次取回该周期的应用列表，搜索/排序/分页在前端做**。
-//
-// 理由是数量级——一个周期内出现过的应用是几十个（重度用户一年也就几百个），而
-// `/usage/period` 没有 `q` 参数。若靠服务端分页，搜索就得走另一个端点（`/apps` 是
-// 全期口径），于是"搜索结果的时长"与"列表里的时长"会是两个口径。前端过滤是让两者
-// 一致的唯一办法，代价只是一次 500 行的响应。
+// 取数（M4 起）：搜索走**服务端**——`/usage/period?q=` 在周期口径的折叠结果上过滤，
+// 因此能跨过"一次取回 500 行"的上限，且搜索结果与列表是同一套数字（M3 已知限制 3
+// 的修复）。无搜索词时仍一次取回整个周期的列表，排序/分页在前端做。
 //
 // 管理元数据（excluded / merged_into / category_source）来自 `/apps`，按 app_id 合并。
 // 这是旧版完全没有的能力：分类规则原先硬编码在 web_app.py 与 app-categories.js 两处，
 // 用户改不了。
-import { del, patch } from '../core/api.js';
+import { del, patch, post } from '../core/api.js';
 import { h, mount, setText } from '../core/dom.js';
 import { getState, setState } from '../core/store.js';
 import { fetchInto } from '../core/loader.js';
@@ -32,6 +29,8 @@ const SORTS = [
   { id: 'sessions', name: '次数' },
   { id: 'name', name: '名称' },
 ];
+/** 搜索词变化到重取之间的间隔。本机请求毫秒级，防的是连打时的请求风暴。 */
+const SEARCH_DEBOUNCE_MS = 300;
 
 /** 把周期列表与管理元数据合并成一份。派生结果不入 store（07 文档 §4.3）。 */
 function joinApps(periodPayload, appsPayload, { includeExcluded }) {
@@ -89,12 +88,20 @@ export function create(root) {
   let sort = 'seconds';
   let includeExcluded = false;
   let page = 0;
+  let searchTimer = 0;
 
   const search = searchBox({
     placeholder: '搜索应用',
     onInput: (value) => {
       query = value;
       page = 0;
+      // 服务端搜索（M4）： debounce 后带着 q 重取周期列表。本地过滤仍然保留，
+      // 作为请求往返期间的即时反馈——两边口径一致（后端在同样的折叠结果上过滤），
+      // 双重过滤是幂等的。
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        fetchInto('appsPeriod', '/usage/period', { ...periodParams(getState().period), limit: 500, q: query });
+      }, SEARCH_DEBOUNCE_MS);
       render();
     },
   });
@@ -209,7 +216,7 @@ export function create(root) {
       renderAppRows(listHost, slice, { maxSeconds, maxKpm, expandedId: state.selectedAppId });
     }
     renderPager(pages);
-    renderDetail(state, slice);
+    renderDetail(state, slice, rows);
   }
 
   function renderPager(pages) {
@@ -232,7 +239,7 @@ export function create(root) {
   }
 
   /** 详情同页展开，插在被选中的那一行之后（06 文档 §6：不跳转）。 */
-  function renderDetail(state, visible) {
+  function renderDetail(state, visible, rows) {
     const appId = state.selectedAppId;
     if (!appId || !visible.some((row) => row.app_id === appId)) {
       mount(detailHost);
@@ -255,7 +262,7 @@ export function create(root) {
         renderTotals(detail.totals),
         renderKeyboardSummary(detail.keyboard),
         renderSessions(sessions),
-        renderEditor(app, catalog),
+        renderEditor(app, catalog, rows),
       ),
     );
   }
@@ -281,10 +288,11 @@ export function create(root) {
   function renderKeyboardSummary(keyboard) {
     if (!keyboard) return null;
     const keys = keyboard.top_keys || [];
+    const modifiers = keyboard.modifier_breakdown || [];
     return h(
       'div',
       null,
-      h('div', { class: 'text-sm muted', text: `键盘概况：${(keyboard.kpm || 0).toFixed(1)} KPM` }),
+      h('div', { class: 'text-sm muted', text: `键盘概况：${(keyboard.kpm || 0).toFixed(1)} KPM（${keyboard.profile_name || ''}）` }),
       h(
         'div',
         { class: 'app-detail__keys' },
@@ -292,6 +300,13 @@ export function create(root) {
           h('span', { class: 'key-chip' }, h('b', { text: key.label }), h('span', { text: formatCount(key.press_count) })),
         ),
       ),
+      // 快捷键偏好（M4）：修饰键自身的细分。口径写明——不是和弦次数。
+      modifiers.length
+        ? h('div', {
+            class: 'card__hint',
+            text: `修饰键偏好：${modifiers.slice(0, 4).map((item) => `${item.label} ${formatPercent(item.percent)}`).join(' · ')}（口径：修饰键自身被按下的次数）`,
+          })
+        : null,
       h('button', {
         class: 'button',
         type: 'button',
@@ -337,8 +352,12 @@ export function create(root) {
     );
   }
 
-  /** 管理操作。写操作会让缓存整体失效并递增 data_version，因此改完立刻能看到新名字。 */
-  function renderEditor(app, catalog) {
+  /**
+   * 管理操作。写操作会让缓存整体失效并递增 data_version，因此改完立刻能看到新名字。
+   * "合并到…"（M3 已知限制 4 的补齐）：候选来自当前周期的列表——被排除的应用不在
+   * 列表里，但它们本来也不该作为合并目标。
+   */
+  function renderEditor(app, catalog, rows) {
     const alias = h('input', {
       class: 'control',
       type: 'text',
@@ -357,6 +376,20 @@ export function create(root) {
       label: '排除此应用',
       onChange: (value) => write({ excluded: value }, value ? '已排除' : '已取消排除'),
     });
+    // 合并目标：排除自己与已并进来的成员。合并是**单向**的（本应用的统计归入目标），
+    // 目标之后再并入第三个应用时链条由 AppLens.root() 解析。
+    const members = new Set([app.app_id, ...(app.merged_members || [])]);
+    const candidates = (rows || []).filter(
+      (row) => !members.has(row.app_id) && !row.merged_into,
+    );
+    const mergeSelect = h(
+      'select',
+      { class: 'control', attrs: { 'aria-label': '合并到哪个应用' } },
+      h('option', { value: '', text: '选择目标应用…' }),
+      ...candidates.map((row) =>
+        h('option', { value: String(row.app_id), text: nameOf(row) }),
+      ),
+    );
 
     return h(
       'div',
@@ -387,7 +420,40 @@ export function create(root) {
       app.merged_members && app.merged_members.length
         ? h('span', { class: 'text-xs dim', text: `已合并 ${app.merged_members.length} 个来源` })
         : null,
+      !app.merged_into
+        ? h(
+            'div',
+            { class: 'app-actions__merge' },
+            h('span', { class: 'text-sm muted', text: '合并到…' }),
+            mergeSelect,
+            h('button', {
+              class: 'button',
+              type: 'button',
+              text: '合并',
+              on: { click: () => mergeInto(app.app_id, mergeSelect.value) },
+            }),
+            h('span', {
+              class: 'text-xs dim',
+              text: '两个进程的统计从此算作一个应用（如 Code.exe 与 Code - Insiders.exe）',
+            }),
+          )
+        : null,
     );
+  }
+
+  async function mergeInto(appId, targetId) {
+    const into = Number.parseInt(targetId, 10);
+    if (!Number.isFinite(into) || into <= 0) {
+      fail('先选择要合并到的应用');
+      return;
+    }
+    try {
+      await post(`/apps/${appId}/merge`, { into_app_id: into });
+      ok('已合并，两边的统计从此算作一个应用');
+      reload();
+    } catch (error) {
+      fail(error.field ? `${error.field}：${error.message}` : error.message);
+    }
   }
 
   async function write(body, message) {
@@ -416,7 +482,8 @@ export function create(root) {
   function reload() {
     const state = getState();
     const period = periodParams(state.period);
-    fetchInto('appsPeriod', '/usage/period', { ...period, limit: 500 });
+    clearTimeout(searchTimer);
+    fetchInto('appsPeriod', '/usage/period', { ...period, limit: 500, q: query });
     reloadApps();
     if (state.selectedAppId) loadDetail(state.selectedAppId);
   }
@@ -434,7 +501,7 @@ export function create(root) {
     needs(state) {
       const period = periodParams(state.period);
       const requests = [
-        { key: 'appsPeriod', path: '/usage/period', params: { ...period, limit: 500 } },
+        { key: 'appsPeriod', path: '/usage/period', params: { ...period, limit: 500, q: query } },
         { key: 'appsMeta', path: '/apps', params: { limit: 500, include_excluded: includeExcluded } },
       ];
       if (state.selectedAppId) {
@@ -453,6 +520,7 @@ export function create(root) {
       render();
     },
     destroy() {
+      clearTimeout(searchTimer);
       root.replaceChildren();
     },
   };

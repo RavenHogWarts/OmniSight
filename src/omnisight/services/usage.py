@@ -92,12 +92,15 @@ class UsageService:
         *,
         sort: str = "seconds",
         category: str | None = None,
+        query: str = "",
         limit: int = 50,
         offset: int = 0,
     ) -> dict[str, object]:
         rows = self.app_rows(period)
         if category:
             rows = [row for row in rows if row["category"] == category]
+        if query:
+            rows = _search(rows, query)
         total_ms = sum(row["duration_ms"] for row in rows)
         rows = _sorted(rows, sort)
         running = self._apps.running_app_keys()
@@ -108,6 +111,11 @@ class UsageService:
             "app_count": len(rows),
             "apps": [self._app_payload(row, total_ms, running) for row in page],
             "pagination": {"total": len(rows), "limit": limit, "offset": offset},
+            # 前端要知道搜索是在服务端做的，否则"周期里 500 个应用"的上限会让人觉得
+            # 搜索结果也不全（M3 已知限制 3 的修复）。
+            "filtered_by": query or None,
+            # 行内 KPM 的分母口径（12 文档 M4 判据：分母口径在 UI 上有说明）。
+            "kpm_basis": "各应用的前台时长（不含空闲与无前台时段）",
         }
 
     def _app_payload(
@@ -306,6 +314,23 @@ def _sorted(rows: list[dict], sort: str) -> list[dict]:
     if field == "display_name":
         return sorted(rows, key=lambda row: (row["display_name"] or "").casefold())
     return sorted(rows, key=lambda row: row.get(field) or 0, reverse=True)
+
+
+def _search(rows: list[dict], query: str) -> list[dict]:
+    """按展示名 / 别名 / 进程名过滤，不区分大小写。
+
+    在**周期口径的折叠结果**上过滤，而不是去查 ``app`` 表——搜索结果必须与列表同一套
+    数字（合并过的应用是一个整体、被排除的不出现），否则"搜出来的时长"和"列表里的
+    时长"是两个口径（M3 偏离 67 踩的就是这个）。行数只有几十到几百，Python 过滤足够。
+    """
+    needle = query.casefold()
+    return [
+        row
+        for row in rows
+        if needle in (row["display_name"] or "").casefold()
+        or needle in (row.get("user_alias") or "").casefold()
+        or needle in (row.get("process_name") or "").casefold()
+    ]
 
 
 def _bucket_bounds(period: Period) -> tuple[str, str]:
