@@ -28,7 +28,8 @@ ROOT = Path(__file__).resolve().parents[1]
 STARTUP_TIMEOUT = 30.0
 TOKEN_HEADER = "X-OmniSight-Token"
 
-CHECKED_ENDPOINTS = ("/api/v1/status",)
+#: 每个端点配一个校验函数：只断言 200 等于放过"返回了 200 但内容是空壳"这类打包事故。
+CHECKED_ENDPOINTS = ("/api/v1/status", "/api/v1/_debug/attribution")
 
 
 def _get(url: str, token: str | None = None, timeout: float = 5.0):
@@ -70,6 +71,32 @@ def _startup_error_hint(directory: Path) -> str:
     return f"；STARTUP_ERROR.txt 内容：\n{body}"
 
 
+def _check_payload(endpoint: str, data: dict) -> list[str]:
+    """逐端点的内容校验。
+
+    ``/api/v1/status`` 里的 ``capture`` 段是**打包产物唯一**能证明 M1 采集真的起来了的
+    地方：Raw Input 要注册窗口类、pynput 兜底要能被 PyInstaller 收进去，这两件事在
+    开发模式下都正常，冻结后却可能双双失败——而症状只是"图表永远是 0"。
+    """
+    problems: list[str] = []
+    if endpoint == "/api/v1/status":
+        if data.get("degraded") is None:
+            problems.append(f"{endpoint} 缺少 degraded 字段")
+        capture = data.get("capture") or {}
+        if not capture.get("keyboard", {}).get("running"):
+            problems.append("打包产物里键盘采集没起来（后端注册失败或依赖未收进产物）")
+        if not capture.get("foreground", {}).get("running"):
+            problems.append("打包产物里前台监控没起来")
+        if data.get("capabilities", {}).get("keyboard_backend") == "none":
+            problems.append("有效能力里键盘后端是 none——采集实际未生效")
+    elif endpoint == "/api/v1/_debug/attribution":
+        if not data.get("consistency", {}).get("match"):
+            problems.append("聚合自检不一致（agg_key_* 各表求和不等）")
+        if "app_keyboard" not in data:
+            problems.append("纵切端点缺少 app_keyboard 段")
+    return problems
+
+
 def run(executable: Path, *, keep: bool = False) -> int:
     if not executable.exists():
         print(f"找不到产物：{executable}", file=sys.stderr)
@@ -104,9 +131,7 @@ def run(executable: Path, *, keep: bool = False) -> int:
             if code != 200:
                 failures.append(f"{endpoint} 返回 {code}")
                 continue
-            data = json.loads(payload)
-            if data.get("degraded") is None:
-                failures.append(f"{endpoint} 缺少 degraded 字段")
+            failures.extend(_check_payload(endpoint, json.loads(payload)))
 
         # 无令牌必须被拒——这条防的是"某次重构把令牌校验绕过了"。
         try:

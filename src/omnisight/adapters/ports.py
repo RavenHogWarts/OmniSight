@@ -33,6 +33,23 @@ class CaptureUnavailable(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class AdapterOptions:
+    """装配适配器时需要的少量用户意图。
+
+    刻意**不**直接传 ``Config``：适配器不该认识配置文件的结构，否则配置每加一个字段
+    都可能悄悄成为某个平台实现的依赖。这里只列适配器真正需要知道的三件事。
+    """
+
+    #: ``auto`` | ``raw_input`` | ``pynput`` | ``none``。显式指定时不静默降级。
+    keyboard_backend: str = "auto"
+    #: 为假时适配器根本不返回窗口标题（08 文档 §2.1，默认关闭）。
+    record_window_titles: bool = False
+    #: 平台的会话结束信号（Windows 的 ``WM_ENDSESSION``）应当调用它。
+    #: 关机/注销时若没有这条路径，当前前台会话与队列里的事件会一起丢掉。
+    on_session_end: Callable[[], None] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class AppIdentity:
     """应用身份。``app_key`` 的语义由 ``identity_kind`` 决定（03 文档 §2.2）。"""
 

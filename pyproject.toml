@@ -30,7 +30,8 @@ omnisight = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+# tests 也进搜索路径：共享测试替身放在 tests/fakes.py，做成 fixture 反而绕。
+pythonpath = ["src", "tests"]
 addopts = "-q --strict-markers"
 markers = [
     "windows_only: 需要真实 Windows API，其他平台跳过（数量应保持极少，见 11 文档 §1）",

@@ -4,20 +4,28 @@
 
 * :func:`detect` 回答"**这个操作系统允许我们做什么**"。纯函数、无副作用、永不抛
   异常，结果在建库、日志、状态接口三处使用。
-* :func:`build` 回答"**这个版本此刻真能交付什么**"，并申请系统资源。它返回的
-  ``AdapterSet.capabilities`` 是环境能力与已实现能力的交集——这才是 UI 该信的
-  那一份。M0 阶段采集层尚未实现，因此这里会明确降级并给出说明。
+* :func:`build` 回答"**这个版本此刻真能交付什么**"。它**只构造不启动**：注册 Raw Input
+  发生在 ``KeyboardSource.start()``，由生命周期在数据库就绪且单实例锁到手之后调用。
+
+"启动之后真正生效的是什么"由 :func:`omnisight.adapters.reconcile` 收敛，那一层是平台
+无关的——本文件不负责描述降级文案。
 """
 
 from __future__ import annotations
 
 import ctypes
+import importlib.util
 import logging
 import sys
 from pathlib import Path
 
-from ..ports import AdapterSet, Capabilities, DegradedNotice
+from ..chain import ChainedKeyboardSource
+from ..ports import AdapterOptions, AdapterSet, Capabilities, DegradedNotice, KeyboardSource
 from .autostart import RegistryAutostart
+from .foreground import WindowsForegroundSource
+from .idle import WindowsIdleSource
+from .keyboard import BACKEND_NAME as RAW_INPUT_BACKEND
+from .keyboard import RawInputKeyboardSource
 from .notifier import MessageBoxNotifier
 from .single_instance import NamedMutexInstanceLock
 
@@ -38,8 +46,8 @@ def _os_version() -> str:
 def _has_export(library: str, symbol: str) -> bool:
     """检查 API 是否存在。刻意只查符号、不调用——探测必须无副作用。
 
-    真正的注册失败（被反作弊拦截、会话 0 无桌面）只有在 :func:`build` 时才会
-    暴露，届时走降级路径并如实上报（02 文档 §5.1 第 10 步）。
+    真正的注册失败（被反作弊拦截、会话 0 无桌面）只有在 ``start()`` 时才会暴露，
+    届时走降级路径并如实上报（02 文档 §5.1 第 10 步）。
     """
     try:
         return hasattr(ctypes.WinDLL(library), symbol)
@@ -55,6 +63,13 @@ def _tray_available() -> bool:
     return True
 
 
+def _pynput_available() -> bool:
+    try:
+        return importlib.util.find_spec("pynput") is not None
+    except (ImportError, ValueError):  # pragma: no cover
+        return False
+
+
 def detect() -> Capabilities:
     """环境能力：Windows 上这些 API 对普通进程一律开放，无需授权。"""
     return Capabilities(
@@ -62,7 +77,7 @@ def detect() -> Capabilities:
         tier=TIER,
         os_version=_os_version(),
         keyboard=_has_export("user32", "RegisterRawInputDevices"),
-        keyboard_backend="raw_input",
+        keyboard_backend=RAW_INPUT_BACKEND,
         keyboard_durations=True,
         key_position_stable=True,
         foreground=_has_export("user32", "GetForegroundWindow"),
@@ -76,22 +91,64 @@ def detect() -> Capabilities:
     )
 
 
-#: M0 的诚实交代：骨架已就位，采集层排在 M1。
-_CAPTURE_PENDING = DegradedNotice(
-    code="capture_not_implemented",
+#: 图标提取排在 M2（04 文档 §6 的持久化缓存与后台解析一并做）。
+_ICONS_PENDING = DegradedNotice(
+    code="icons_not_implemented",
     severity="warning",
-    title="采集功能尚未启用",
-    detail=(
-        "当前版本只包含地基（配置、数据库、托盘、状态接口），"
-        "前台应用与键盘采集将在下一个里程碑加入。"
-    ),
-    hint="现在运行不会产生任何统计数据，也不会记录任何按键",
+    title="应用图标尚未启用",
+    detail="应用列表会显示首字母色块而不是真实图标；统计数据不受影响。",
+    hint=None,
 )
 
 
-def build(environment: Capabilities, *, app_root: Path) -> AdapterSet:
-    """装配 Windows 适配器集合。"""
-    notices: list[DegradedNotice] = [_CAPTURE_PENDING]
+def _build_keyboard(options: AdapterOptions, environment: Capabilities) -> KeyboardSource | None:
+    """按用户偏好组装后端链。
+
+    **显式指定时不静默降级**（04 文档 §3.1）：写了 ``raw_input`` 就只试 Raw Input，
+    失败就是失败——用户明确选了这个后端，悄悄换成另一个等于欺骗。只有 ``auto`` 才
+    允许链式回退。
+    """
+    preference = options.keyboard_backend
+    if preference == "none":
+        return None
+
+    def raw_input_source() -> RawInputKeyboardSource:
+        return RawInputKeyboardSource(on_session_end=options.on_session_end)
+
+    if preference == RAW_INPUT_BACKEND:
+        return ChainedKeyboardSource([raw_input_source()])
+    if preference == "pynput":
+        return _fallback_only()
+
+    candidates: list[KeyboardSource] = []
+    if environment.keyboard:
+        candidates.append(raw_input_source())
+    if _pynput_available():
+        from ..generic.pynput_keys import PynputKeyboardSource
+
+        candidates.append(PynputKeyboardSource())
+    if not candidates:
+        return None
+    return ChainedKeyboardSource(candidates)
+
+
+def _fallback_only() -> KeyboardSource | None:
+    if not _pynput_available():
+        return None
+    from ..generic.pynput_keys import PynputKeyboardSource
+
+    return ChainedKeyboardSource([PynputKeyboardSource()])
+
+
+def build(
+    environment: Capabilities,
+    *,
+    app_root: Path,
+    options: AdapterOptions | None = None,
+) -> AdapterSet:
+    """装配 Windows 适配器集合。只构造，不申请系统资源。"""
+    options = options or AdapterOptions()
+    notices: list[DegradedNotice] = []
 
     autostart = RegistryAutostart()
     if autostart.repair_if_stale():
@@ -107,39 +164,28 @@ def build(environment: Capabilities, *, app_root: Path) -> AdapterSet:
                 hint="通过浏览器访问仪表盘地址即可使用，退出请用设置页的「退出」按钮",
             )
         )
+    if environment.icons:
+        notices.append(_ICONS_PENDING)
 
-    effective = _effective_capabilities(environment, notices)
+    from dataclasses import replace
+
+    effective = replace(
+        environment,
+        # 唯一还没接线的能力。绝不上报尚未实现的东西：UI 依据这份数据决定显示哪些面板。
+        icons=False,
+        degraded=(*environment.degraded, *notices),
+    )
     return AdapterSet(
         capabilities=effective,
         instance_lock=NamedMutexInstanceLock(),
         notifier=MessageBoxNotifier(app_root),
         autostart=autostart,
-        foreground=None,   # M1
-        keyboard=None,     # M1
-        idle=None,         # M1
-        icons=None,        # M2
-    )
-
-
-def _effective_capabilities(
-    environment: Capabilities, notices: list[DegradedNotice]
-) -> Capabilities:
-    """把"环境允许"收敛为"此刻真能交付"。
-
-    绝不上报尚未接线的能力：UI 依据这份数据决定显示哪些面板，虚报会让用户看到
-    一个永远是 0 的图表却无从解释——这正是 03 文档 §2.8 要消除的那类现象。
-    """
-    from dataclasses import replace
-
-    return replace(
-        environment,
-        keyboard=False,
-        keyboard_backend="none",
-        keyboard_durations=False,
-        key_position_stable=False,
-        foreground=False,
-        window_titles=False,
-        idle=False,
-        icons=False,
-        degraded=tuple(notices),
+        foreground=(
+            WindowsForegroundSource(titles_enabled=options.record_window_titles)
+            if environment.foreground
+            else None
+        ),
+        keyboard=_build_keyboard(options, environment),
+        idle=WindowsIdleSource() if environment.idle else None,
+        icons=None,  # M2
     )

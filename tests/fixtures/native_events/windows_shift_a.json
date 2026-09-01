@@ -1,0 +1,16 @@
+{
+  "platform": "windows",
+  "description": "一次 Shift+A：左 Shift 按下、A 按下、A 抬起、左 Shift 抬起",
+  "events": [
+    {"vk": "0x10", "scan": "0x2A", "flags": "0x00"},
+    {"vk": "0x41", "scan": "0x1E", "flags": "0x00"},
+    {"vk": "0x41", "scan": "0x1E", "flags": "0x01"},
+    {"vk": "0x10", "scan": "0x2A", "flags": "0x01"}
+  ],
+  "expected": [
+    ["shift_left", true],
+    ["key_a", true],
+    ["key_a", false],
+    ["shift_left", false]
+  ]
+}

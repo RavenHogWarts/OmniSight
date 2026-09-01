@@ -17,6 +17,7 @@ from werkzeug.serving import make_server
 from .. import __version__
 from ..core import paths
 from . import errors, security
+from .api import debug
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..core.config import Config
@@ -27,7 +28,12 @@ logger = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class AppContext:
-    """交给表现层的运行时上下文。表现层只读它，不自己拼装依赖。"""
+    """交给表现层的运行时上下文。表现层只读它，不自己拼装依赖。
+
+    ``capture`` 是生命周期装配好的采集管道（``CaptureBundle``），这里用 ``Any`` 持有
+    而不是导入它的类型：表现层依赖 ``core.lifecycle`` 会形成环，而它真正需要的只是
+    ``snapshot()`` 与几个仓储。M2 引入服务层后，这里换成服务对象，仓储不再直达表现层。
+    """
 
     config: Config
     database: Database
@@ -37,6 +43,7 @@ class AppContext:
     data_dir: Any
     schema_version: int = 0
     paused: bool = False
+    capture: Any = None
 
 
 def create_app(context: AppContext) -> Flask:
@@ -54,6 +61,7 @@ def create_app(context: AppContext) -> Flask:
     errors.register(app)
     security.install(app, token=context.token)
     _register_routes(app, context)
+    debug.register(app, context)
     return app
 
 
@@ -87,6 +95,8 @@ def build_status(context: AppContext) -> dict[str, Any]:
     """
     caps = context.capabilities
     database_path = context.database.path
+    capture = _capture_status(context)
+    min_date, max_date = _data_range(context)
     return {
         "app": "OmniSight",
         "version": __version__,
@@ -98,24 +108,41 @@ def build_status(context: AppContext) -> dict[str, Any]:
             "os_version": caps.os_version,
         },
         "capabilities": caps.to_dict(),
-        "capture": {
-            "foreground": {"running": False, "backend": "none"},
-            "keyboard": {"running": False, "backend": caps.keyboard_backend},
-            "paused": context.paused,
-            "queue_depth": 0,
-            "dropped_events": 0,
-        },
+        "capture": capture,
         "database": {
             "path": str(database_path),
             "schema_version": context.schema_version,
             "size_bytes": database_path.stat().st_size if database_path.exists() else 0,
         },
         "paths": paths.describe(),
-        "data_range": {"min_date": None, "max_date": None},
+        "data_range": {"min_date": min_date, "max_date": max_date},
         "data_version": int(context.database.meta_get("data_version", "0") or 0),
         "degraded": [_notice_to_dict(notice) for notice in caps.degraded],
         "warnings": [],
     }
+
+
+def _capture_status(context: AppContext) -> dict[str, Any]:
+    """采集管道的实时状态。没有管道时如实上报"没在跑"，不编造字段。"""
+    if context.capture is None:
+        return {
+            "foreground": {"running": False, "backend": "none"},
+            "keyboard": {"running": False, "backend": "none"},
+            "paused": context.paused,
+            "queue_depth": 0,
+            "dropped_events": 0,
+        }
+    return context.capture.snapshot()
+
+
+def _data_range(context: AppContext) -> tuple[str | None, str | None]:
+    if context.capture is None:
+        return (None, None)
+    try:
+        return context.capture.usage.data_range()
+    except Exception:  # pragma: no cover - 状态接口绝不因为一次查询失败而 500
+        logger.debug("读取数据日期范围失败", exc_info=True)
+        return (None, None)
 
 
 def _notice_to_dict(notice: Any) -> dict[str, Any]:

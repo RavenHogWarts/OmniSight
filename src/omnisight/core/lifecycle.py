@@ -22,14 +22,23 @@ from datetime import datetime
 from pathlib import Path
 
 from .. import adapters
-from ..adapters.ports import AdapterSet, Capabilities
+from ..adapters.ports import AdapterOptions, AdapterSet, Capabilities, CaptureUnavailable
+from ..capture.coordinator import CaptureCoordinator
+from ..capture.foreground import ForegroundMonitor
+from ..capture.keyboard import KeyboardCapture
+from ..capture.queue import EventQueue
 from ..presentation import security
 from ..presentation.web import AppContext, WebServer, create_app
 from ..storage import capability as capability_table
 from ..storage.database import Database, SchemaTooNewError
 from ..storage.migrations import migrate
+from ..storage.repositories.apps import AppRegistry
+from ..storage.repositories.keys import KeyRepository
+from ..storage.repositories.usage import UsageRepository
+from ..storage.writer import StorageWriter
 from . import logging as log_setup
 from . import paths
+from .bus import EventBus
 from .clock import SystemClock, resolve_timezone, timezone_label
 from .config import Config, ConfigError
 from .config import load as load_config
@@ -53,6 +62,49 @@ class StartupAborted(Exception):
 
 
 @dataclass(slots=True)
+class CaptureBundle:
+    """一次运行的采集管道。
+
+    装配放在 lifecycle 而不是 ``capture/`` 里，是因为它要同时认识 ``storage``（写线程、
+    仓储）与 ``adapters``（端口实现），而 ``capture/`` 在分层上位于 ``storage/`` 之下——
+    让它反向导入 ``storage.writer`` 会把依赖方向搞反（02 文档 §1）。
+    """
+
+    bus: EventBus
+    queue: EventQueue
+    coordinator: CaptureCoordinator
+    writer: StorageWriter
+    registry: AppRegistry
+    keys: KeyRepository
+    usage: UsageRepository
+    keyboard: KeyboardCapture | None = None
+    foreground: ForegroundMonitor | None = None
+    keyboard_source: object | None = None
+
+    def snapshot(self) -> dict[str, object]:
+        """``/api/v1/status`` 的 ``capture`` 段（05 文档 §7）。"""
+        foreground = (
+            self.foreground.snapshot()
+            if self.foreground is not None
+            else {"running": False, "backend": "none"}
+        )
+        keyboard = (
+            self.keyboard.snapshot()
+            if self.keyboard is not None
+            else {"running": False, "backend": "none"}
+        )
+        writer = self.writer.snapshot()
+        return {
+            "foreground": foreground,
+            "keyboard": keyboard,
+            "writer": writer,
+            "paused": bool(self.keyboard.paused) if self.keyboard else False,
+            "queue_depth": writer["queue_depth"],
+            "dropped_events": writer["dropped_events"],
+        }
+
+
+@dataclass(slots=True)
 class Runtime:
     """一次运行的全部活动对象。"""
 
@@ -65,6 +117,7 @@ class Runtime:
     token: str
     started_at: str
     schema_version: int
+    capture: CaptureBundle | None = None
     web: WebServer | None = None
     tray: object | None = None
 
@@ -109,11 +162,15 @@ class Lifecycle:
     def _start_inner(self, app_root: Path, environment: Capabilities) -> int:
         config = self._load_config(app_root)
 
-        adapter_set = adapters.build(environment, app_root=app_root)
-        capabilities = adapter_set.capabilities
-        logger.info("有效能力 = %s", capabilities.to_dict())
-        for notice in capabilities.degraded:
-            logger.warning("能力降级 [%s] %s —— %s", notice.code, notice.title, notice.detail)
+        # 平台的会话结束信号（Windows 的 WM_ENDSESSION）必须能走到 shutdown()，否则
+        # 注销/关机时当前会话与队列里的事件一起丢掉。
+        options = AdapterOptions(
+            keyboard_backend=config.capture.keyboard_backend,
+            record_window_titles=config.privacy.record_window_titles,
+            on_session_end=self.shutdown,
+        )
+        adapter_set = adapters.build(environment, app_root=app_root, options=options)
+        logger.info("已实现能力 = %s", adapter_set.capabilities.to_dict())
 
         data_dir = paths.ensure_dir(paths.data_dir(app_root, config.storage.data_dir))
 
@@ -122,7 +179,20 @@ class Lifecycle:
             return EXIT_ALREADY_RUNNING
 
         database, schema_version = self._open_database(data_dir, config)
-        self._record_capability(database, capabilities, config)
+
+        # 采集在数据库就绪且单实例锁到手之后才启动——注册 Raw Input 是抢占系统资源，
+        # 绝不能发生在"我可能是第二个实例"的阶段（02 文档 §5.1）。
+        capture = self._start_capture(config, adapter_set, database)
+        capabilities = adapters.reconcile(
+            adapter_set.capabilities,
+            keyboard=capture.keyboard_source,
+            foreground_running=capture.foreground is not None and capture.foreground.running,
+            idle_available=adapter_set.idle is not None,
+            titles_recorded=config.privacy.record_window_titles,
+        )
+        logger.info("有效能力 = %s", capabilities.to_dict())
+        for notice in capabilities.degraded:
+            logger.warning("能力降级 [%s] %s —— %s", notice.code, notice.title, notice.detail)
 
         runtime = Runtime(
             app_root=app_root,
@@ -134,15 +204,100 @@ class Lifecycle:
             token=security.new_token(),
             started_at=self.clock.now().isoformat(timespec="seconds"),
             schema_version=schema_version,
+            capture=capture,
         )
         self.runtime = runtime
 
-        # M1 起在这里启动写线程与采集线程；M0 只有 Web 与托盘。
+        # 能力快照要记的是**启动之后**的事实，因此排在 reconcile 之后。
+        self._record_capability(database, capabilities, config)
+        capture.writer.set_capability_provider(lambda: _capability_row(capabilities, config))
+
         self._start_web(runtime)
         self._install_signal_handlers()
         adapter_set.notifier.clear()
         self._run_tray(runtime)
         return EXIT_OK
+
+    def _start_capture(
+        self, config: Config, adapter_set: AdapterSet, database: Database
+    ) -> CaptureBundle:
+        """装配并启动采集管道。**任何一环失败都不允许让程序起不来**（10 文档 §6）。
+
+        键盘采集失败时屏幕时间统计必须照常工作，反之亦然。这是对现状的改进：
+        KeyTrace 的 ``RawInputKeyboardListener.start()`` 失败时直接 ``raise``，
+        整个程序就起不来了。
+        """
+        tz = resolve_timezone(config.ui.timezone)
+        # 生命周期与写入线程必须用**同一个**时区算日期桶：两者都 upsert
+        # capture_capability 的同一行，用不同时区会在跨零点前后各写一行、或更新错那一天。
+        # 配置里没写 ui.timezone 时 resolve_timezone 返回系统时区，行为与之前一致。
+        self.clock = SystemClock(tz)
+        bus = EventBus()
+        queue = EventQueue()
+        coordinator = CaptureCoordinator(
+            boundary_window_seconds=config.capture.foreground_poll_seconds
+        )
+        registry = AppRegistry(database, adapter_set.capabilities.platform_id)
+        writer = StorageWriter(
+            database,
+            queue,
+            tz=tz,
+            store_raw=config.capture.store_raw_key_events,
+            registry=registry,
+            clock=self.clock,
+            checkpoint_interval_seconds=config.storage.checkpoint_interval_seconds,
+        )
+        writer.start()
+
+        bundle = CaptureBundle(
+            bus=bus,
+            queue=queue,
+            coordinator=coordinator,
+            writer=writer,
+            registry=registry,
+            keys=KeyRepository(database),
+            usage=UsageRepository(database),
+        )
+
+        if adapter_set.foreground is not None:
+            monitor = ForegroundMonitor(
+                adapter_set.foreground,
+                coordinator,
+                queue,
+                registry.resolve,
+                idle_source=adapter_set.idle,
+                poll_seconds=config.capture.foreground_poll_seconds,
+                idle_threshold_seconds=config.capture.idle_threshold_seconds,
+                session_flush_seconds=config.capture.session_flush_seconds,
+                excluded=frozenset(config.privacy.excluded_processes),
+                clock=self.clock,
+                paused=config.capture.paused,
+            )
+            monitor.start()
+            bundle.foreground = monitor
+            logger.info("前台监控已启动（轮询 %ss）", config.capture.foreground_poll_seconds)
+
+        if adapter_set.keyboard is not None:
+            capture = KeyboardCapture(
+                adapter_set.keyboard,
+                coordinator,
+                queue,
+                bus=bus,
+                realtime_stream=config.privacy.realtime_stream,
+                paused=config.capture.paused,
+            )
+            try:
+                capture.start()
+            except CaptureUnavailable as exc:
+                # 明确记下来，reconcile() 会把它变成用户看得见的降级说明。
+                logger.error("键盘采集不可用：%s", exc)
+            else:
+                bundle.keyboard = capture
+                bundle.keyboard_source = adapter_set.keyboard
+                logger.info("键盘采集已启动，后端 %s", capture.backend_name)
+        if config.capture.paused:
+            logger.warning("配置里 capture.paused = true，本次运行不会记录任何数据")
+        return bundle
 
     # ── 启动的各步骤 ────────────────────────────────────────────────────
     def _load_config(self, app_root: Path) -> Config:
@@ -194,17 +349,18 @@ class Lifecycle:
     def _record_capability(
         self, database: Database, capabilities: Capabilities, config: Config
     ) -> None:
+        """记下"这天的数据是在什么条件下采到的"（03 文档 §2.8）。
+
+        与写入线程每批刷新的是**同一行**，取值也来自同一个函数——两处各算一遍必然漂移，
+        而这张表的全部价值就在于它能解释历史数据，写错了比不写更糟。
+        """
         now = self.clock.now()
         with database.transaction() as conn:
             capability_table.upsert(
                 conn,
                 day_bucket=capability_table.day_bucket(now),
-                platform_id=capabilities.platform_id,
-                keyboard_backend=capabilities.keyboard_backend,
-                foreground_available=capabilities.foreground,
-                titles_recorded=capabilities.window_titles and config.privacy.record_window_titles,
-                key_position_stable=capabilities.key_position_stable,
                 now=now,
+                **_capability_row(capabilities, config),
             )
 
     def _handle_second_instance(
@@ -232,6 +388,7 @@ class Lifecycle:
             data_dir=runtime.data_dir,
             schema_version=runtime.schema_version,
             paused=runtime.config.capture.paused,
+            capture=runtime.capture,
         )
         app = create_app(context)
         try:
@@ -293,7 +450,15 @@ class Lifecycle:
         if runtime is None:
             return
 
-        # M1 起在这里停采集、结束当前会话、drain 写队列。
+        # 顺序是有讲究的：先停采集（不再有新事件），再结束当前前台会话（它本身会产生
+        # 最后一条事件），最后才让写线程 drain。反过来做会丢掉最后一段会话。
+        capture = runtime.capture
+        if capture is not None:
+            if capture.keyboard is not None:
+                _guard("停止键盘采集", capture.keyboard.stop)
+            if capture.foreground is not None:
+                _guard("停止前台监控", capture.foreground.stop)
+            _guard("落盘剩余事件", lambda: capture.writer.stop(timeout=5.0))
         if runtime.web is not None:
             _guard("停止 Web 服务", runtime.web.stop)
         _guard("移除 runtime.json", lambda: security.remove_runtime_file(runtime.data_dir))
@@ -310,6 +475,21 @@ def _guard(what: str, action) -> None:
         action()
     except Exception:
         logger.exception("停机步骤失败：%s", what)
+
+
+def _capability_row(capabilities: Capabilities, config: Config) -> dict[str, object]:
+    """``capture_capability`` 的一行（不含日期与时刻）。
+
+    ``titles_recorded`` 取"能力允许 ∧ 用户开启"的合取：只有配置打开而平台拿不到标题时
+    这一天并没有标题，反过来也一样。
+    """
+    return {
+        "platform_id": capabilities.platform_id,
+        "keyboard_backend": capabilities.keyboard_backend,
+        "foreground_available": capabilities.foreground,
+        "titles_recorded": capabilities.window_titles and config.privacy.record_window_titles,
+        "key_position_stable": capabilities.key_position_stable,
+    }
 
 
 def _bootstrap_notifier(app_root: Path):

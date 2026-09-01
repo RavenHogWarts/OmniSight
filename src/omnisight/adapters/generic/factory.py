@@ -7,11 +7,13 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+import importlib.util
 from pathlib import Path
 
-from ..ports import AdapterSet, Capabilities, DegradedNotice
+from ..chain import ChainedKeyboardSource
+from ..ports import AdapterOptions, AdapterSet, Capabilities, DegradedNotice
 from .foreground import NullForegroundSource
+from .idle import LastInputIdleSource
 from .instance_lock import FileInstanceLock
 from .notifier import FileNotifier
 from .unsupported import UnsupportedAutostart, UnsupportedIconSource
@@ -52,19 +54,30 @@ ADAPTER_PENDING = DegradedNotice(
 )
 
 
+def _pynput_installed() -> bool:
+    """只查模块是否存在，**不导入**——探测必须无副作用（导入 pynput 会拉起平台后端）。"""
+    try:
+        return importlib.util.find_spec("pynput") is not None
+    except (ImportError, ValueError):  # pragma: no cover - 异常的 import 环境
+        return False
+
+
 def detect(platform_id: str = PLATFORM_ID, tier: int = TIER) -> Capabilities:
-    """通用环境：只假设"能跑 Python"，不假设任何系统 API。"""
+    """通用环境：只假设"能跑 Python" + 兜底键盘后端装没装，不假设任何系统 API。"""
     notices = [UNSUPPORTED_PLATFORM] if platform_id == PLATFORM_ID else [ADAPTER_PENDING]
+    has_pynput = _pynput_installed()
     return Capabilities(
         platform_id=platform_id,  # type: ignore[arg-type]
         tier=tier,
-        keyboard=False,
-        keyboard_backend="none",
-        keyboard_durations=False,
+        keyboard=has_pynput,
+        keyboard_backend="pynput" if has_pynput else "none",
+        keyboard_durations=has_pynput,
+        # 兜底后端拿不到物理位置码，这一位永远是 False（04 文档 §3.1）。
         key_position_stable=False,
         foreground=False,
         window_titles=False,
-        idle=False,
+        # 没有系统级空闲 API，只能用「最近一次按键」近似——因此它依赖兜底键盘后端。
+        idle=has_pynput,
         icons=False,
         autostart=False,
         tray=_tray_available(),
@@ -81,15 +94,30 @@ def _tray_available() -> bool:
     return True
 
 
-def build(environment: Capabilities, *, app_root: Path) -> AdapterSet:
-    effective = replace(environment, degraded=environment.degraded)
+def build(
+    environment: Capabilities,
+    *,
+    app_root: Path,
+    options: AdapterOptions | None = None,
+) -> AdapterSet:
+    """只构造，不启动。按需导入 pynput——只要专用后端可用就永远不加载它（08 文档 §8）。"""
+    options = options or AdapterOptions()
+    idle = LastInputIdleSource()
+    keyboard = None
+    if options.keyboard_backend != "none" and environment.keyboard:
+        from .pynput_keys import PynputKeyboardSource
+
+        keyboard = ChainedKeyboardSource(
+            [PynputKeyboardSource(idle_notifier=idle.note_input)]
+        )
     return AdapterSet(
-        capabilities=effective,
+        capabilities=environment,
         instance_lock=FileInstanceLock(app_root / LOCK_FILENAME),
         notifier=FileNotifier(app_root),
         autostart=UnsupportedAutostart(),
+        # 恒返回 None：没有应用归因，但键盘统计照常，且界面会说明原因。
         foreground=NullForegroundSource(),
-        keyboard=None,   # M1 起由 pynput_keys 兜底
-        idle=None,
+        keyboard=keyboard,
+        idle=idle,
         icons=UnsupportedIconSource(),
     )

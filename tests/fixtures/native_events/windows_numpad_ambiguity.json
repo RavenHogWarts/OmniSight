@@ -1,0 +1,32 @@
+{
+  "platform": "windows",
+  "description": "同扫描码歧义：小键盘簇与导航簇共用 MakeCode，只有 E0 位能区分。这是 KeyTrace 里四处特殊处理的来源，改用 (scan, E0) 作键后全部变成普通表项",
+  "events": [
+    {"vk": "0x60", "scan": "0x52", "flags": "0x00"},
+    {"vk": "0x2D", "scan": "0x52", "flags": "0x02"},
+    {"vk": "0x64", "scan": "0x4B", "flags": "0x00"},
+    {"vk": "0x25", "scan": "0x4B", "flags": "0x02"},
+    {"vk": "0x0D", "scan": "0x1C", "flags": "0x00"},
+    {"vk": "0x0D", "scan": "0x1C", "flags": "0x02"},
+    {"vk": "0x6E", "scan": "0x53", "flags": "0x00"},
+    {"vk": "0x2E", "scan": "0x53", "flags": "0x02"},
+    {"vk": "0x6A", "scan": "0x37", "flags": "0x00"},
+    {"vk": "0x2C", "scan": "0x37", "flags": "0x02"},
+    {"vk": "0xBF", "scan": "0x35", "flags": "0x00"},
+    {"vk": "0x6F", "scan": "0x35", "flags": "0x02"}
+  ],
+  "expected": [
+    ["numpad_0", true],
+    ["insert", true],
+    ["numpad_4", true],
+    ["arrow_left", true],
+    ["enter", true],
+    ["numpad_enter", true],
+    ["numpad_decimal", true],
+    ["delete", true],
+    ["numpad_multiply", true],
+    ["print_screen", true],
+    ["slash", true],
+    ["numpad_divide", true]
+  ]
+}

@@ -53,15 +53,34 @@ def test_first_run_creates_config_database_and_logs(isolated_root: Path, monkeyp
 
 
 def test_capability_row_written_for_today(isolated_root: Path, monkeypatch):
+    """``capture_capability`` 必须记下**实际生效**的能力，而不是探测到的能力。
+
+    这张表的全部价值在于它能解释历史数据（03 文档 §2.8），所以判据不是某个写死的
+    后端名，而是「行内容 == reconcile() 之后的能力」。M0 时期这里断言的是 ``none``；
+    M1 起键盘真的启动了，写死后端名会让这条用例变成平台断言。
+    """
     lifecycle = _start_headless(monkeypatch)
     try:
         assert lifecycle.start() == 0
-        rows = lifecycle.runtime.database.connect().execute(
-            "SELECT platform_id, keyboard_backend FROM capture_capability"
+        runtime = lifecycle.runtime
+        rows = runtime.database.connect().execute(
+            "SELECT platform_id, keyboard_backend, foreground_available,"
+            " titles_recorded, key_position_stable FROM capture_capability"
         ).fetchall()
         assert len(rows) == 1
-        # M0 尚无采集，后端如实记为 none——数据日后可解释（03 文档 §2.8）。
-        assert rows[0]["keyboard_backend"] == "none"
+        row = rows[0]
+        effective = runtime.capabilities
+        assert row["platform_id"] == effective.platform_id
+        assert row["keyboard_backend"] == effective.keyboard_backend
+        assert bool(row["foreground_available"]) is bool(effective.foreground)
+        assert bool(row["key_position_stable"]) is bool(effective.key_position_stable)
+        # 标题是「能力允许 ∧ 用户开启」的合取，默认配置下用户没开。
+        assert bool(row["titles_recorded"]) is False
+
+        # 键盘真的起来了就不许记成 none，反过来也一样——两者不一致就意味着这天的
+        # 数据无法被解释。
+        started = runtime.capture is not None and runtime.capture.keyboard is not None
+        assert (row["keyboard_backend"] != "none") is started
     finally:
         lifecycle.shutdown()
 

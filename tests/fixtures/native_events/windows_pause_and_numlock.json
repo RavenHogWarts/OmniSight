@@ -1,0 +1,22 @@
+{
+  "platform": "windows",
+  "description": "Pause 走 E1 1D + 45 两段报文：第一段是前缀而非按键（必须丢弃，否则每按一次 Pause 都会多记一次左 Ctrl），第二段的 MakeCode 与 NumLock 撞车，是全表唯一需要靠 VK 消歧的地方",
+  "events": [
+    {"vk": "0x11", "scan": "0x1D", "flags": "0x04"},
+    {"vk": "0x13", "scan": "0x45", "flags": "0x00"},
+    {"vk": "0x11", "scan": "0x1D", "flags": "0x05"},
+    {"vk": "0x13", "scan": "0x45", "flags": "0x01"},
+    {"vk": "0x90", "scan": "0x45", "flags": "0x00"},
+    {"vk": "0x90", "scan": "0x45", "flags": "0x01"},
+    {"vk": "0x91", "scan": "0x46", "flags": "0x00"}
+  ],
+  "expected": [
+    [null, true],
+    ["pause", true],
+    [null, false],
+    ["pause", false],
+    ["num_lock", true],
+    ["num_lock", false],
+    ["scroll_lock", true]
+  ]
+}

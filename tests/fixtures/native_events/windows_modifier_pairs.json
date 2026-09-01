@@ -1,0 +1,24 @@
+{
+  "platform": "windows",
+  "description": "左右修饰键必须分开：VK 全都一样，区分靠扫描码与 E0 扩展位",
+  "events": [
+    {"vk": "0x10", "scan": "0x2A", "flags": "0x00"},
+    {"vk": "0x10", "scan": "0x36", "flags": "0x00"},
+    {"vk": "0x11", "scan": "0x1D", "flags": "0x00"},
+    {"vk": "0x11", "scan": "0x1D", "flags": "0x02"},
+    {"vk": "0x12", "scan": "0x38", "flags": "0x00"},
+    {"vk": "0x12", "scan": "0x38", "flags": "0x02"},
+    {"vk": "0x5B", "scan": "0x5B", "flags": "0x02"},
+    {"vk": "0x5C", "scan": "0x5C", "flags": "0x02"}
+  ],
+  "expected": [
+    ["shift_left", true],
+    ["shift_right", true],
+    ["control_left", true],
+    ["control_right", true],
+    ["alt_left", true],
+    ["alt_right", true],
+    ["win_left", true],
+    ["win_right", true]
+  ]
+}

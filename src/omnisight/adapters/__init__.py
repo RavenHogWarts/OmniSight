@@ -21,6 +21,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .ports import (
+    AdapterOptions,
     AdapterSet,
     Capabilities,
     DegradedNotice,
@@ -32,6 +33,7 @@ from .ports import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "AdapterOptions",
     "AdapterSet",
     "Capabilities",
     "DegradedNotice",
@@ -41,6 +43,7 @@ __all__ = [
     "UnsupportedOperation",
     "build",
     "detect",
+    "reconcile",
     "system_probe",
 ]
 
@@ -175,12 +178,114 @@ def _degrade_to_fallback_keyboard(capabilities: Capabilities) -> Capabilities:
     )
 
 
-def build(environment: Capabilities, *, app_root: Path) -> AdapterSet:
-    """按能力装配适配器集合。失败时退回通用降级，绝不让启动流程崩在这里。"""
+def build(
+    environment: Capabilities,
+    *,
+    app_root: Path,
+    options: AdapterOptions | None = None,
+) -> AdapterSet:
+    """按能力装配适配器集合。失败时退回通用降级，绝不让启动流程崩在这里。
+
+    **只构造，不启动。** 采集后端在这里被创建但不注册任何系统资源——注册发生在
+    ``KeyboardSource.start()``，由生命周期在数据库就绪之后调用（02 文档 §5.1 第 10 步）。
+    这条区分很重要：``build()`` 必须先于单实例锁（锁本身就来自返回的 AdapterSet），
+    而"抢占系统资源"绝不能先于单实例判定。
+    """
+    options = options or AdapterOptions()
     try:
-        return _platform_module(environment.platform_id).build(environment, app_root=app_root)
+        return _platform_module(environment.platform_id).build(
+            environment, app_root=app_root, options=options
+        )
     except Exception:
         logger.exception("适配器装配失败，退回通用降级")
         from .generic import factory as generic
 
-        return generic.build(generic.detect(), app_root=app_root)
+        return generic.build(generic.detect(), app_root=app_root, options=options)
+
+
+#: 采集能力从"环境允许"收敛为"此刻真能交付"时可能产出的说明。
+KEYBOARD_UNAVAILABLE = DegradedNotice(
+    code="keyboard_unavailable",
+    severity="error",
+    title="键盘采集未启动",
+    detail=(
+        "所有键盘后端都无法注册，本次运行不会记录任何按键。"
+        "屏幕时间统计不受影响，仍在正常记录。"
+    ),
+    hint="常见原因是反作弊驱动、远程会话或安全软件拦截；重启程序可再试一次",
+)
+
+FOREGROUND_UNAVAILABLE = DegradedNotice(
+    code="foreground_unavailable",
+    severity="warning",
+    title="无法识别当前应用",
+    detail="前台窗口监控未启动，按应用维度的统计不可用；键盘统计不受影响。",
+    hint=None,
+)
+
+
+def reconcile(
+    capabilities: Capabilities,
+    *,
+    keyboard: object | None = None,
+    foreground_running: bool = False,
+    idle_available: bool = False,
+    titles_recorded: bool = False,
+) -> Capabilities:
+    """把有效能力对齐到**采集真正启动之后**的事实（02 文档 §5.1 的能力语义表）。
+
+    ``build()`` 返回的是"环境允许 ∧ 已实现"，而这里加上第三个条件"∧ 已成功启动"。
+    ``/api/v1/status`` 与 UI 一律使用这一份——理由是不骗人：键盘后端注册失败后若照旧
+    上报 ``keyboard: true``，用户会看到一个永远是 0 的图表却无从解释。
+
+    本函数**不判断平台**，只读端口对象的状态，因此三个平台共用同一段收敛逻辑。
+    """
+    notices = list(capabilities.degraded)
+    running = bool(keyboard is not None and getattr(keyboard, "running", False))
+    changes: dict[str, object] = {}
+
+    if not running:
+        changes.update(
+            keyboard=False,
+            keyboard_backend="none",
+            keyboard_durations=False,
+            key_position_stable=False,
+        )
+        if capabilities.keyboard:
+            _append(notices, KEYBOARD_UNAVAILABLE)
+    else:
+        active = str(getattr(keyboard, "backend_name", capabilities.keyboard_backend))
+        changes["keyboard"] = True
+        changes["keyboard_backend"] = active
+        if active != capabilities.keyboard_backend:
+            # 用了兜底后端：位置码拿不到，左右修饰键与小键盘会合并。
+            changes["key_position_stable"] = False
+            _append(notices, _fallback_notice(capabilities.keyboard_backend, active))
+
+    if not foreground_running:
+        changes.update(foreground=False, window_titles=False)
+        if capabilities.foreground:
+            _append(notices, FOREGROUND_UNAVAILABLE)
+    else:
+        changes["window_titles"] = capabilities.window_titles and titles_recorded
+
+    changes["idle"] = capabilities.idle and idle_available
+    return replace(capabilities, degraded=tuple(notices), **changes)
+
+
+def _append(notices: list[DegradedNotice], notice: DegradedNotice) -> None:
+    if all(existing.code != notice.code for existing in notices):
+        notices.append(notice)
+
+
+def _fallback_notice(preferred: str, active: str) -> DegradedNotice:
+    return DegradedNotice(
+        code="keyboard_backend_degraded",
+        severity="warning",
+        title="键盘采集降级为兼容模式",
+        detail=(
+            f"首选后端 {preferred} 不可用，已改用 {active}。按键总数仍然准确，"
+            "但左右 Ctrl / Shift / Alt 会合并统计，且全屏独占程序内的按键可能收不到。"
+        ),
+        hint="重启程序可再次尝试首选后端",
+    )

@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..generic import factory as _generic
-from ..ports import AdapterSet, Capabilities
+from ..ports import AdapterOptions, AdapterSet, Capabilities
 
 PLATFORM_ID = "macos"
 TIER = 2
@@ -20,8 +20,10 @@ def detect() -> Capabilities:
     return _generic.detect(platform_id=PLATFORM_ID, tier=TIER)
 
 
-def build(environment: Capabilities, *, app_root: Path) -> AdapterSet:
-    return _generic.build(environment, app_root=app_root)
+def build(
+    environment: Capabilities, *, app_root: Path, options: AdapterOptions | None = None
+) -> AdapterSet:
+    return _generic.build(environment, app_root=app_root, options=options)
 
 
 __all__ = ["PLATFORM_ID", "TIER", "build", "detect"]

@@ -1,0 +1,14 @@
+{
+  "platform": "windows",
+  "description": "表外的键（媒体键、厂商自定义键）必须解析为 None 而不是猜一个 key_id——猜错会把按键计到别的格子上，比丢掉更糟",
+  "events": [
+    {"vk": "0xAF", "scan": "0x30", "flags": "0x02"},
+    {"vk": "0xAD", "scan": "0x20", "flags": "0x02"},
+    {"vk": "0xB3", "scan": "0x22", "flags": "0x02"}
+  ],
+  "expected": [
+    [null, true],
+    [null, true],
+    [null, true]
+  ]
+}
