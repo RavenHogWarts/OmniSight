@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 #: 未知前台（空闲、锁屏、被排除的应用）的哨兵应用。
 #:
@@ -98,14 +98,16 @@ CREATE TABLE IF NOT EXISTS app (
 
 USAGE_SESSION_DDL = """
 CREATE TABLE IF NOT EXISTS usage_session (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    app_id       INTEGER NOT NULL REFERENCES app(id),
-    window_title TEXT    NOT NULL DEFAULT '',
-    start_ts_ns  INTEGER NOT NULL,
-    end_ts_ns    INTEGER NOT NULL,
-    duration_ms  INTEGER NOT NULL,
-    day_bucket   TEXT    NOT NULL,
-    idle_trimmed INTEGER NOT NULL DEFAULT 0
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_id            INTEGER NOT NULL REFERENCES app(id),
+    window_title      TEXT    NOT NULL DEFAULT '',
+    start_ts_ns       INTEGER NOT NULL,
+    end_ts_ns         INTEGER NOT NULL,
+    duration_ms       INTEGER NOT NULL,
+    day_bucket        TEXT    NOT NULL,
+    idle_trimmed      INTEGER NOT NULL DEFAULT 0,
+    end_reason        TEXT    NOT NULL DEFAULT 'switch',
+    visit_start_ts_ns INTEGER NOT NULL DEFAULT 0
 )
 """
 
@@ -118,6 +120,22 @@ CREATE TABLE IF NOT EXISTS agg_app_{grain} (
     PRIMARY KEY ({bucket}, app_id)
 ) WITHOUT ROWID
 """
+
+#: 日粒度独有的两列。
+#:
+#: ``longest_visit_ms``：月/年/总的最长访问就是各日之最大值，而心跳落盘让
+#: ``MAX(usage_session.duration_ms)`` 恒等于心跳间隔（见 ``UsageSession.visit_duration_ms``），
+#: 因此这一列必须由写入侧维护。
+#:
+#: ``press_count``：同一事实在 ``agg_key_app_day`` 里按 (日, 应用, **键**) 存，而
+#: "这个应用这段时间按了多少次"用不到键维度——一年 480k 行 vs 4.4k 行（实测 46ms → <1ms）。
+#: 这个查询在 ``/usage/period`` / ``/apps`` / ``/overview`` / ``/insights/app-keyboard``
+#: 上都要跑，是 M2 基准里第二大的单项开销。**只加在日粒度**：月/年区间由日行汇总即可
+#: （一年 4.4k 行），再复制到月/年表得不偿失。
+AGG_APP_DAY_EXTRA_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("longest_visit_ms", "INTEGER NOT NULL DEFAULT 0"),
+    ("press_count", "INTEGER NOT NULL DEFAULT 0"),
+)
 
 AGG_APP_TOTAL_DDL = """
 CREATE TABLE IF NOT EXISTS agg_app_total (
@@ -156,6 +174,54 @@ CREATE TABLE IF NOT EXISTS agg_key_total (
     duration_total_ms REAL    NOT NULL DEFAULT 0,
     duration_max_ms   REAL    NOT NULL DEFAULT 0
 ) WITHOUT ROWID
+"""
+
+#: 每分钟的按键总数。**为 ``peak_kpm`` 而存在**：05 文档 §5 要求给出峰值 KPM
+#: 及其发生时刻（分钟精度），而小时聚合只能给出"某小时的平均 KPM"——把平均值
+#: 叫成峰值是在编数据。一天最多 1440 行（≈6 MB/年），代价与它换来的诚实相称。
+#: 同时它也是 ``active_hours.first/last``（"09:12"）的唯一数据来源。
+#: 小时粒度的**键无关**按键总量。``agg_key_hour`` 已经按 (日, 小时, 键) 存了同样的事实，
+#: 但"我一般几点在敲键盘"这个问题不需要按键拆分，而按键拆分让它贵了一百倍：三年
+#: 是 2.9M 行 vs 26k 行（实测 200ms → <1ms）。这个查询出现在 ``/usage/timeline`` 与
+#: ``/overview`` 的高亮里，是 M2 基准里最大的单项开销，因此值得一张表。
+#:
+#: ``agg_key_hour`` 保留给"某一个键的小时分布"与"某一天按键的小时分布"——那两处确实
+#: 需要按键维度。
+AGG_PRESS_HOUR_DDL = """
+CREATE TABLE IF NOT EXISTS agg_press_hour (
+    day_bucket        TEXT    NOT NULL,
+    hour              INTEGER NOT NULL,
+    press_count       INTEGER NOT NULL DEFAULT 0,
+    duration_total_ms REAL    NOT NULL DEFAULT 0,
+    PRIMARY KEY (day_bucket, hour)
+) WITHOUT ROWID
+"""
+
+AGG_PRESS_MINUTE_DDL = """
+CREATE TABLE IF NOT EXISTS agg_press_minute (
+    day_bucket  TEXT    NOT NULL,
+    minute      INTEGER NOT NULL,
+    press_count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day_bucket, minute)
+) WITHOUT ROWID
+"""
+
+#: 图标缓存。**不放进 ``app`` 维表**：几乎每个查询都要 JOIN ``app`` 取展示名，
+#: 而 SQLite 的行是内联存储的——把几十 KB 的 PNG 塞进去会把 ``app`` 的行挤到
+#: 溢出页上，让所有查询变慢。04 文档 §6"改动一"要的是"解析结果持久化"，独立表
+#: 同样满足，且顺带让"清空图标缓存"变成一句 DELETE。
+#:
+#: ``png IS NULL`` = 解析失败；``failed_at`` 使失败可以在 7 天后重试（"改动三"：
+#: 现状把失败永久缓存为 ``b""``，用户装好程序后图标永远不出现）。
+APP_ICON_DDL = """
+CREATE TABLE IF NOT EXISTS app_icon (
+    app_id      INTEGER PRIMARY KEY REFERENCES app(id),
+    png         BLOB,
+    size        INTEGER NOT NULL DEFAULT 0,
+    source_path TEXT    NOT NULL DEFAULT '',
+    resolved_at TEXT    NOT NULL,
+    failed_at   TEXT
+)
 """
 
 AGG_KEY_HOUR_DDL = """
@@ -233,16 +299,38 @@ INDEXES: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_session_day     ON usage_session(day_bucket)",
     "CREATE INDEX IF NOT EXISTS idx_session_app_day ON usage_session(app_id, day_bucket)",
     "CREATE INDEX IF NOT EXISTS idx_session_start   ON usage_session(start_ts_ns)",
+    # 一次"访问"在库里就是 end_reason <> 'heartbeat' 的那一行。部分索引让"某周期的
+    # 访问列表"只扫访问数（几百行/天）而不是会话段数（心跳每 10 秒一段，8000 行/天）。
+    "CREATE INDEX IF NOT EXISTS idx_session_visits ON usage_session(day_bucket, app_id) "
+    "WHERE end_reason <> 'heartbeat'",
     "CREATE INDEX IF NOT EXISTS idx_agg_app_total_dur  ON agg_app_total(duration_ms DESC)",
     "CREATE INDEX IF NOT EXISTS idx_agg_app_total_last ON agg_app_total(last_used_ts_ns DESC)",
     "CREATE INDEX IF NOT EXISTS idx_agg_kad_app ON agg_key_app_day(app_id, day_bucket)",
+    # 下面两条都是同一个形状的问题：聚合表的主键把日期放在最前（写入侧要顺序追加），
+    # 而"某一个键在这段时间里"的查询需要先按键定位。没有反向索引时它们要扫掉整个日期
+    # 范围内的全部键。两条索引都**带上被查询的列**（覆盖索引）——WITHOUT ROWID 表的
+    # 索引回表是一次主键 seek，26k 次 seek 就是 24ms，而覆盖之后是 0。
+    "CREATE INDEX IF NOT EXISTS idx_agg_key_hour_key ON agg_key_hour"
+    "(key_id, day_bucket, hour, press_count, duration_total_ms)",
+    "CREATE INDEX IF NOT EXISTS idx_agg_kad_key ON agg_key_app_day"
+    "(key_id, day_bucket, app_id, press_count, duration_total_ms)",
 )
+
+def _agg_app_day_ddl() -> str:
+    """在通用模板上追加日粒度独有的列，避免为一张表复制整段 DDL。"""
+    extra = "".join(f",{chr(10)}    {name} {decl}" for name, decl in AGG_APP_DAY_EXTRA_COLUMNS)
+    base = _AGG_APP_BUCKET_DDL.format(grain="day", bucket="day_bucket")
+    return base.replace(
+        "    session_count INTEGER NOT NULL DEFAULT 0,",
+        f"    session_count INTEGER NOT NULL DEFAULT 0{extra},",
+    )
+
 
 TABLES: tuple[str, ...] = (
     META_DDL,
     APP_DDL,
     USAGE_SESSION_DDL,
-    _AGG_APP_BUCKET_DDL.format(grain="day", bucket="day_bucket"),
+    _agg_app_day_ddl(),
     _AGG_APP_BUCKET_DDL.format(grain="month", bucket="month_bucket"),
     _AGG_APP_BUCKET_DDL.format(grain="year", bucket="year_bucket"),
     AGG_APP_TOTAL_DDL,
@@ -254,6 +342,9 @@ TABLES: tuple[str, ...] = (
     AGG_KEY_HOUR_DDL,
     AGG_KEY_APP_DAY_DDL,
     AGG_APP_KEY_TOTAL_DDL,
+    AGG_PRESS_HOUR_DDL,
+    AGG_PRESS_MINUTE_DDL,
+    APP_ICON_DDL,
     ARCHIVE_LOG_DDL,
     HEALTH_STAT_DDL,
     CAPTURE_CAPABILITY_DDL,
@@ -277,6 +368,9 @@ EXPECTED_TABLES: frozenset[str] = frozenset(
         "agg_key_hour",
         "agg_key_app_day",
         "agg_app_key_total",
+        "agg_press_hour",
+        "agg_press_minute",
+        "app_icon",
         "archive_log",
         "health_stat",
         "capture_capability",

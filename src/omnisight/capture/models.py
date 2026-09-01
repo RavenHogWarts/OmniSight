@@ -18,6 +18,17 @@ from ..adapters.ports import UNKNOWN_APP_ID
 
 Confidence = Literal["high", "boundary", "unknown"]
 
+#: 会话为什么结束（04 文档 §2.3 的四种触发，加上两种"前台变成未知"的情形）。
+#:
+#: 它不是诊断字段而是**契约字段**：``/api/v1/usage/sessions`` 直接返回它，
+#: ``/api/v1/insights/rhythm`` 的 ``switch_count``（注意力碎片化程度）就是
+#: ``end_reason = 'switch'`` 的计数。没有它就只能用会话行数近似，而心跳落盘
+#: 每 10 秒切一段，行数与"切换了多少次"差两个数量级。
+EndReason = Literal["switch", "heartbeat", "idle", "shutdown", "no_foreground", "excluded"]
+
+#: 心跳落盘产生的段不是一次新的"访问"，它只是同一次访问被切开以抗强杀。
+CONTINUING_END_REASON = "heartbeat"
+
 #: 落盘时 ``confidence`` 的整数编码（03 文档 §2.5 的 ``confidence`` 列）。
 CONFIDENCE_CODES: dict[str, int] = {"unknown": 0, "boundary": 1, "high": 2}
 CONFIDENCE_NAMES: dict[int, str] = {value: key for key, value in CONFIDENCE_CODES.items()}
@@ -77,17 +88,41 @@ class UsageSession:
     window_title: str = ""
     #: 因空闲被截断：结束时刻是"最后一次输入 + 阈值"，不是发现空闲的时刻。
     idle_trimmed: bool = False
+    #: 本段为什么结束。见 :data:`EndReason`。
+    end_reason: EndReason = "switch"
+    #: 本次**访问**的起点（心跳落盘不会改变它）。0 表示与 ``start_ts_ns`` 相同。
+    #:
+    #: 有了它，"一次访问"在库里就是一行——``end_reason != 'heartbeat'`` 的那一行，
+    #: 它自带完整跨度。否则要靠窗口函数把连续的心跳段重新粘起来，而那要扫掉一个
+    #: 周期内的全部会话行（重度用户一天 8000 段）。
+    visit_start_ts_ns: int = 0
 
     @property
     def valid(self) -> bool:
         return self.end_ts_ns > self.start_ts_ns
 
+    @property
+    def visit_start(self) -> int:
+        return self.visit_start_ts_ns or self.start_ts_ns
+
+    @property
+    def starts_visit(self) -> bool:
+        """本段是否开启了一次新访问——``session_count`` 只为这样的段 +1。"""
+        return self.visit_start == self.start_ts_ns
+
+    @property
+    def visit_duration_ms(self) -> int:
+        """从访问起点到本段结束的时长。心跳段依次给出递增值，取 MAX 即整次访问长度。"""
+        return (self.end_ts_ns - self.visit_start) // 1_000_000
+
 
 __all__ = [
     "CONFIDENCE_CODES",
     "CONFIDENCE_NAMES",
+    "CONTINUING_END_REASON",
     "Attribution",
     "Confidence",
+    "EndReason",
     "KeyEvent",
     "UsageSession",
 ]

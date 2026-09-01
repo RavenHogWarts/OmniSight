@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from dataclasses import dataclass
 from datetime import datetime
 from sqlite3 import Connection
 
@@ -40,6 +41,14 @@ INSERT INTO app (
 ) VALUES (?, ?, ?, ?, ?, ?, 'uncategorized', 'auto', ?, ?)
 ON CONFLICT(platform_id, identity_kind, app_key) DO NOTHING
 """
+
+class _Unset:
+    """"没传这个字段"的哨兵。``None`` 是一个有意义的取值（清除别名），不能兼任。"""
+
+    __slots__ = ()
+
+
+UNSET = _Unset()
 
 _TOUCH_SQL = "UPDATE app SET last_seen_at = ? WHERE id = ?"
 _SET_EXE_SQL = "UPDATE app SET exe_path = ? WHERE id = ? AND exe_path = ''"
@@ -165,8 +174,298 @@ class AppRegistry:
             self._exe_known.clear()
 
 
+@dataclass(frozen=True, slots=True)
+class AppMeta:
+    """``app`` 维表的一行，供服务层拼装响应。"""
+
+    app_id: int
+    app_key: str
+    identity_kind: str
+    platform_id: str
+    process_name: str
+    display_name: str
+    user_alias: str | None
+    exe_path: str
+    category: str
+    category_source: str
+    merged_into: int | None
+    excluded: bool
+    icon_state: str
+    first_seen_at: str
+    last_seen_at: str
+
+    @property
+    def display(self) -> str:
+        """用户别名优先。别名存在的意义就是覆盖系统给的名字。"""
+        return self.user_alias or self.display_name
+
+
+_META_COLUMNS = (
+    "id, app_key, identity_kind, platform_id, process_name, display_name, user_alias, "
+    "exe_path, category, category_source, merged_into, excluded, icon_state, "
+    "first_seen_at, last_seen_at"
+)
+
+_SORTS: dict[str, str] = {
+    "name": "COALESCE(user_alias, display_name) COLLATE NOCASE ASC",
+    "last_seen": "last_seen_at DESC",
+    "first_seen": "first_seen_at DESC",
+    "process": "process_name COLLATE NOCASE ASC",
+}
+
+
+def _meta(row) -> AppMeta:
+    return AppMeta(
+        app_id=int(row["id"]),
+        app_key=row["app_key"],
+        identity_kind=row["identity_kind"],
+        platform_id=row["platform_id"],
+        process_name=row["process_name"] or "",
+        display_name=row["display_name"] or "",
+        user_alias=row["user_alias"],
+        exe_path=row["exe_path"] or "",
+        category=row["category"] or "uncategorized",
+        category_source=row["category_source"] or "auto",
+        merged_into=int(row["merged_into"]) if row["merged_into"] is not None else None,
+        excluded=bool(row["excluded"]),
+        icon_state=row["icon_state"] or "unknown",
+        first_seen_at=row["first_seen_at"],
+        last_seen_at=row["last_seen_at"],
+    )
+
+
+class AppDirectory:
+    """``app`` 维表的**查询与管理**侧（05 文档 §6）。
+
+    与 :class:`AppRegistry` 分开是因为两者的职责与调用者完全不同：Registry 在采集热路径
+    的边缘上解析身份并只做插入，Directory 服务用户操作（改别名、改分类、排除、合并）
+    并回答目录查询。混在一个类里会让"采集能不能崩"这个问题变得难以回答。
+    """
+
+    __slots__ = ("_db",)
+
+    def __init__(self, db: Database) -> None:
+        self._db = db
+
+    def _conn(self) -> Connection:
+        return self._db.connect()
+
+    # ── 查询 ────────────────────────────────────────────────────────────
+    def all_meta(self) -> dict[int, AppMeta]:
+        """全表。应用数是几十到几百，一次读回来比每处 JOIN 更省事也更省查询。"""
+        rows = self._conn().execute(f"SELECT {_META_COLUMNS} FROM app ORDER BY id")
+        return {int(row["id"]): _meta(row) for row in rows}
+
+    def get(self, app_id: int) -> AppMeta | None:
+        row = self._conn().execute(
+            f"SELECT {_META_COLUMNS} FROM app WHERE id = ?", (app_id,)
+        ).fetchone()
+        return _meta(row) if row else None
+
+    def find_by_process(self, process_name: str) -> AppMeta | None:
+        """按进程名解析（旧接口兼容层与 ``?process_name=`` 参数要用）。"""
+        row = self._conn().execute(
+            f"SELECT {_META_COLUMNS} FROM app WHERE app_key = ? ORDER BY id LIMIT 1",
+            (process_name.casefold(),),
+        ).fetchone()
+        return _meta(row) if row else None
+
+    def search(
+        self,
+        *,
+        query: str = "",
+        category: str | None = None,
+        include_excluded: bool = False,
+        sort: str = "name",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[AppMeta], int]:
+        """目录分页查询，返回 ``(当页, 总数)``。"""
+        clauses: list[str] = ["id <> 0"]
+        params: list[object] = []
+        if query:
+            clauses.append(
+                "(display_name LIKE ? COLLATE NOCASE OR process_name LIKE ? COLLATE NOCASE "
+                "OR user_alias LIKE ? COLLATE NOCASE)"
+            )
+            like = f"%{query}%"
+            params += [like, like, like]
+        if category:
+            clauses.append("category = ?")
+            params.append(category)
+        if not include_excluded:
+            clauses.append("excluded = 0")
+        where = " AND ".join(clauses)
+        order = _SORTS.get(sort, _SORTS["name"])
+        total = int(
+            self._conn().execute(
+                f"SELECT COUNT(*) FROM app WHERE {where}", tuple(params)
+            ).fetchone()[0]
+            or 0
+        )
+        rows = self._conn().execute(
+            f"SELECT {_META_COLUMNS} FROM app WHERE {where} ORDER BY {order} LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        )
+        return ([_meta(row) for row in rows], total)
+
+    # ── 合并 ────────────────────────────────────────────────────────────
+    def merge_map(self) -> dict[int, int]:
+        """``app_id`` → 根 ``app_id``。只包含真正被合并过的行。
+
+        **查询侧统一解析到根 id**（03 文档 §2.2）：``msedge.exe`` 与
+        ``msedgewebview2.exe`` 合并后必须在每一张榜单上表现为一个应用，而聚合表里
+        它们仍是两行——折叠发生在服务层，SQL 不变。
+
+        带环保护：手工改库或先后两次合并成环时，宁可停在原地也不能无限循环。
+        """
+        rows = self._conn().execute(
+            "SELECT id, merged_into FROM app WHERE merged_into IS NOT NULL"
+        )
+        direct = {int(row["id"]): int(row["merged_into"]) for row in rows}
+        resolved: dict[int, int] = {}
+        for app_id in direct:
+            seen = {app_id}
+            cursor = direct[app_id]
+            while cursor in direct and cursor not in seen:
+                seen.add(cursor)
+                cursor = direct[cursor]
+            resolved[app_id] = cursor
+        return resolved
+
+    def set_merge(self, app_id: int, into_app_id: int | None) -> None:
+        """写 ``merged_into``。``None`` = 取消合并。"""
+        with self._db.transaction() as conn:
+            conn.execute("UPDATE app SET merged_into = ? WHERE id = ?", (into_app_id, app_id))
+            self._db.bump_data_version(conn)
+
+    # ── 用户编辑 ────────────────────────────────────────────────────────
+    def update(
+        self,
+        app_id: int,
+        *,
+        user_alias: str | None | _Unset = UNSET,
+        category: str | _Unset = UNSET,
+        excluded: bool | _Unset = UNSET,
+    ) -> None:
+        """部分更新。改分类时同时写 ``category_source = 'user'``。
+
+        用哨兵 :data:`UNSET` 区分"没传这个字段"与"传了 null"：``user_alias = null``
+        的语义是"清除别名，回到系统名"，而不是"别动它"。
+        """
+        assignments: list[str] = []
+        params: list[object] = []
+        if not isinstance(user_alias, _Unset):
+            assignments.append("user_alias = ?")
+            params.append(user_alias or None)
+        if not isinstance(category, _Unset):
+            assignments += ["category = ?", "category_source = 'user'"]
+            params.append(category)
+        if not isinstance(excluded, _Unset):
+            assignments.append("excluded = ?")
+            params.append(int(bool(excluded)))
+        if not assignments:
+            return
+        with self._db.transaction() as conn:
+            conn.execute(
+                f"UPDATE app SET {', '.join(assignments)} WHERE id = ?", (*params, app_id)
+            )
+            self._db.bump_data_version(conn)
+
+    def apply_auto_categories(self, categorize) -> int:
+        """给还没被用户改过的应用补自动分类，返回改动行数。
+
+        分类规则会随版本更新（新增了一个应用的关键词），已入库的行不会自己变。启动时
+        跑一遍很便宜（几十行），而 ``category_source = 'user'`` 的行**绝不覆盖**——
+        用户的选择优先于规则。
+        """
+        rows = self._conn().execute(
+            "SELECT id, display_name, process_name, category FROM app "
+            "WHERE category_source = 'auto' AND id <> 0"
+        ).fetchall()
+        updates = []
+        for row in rows:
+            guess = categorize(row["display_name"] or "", row["process_name"] or "")
+            if guess != (row["category"] or "uncategorized"):
+                updates.append((guess, int(row["id"])))
+        if not updates:
+            return 0
+        with self._db.transaction() as conn:
+            conn.executemany("UPDATE app SET category = ? WHERE id = ?", updates)
+            self._db.bump_data_version(conn)
+        return len(updates)
+
+    # ── 图标缓存（04 文档 §6"改动一"与"改动三"）──────────────────────────
+    def icon(self, app_id: int) -> dict | None:
+        row = self._conn().execute(
+            "SELECT app_id, png, size, source_path, resolved_at, failed_at "
+            "FROM app_icon WHERE app_id = ?",
+            (app_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "app_id": int(row["app_id"]),
+            "png": row["png"],
+            "size": int(row["size"] or 0),
+            "source_path": row["source_path"] or "",
+            "resolved_at": row["resolved_at"],
+            "failed_at": row["failed_at"],
+        }
+
+    def store_icon(
+        self, app_id: int, png: bytes | None, *, size: int, source_path: str, now: datetime
+    ) -> None:
+        """写入解析结果。``png is None`` = 解析失败，记 ``failed_at`` 以便日后重试。
+
+        现状把失败永久缓存为 ``b""``，于是用户装好某个程序后图标永远不出现（除非重启
+        进程）。这里让失败可过期（见 :func:`icon_is_stale`）。
+        """
+        stamp = now.isoformat(timespec="seconds")
+        with self._db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO app_icon (app_id, png, size, source_path, resolved_at, failed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(app_id) DO UPDATE SET png = excluded.png, size = excluded.size, "
+                "source_path = excluded.source_path, resolved_at = excluded.resolved_at, "
+                "failed_at = excluded.failed_at",
+                (app_id, png, size, source_path, stamp, None if png else stamp),
+            )
+            conn.execute(
+                "UPDATE app SET icon_state = ? WHERE id = ?",
+                ("ok" if png else "missing", app_id),
+            )
+
+    def clear_icons(self) -> int:
+        with self._db.transaction() as conn:
+            cursor = conn.execute("DELETE FROM app_icon")
+            conn.execute("UPDATE app SET icon_state = 'unknown'")
+            return int(cursor.rowcount or 0)
+
+#: 图标解析失败后多久允许重试。7 天是个折中：装好程序后不用等到下次大版本，也不会
+#: 让"这台机器上确实没有图标"的应用每次刷新都触发一遍注册表遍历（04 文档 §6"改动三"）。
+ICON_RETRY_DAYS = 7
+
+
+def icon_is_stale(entry: dict | None, *, now: datetime) -> bool:
+    """``True`` 表示应该（重新）解析。"""
+    if entry is None:
+        return True
+    if entry.get("png"):
+        return False
+    failed_at = entry.get("failed_at")
+    if not failed_at:
+        return True
+    try:
+        failed = datetime.fromisoformat(str(failed_at))
+    except ValueError:  # pragma: no cover - 手工改库
+        return True
+    if failed.tzinfo is None:
+        failed = failed.replace(tzinfo=now.tzinfo)
+    return (now - failed).days >= ICON_RETRY_DAYS
+
 def _now() -> datetime:
     return datetime.now().astimezone()
 
 
-__all__ = ["AppRegistry"]
+__all__ = ["ICON_RETRY_DAYS", "UNSET", "AppDirectory", "AppMeta", "AppRegistry", "icon_is_stale"]

@@ -2,6 +2,9 @@
 dev
 refer
 
+# 基准数据（tools/seed.py 生成，可达 GB 级）
+.bench/
+
 # ── Python ────────────────────────────────────────────────
 .venv/
 __pycache__/

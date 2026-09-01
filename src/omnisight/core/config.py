@@ -67,6 +67,10 @@ class UiConfig:
     timezone: str | None = None
     keyboard_layout: str = "auto"
     shell: str = "browser"
+    #: 一周从哪天开始：0 = 周一（ISO / 中国大陆），6 = 周日（美国习惯）。
+    #: 05 文档 §1.2 要求"周"统一为自然周且起始日可配置，§9 的示例直接引用了
+    #: ``settings.ui.week_starts_on``——M2 落地周期计算时才需要它，故此时补上。
+    week_starts_on: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,6 +240,12 @@ def validate(cfg: Config) -> Config:
         "ui.keyboard_layout",
     )
     _require(cfg.ui.shell in UI_SHELLS, f"`ui.shell` 只能是 {sorted(UI_SHELLS)}", "ui.shell")
+    week_start = _as_int(cfg.ui.week_starts_on, "ui.week_starts_on")
+    _require(
+        0 <= week_start <= 6,
+        "`ui.week_starts_on` 必须在 0–6 之间（0 = 周一）",
+        "ui.week_starts_on",
+    )
     if cfg.ui.timezone is not None:
         # 时区名写错会让所有日期桶归错日，且事后无法从数据里看出来——必须启动即拒。
         from .clock import ZoneInfoNotFoundError, resolve_timezone

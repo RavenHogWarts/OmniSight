@@ -12,25 +12,17 @@ from __future__ import annotations
 import pytest
 from flask.testing import FlaskClient
 
-from omnisight.core.config import default_config
+from conftest import API_TOKEN as TOKEN  # 单一真源：令牌只在 conftest 里定义一次
 from omnisight.presentation import security
-from omnisight.presentation.web import AppContext, create_app
+from omnisight.presentation.web import create_app
 from omnisight.storage.migrations import TARGET_VERSION
-
-TOKEN = "test-token-value"
 
 
 @pytest.fixture
-def context(database, full_capabilities, tmp_path):
-    return AppContext(
-        config=default_config(),
-        database=database,
-        capabilities=full_capabilities,
-        token=TOKEN,
-        started_at="2026-08-31T22:15:03+08:00",
-        data_dir=tmp_path,
-        schema_version=TARGET_VERSION,
-    )
+def context(api_context):
+    """复用 ``conftest`` 的上下文：M2 起 ``create_app`` 只在 ``services`` 就位时注册 API
+    路由，自己拼一个不带服务层的上下文会让这里的鉴权用例全部撞上 404 而不是 401。"""
+    return api_context
 
 
 @pytest.fixture

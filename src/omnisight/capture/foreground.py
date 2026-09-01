@@ -23,9 +23,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from ..adapters.ports import UNKNOWN_APP_ID, AppIdentity, ForegroundSource, IdleSource
+from ..core.bus import EventBus
 from ..core.clock import Clock, SystemClock
 from .coordinator import CaptureCoordinator
-from .models import UsageSession
+from .models import EndReason, UsageSession
 from .queue import EventQueue
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,10 @@ MIN_SESSION_MS = 1000
 
 #: 空闲检查间隔。活跃时 60 秒一次足够（判定阈值是 30 分钟）；空闲期间改用轮询间隔。
 IDLE_CHECK_SECONDS = 60.0
+
+#: 前台应用切换事件（SSE 的 ``foreground`` 事件源，05 文档 §7）。载荷只有 ``app_id``；
+#: 展示名由服务层解析——推送里带上名字等于让采集层认识"展示"这件事。
+TOPIC_FOREGROUND_CHANGED = "foreground_changed"
 
 #: 应用身份解析器：``AppIdentity`` → ``app_id``。
 #:
@@ -52,6 +57,8 @@ class _Current:
     identity: AppIdentity
     window_title: str
     start_ts_ns: int
+    #: 本次**访问**的起点。心跳落盘会开新段但不改它（04 文档 §2.3）。
+    visit_start_ts_ns: int
 
 
 @dataclass(slots=True)
@@ -61,6 +68,8 @@ class ForegroundStats:
     dropped_short: int = 0
     idle_truncations: int = 0
     switches: int = 0
+    #: 完整的"访问"数（不含心跳切段），即 ``session_count`` 的口径。
+    visits: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
@@ -69,6 +78,7 @@ class ForegroundStats:
             "dropped_short": self.dropped_short,
             "idle_truncations": self.idle_truncations,
             "switches": self.switches,
+            "visits": self.visits,
         }
 
 
@@ -89,6 +99,7 @@ class ForegroundMonitor:
         excluded: frozenset[str] = frozenset(),
         clock: Clock | None = None,
         paused: bool = False,
+        bus: EventBus | None = None,
     ) -> None:
         self._source = source
         self._coordinator = coordinator
@@ -101,6 +112,7 @@ class ForegroundMonitor:
         self._excluded = excluded
         self._clock = clock or SystemClock()
         self._paused = paused
+        self._bus = bus
 
         self._current: _Current | None = None
         self._is_idle = False
@@ -131,20 +143,31 @@ class ForegroundMonitor:
         thread, self._thread = self._thread, None
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout=timeout)
-        self._flush(self._clock.time_ns())
+        self._flush(self._clock.time_ns(), reason="shutdown")
         self._coordinator.clear()
 
     def pause(self) -> None:
         self._paused = True
-        self._flush(self._clock.time_ns())
+        self._flush(self._clock.time_ns(), reason="shutdown")
         self._coordinator.set_foreground(None)
 
     def resume(self) -> None:
         self._paused = False
 
+    # ── 运行期可改的设置（``PATCH /api/v1/settings`` 会调它们）─────────────
     def set_excluded(self, excluded: frozenset[str]) -> None:
-        """运行期更新用户排除列表（M2 的设置接口会调它）。"""
+        """运行期更新用户排除列表。"""
         self._excluded = excluded
+
+    def set_idle_threshold_seconds(self, seconds: float) -> None:
+        self._idle_threshold_seconds = seconds
+
+    def set_poll_seconds(self, seconds: float) -> None:
+        """下一轮生效：循环每次迭代都读这个值。"""
+        self._poll_seconds = seconds
+
+    def set_session_flush_seconds(self, seconds: float) -> None:
+        self._session_flush_ns = int(seconds * 1_000_000_000)
 
     #: ``/api/v1/status`` 里 ``capture.foreground.backend`` 的取值（05 文档 §7）。
     #:
@@ -189,7 +212,7 @@ class ForegroundMonitor:
         info = self._source.current()
         if info is None:
             # 无前台窗口 / 系统外壳 / 探测失败：结束会话，按键归到未知。
-            self._flush(now_ns)
+            self._flush(now_ns, reason="no_foreground")
             self._coordinator.set_foreground(None)
             return
 
@@ -197,23 +220,27 @@ class ForegroundMonitor:
         if identity.app_key in self._excluded:
             # 用户排除：不产生会话，期间按键归 app_id = 0 而**不丢弃**——键盘总量
             # 必须守恒，否则"各应用按键之和 < 总按键数"的差额无法解释（04 文档 §2.2）。
-            self._flush(now_ns)
+            self._flush(now_ns, reason="excluded")
             self._coordinator.set_foreground(None)
             return
 
         app_id = self._resolve_app(identity)
         current = self._current
         if current is None or current.app_id != app_id:
-            self._flush(now_ns)
+            self._flush(now_ns, reason="switch")
             self.stats.switches += 1
             self._begin(app_id, identity, info.window_title, now_ns)
+            self._announce(app_id)
         else:
             # 同一应用：刷新标题与身份（exe 路径可能这次才拿到），必要时心跳落盘。
             current.window_title = info.window_title
             current.identity = identity
             if now_ns - current.start_ts_ns >= self._session_flush_ns:
-                self._flush(now_ns)
-                self._begin(app_id, identity, info.window_title, now_ns)
+                visit_start = current.visit_start_ts_ns
+                self._flush(now_ns, reason="heartbeat")
+                # 心跳落盘只是把同一次访问切开以抗强杀，**访问起点不变**——
+                # 否则"最长一次使用"永远等于心跳间隔，"使用次数"会翻几百倍。
+                self._begin(app_id, identity, info.window_title, now_ns, visit_start=visit_start)
         self._coordinator.set_foreground(app_id)
 
     def _check_idle(self, now_ns: int, mono: float) -> bool:
@@ -235,17 +262,35 @@ class ForegroundMonitor:
             # "挂机 8 小时"会被记成 8 小时使用（04 文档 §2.3）。
             active_until = now_ns - int((idle_seconds - self._idle_threshold_seconds) * 1e9)
             self.stats.idle_truncations += 1
-            self._flush(max(active_until, 0), idle_trimmed=True)
+            self._flush(max(active_until, 0), idle_trimmed=True, reason="idle")
             self._coordinator.set_foreground(None)
         return self._is_idle
 
     # ── 会话切分 ────────────────────────────────────────────────────────
-    def _begin(self, app_id: int, identity: AppIdentity, title: str, start_ts_ns: int) -> None:
+    def _begin(
+        self,
+        app_id: int,
+        identity: AppIdentity,
+        title: str,
+        start_ts_ns: int,
+        *,
+        visit_start: int | None = None,
+    ) -> None:
         self._current = _Current(
-            app_id=app_id, identity=identity, window_title=title, start_ts_ns=start_ts_ns
+            app_id=app_id,
+            identity=identity,
+            window_title=title,
+            start_ts_ns=start_ts_ns,
+            visit_start_ts_ns=visit_start if visit_start is not None else start_ts_ns,
         )
 
-    def _flush(self, end_ts_ns: int, *, idle_trimmed: bool = False) -> None:
+    def _announce(self, app_id: int) -> None:
+        if self._bus is not None:
+            self._bus.publish(TOPIC_FOREGROUND_CHANGED, app_id)
+
+    def _flush(
+        self, end_ts_ns: int, *, idle_trimmed: bool = False, reason: EndReason = "switch"
+    ) -> None:
         current, self._current = self._current, None
         if current is None:
             return
@@ -257,6 +302,8 @@ class ForegroundMonitor:
             self.stats.dropped_short += 1
             return
         self.stats.sessions += 1
+        if current.visit_start_ts_ns == current.start_ts_ns:
+            self.stats.visits += 1
         self._queue.put(
             UsageSession(
                 app_id=current.app_id,
@@ -265,6 +312,8 @@ class ForegroundMonitor:
                 duration_ms=duration_ms,
                 window_title=current.window_title,
                 idle_trimmed=idle_trimmed,
+                end_reason=reason,
+                visit_start_ts_ns=current.visit_start_ts_ns,
             )
         )
 
@@ -272,6 +321,7 @@ class ForegroundMonitor:
 __all__ = [
     "IDLE_CHECK_SECONDS",
     "MIN_SESSION_MS",
+    "TOPIC_FOREGROUND_CHANGED",
     "ForegroundMonitor",
     "ForegroundStats",
     "ResolveApp",

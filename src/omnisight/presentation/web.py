@@ -2,6 +2,10 @@
 
 用工厂而非模块级全局 app（KeyTrace 做对了，TimeLens 没有）：测试要能拿到互不
 干扰的实例，而模块级全局意味着"导入即建库"。
+
+**表现层拿到的是服务，不是仓储。** :class:`AppContext` 里没有 ``UsageRepository`` 这类
+对象——分层要求表现层无法绕过服务直接查库（02 文档 §1）。M1 时它直接持有仓储，M2 起
+换成 :class:`~omnisight.services.Services`。
 """
 
 from __future__ import annotations
@@ -11,28 +15,51 @@ import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, render_template, request
 from werkzeug.serving import make_server
 
 from .. import __version__
 from ..core import paths
-from . import errors, security
-from .api import debug
+from . import errors, security, stream
+from .api import apps as apps_api
+from .api import export as export_api
+from .api import insights as insights_api
+from .api import keyboard as keyboard_api
+from .api import overview as overview_api
+from .api import settings as settings_api
+from .api import system as system_api
+from .api import usage as usage_api
+from .api.system import build_status
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..core.config import Config
+    from ..services import Services
     from ..storage.database import Database
 
 logger = logging.getLogger(__name__)
+
+#: 注册顺序无关紧要，但集中成一张表让"新增一个面板要改哪里"只有一个答案。
+API_MODULES = (
+    system_api,
+    overview_api,
+    usage_api,
+    keyboard_api,
+    apps_api,
+    insights_api,
+    settings_api,
+    export_api,
+)
 
 
 @dataclass(slots=True)
 class AppContext:
     """交给表现层的运行时上下文。表现层只读它，不自己拼装依赖。
 
-    ``capture`` 是生命周期装配好的采集管道（``CaptureBundle``），这里用 ``Any`` 持有
-    而不是导入它的类型：表现层依赖 ``core.lifecycle`` 会形成环，而它真正需要的只是
-    ``snapshot()`` 与几个仓储。M2 引入服务层后，这里换成服务对象，仓储不再直达表现层。
+    ``capture`` 与 ``services`` 用 ``Any`` 持有而不是导入类型：表现层依赖
+    ``core.lifecycle`` 会形成环，而它真正需要的只是 ``snapshot()`` 与服务对象。
+
+    ``config`` 会被设置接口替换（``dataclasses.replace`` 产出新的 frozen 实例），
+    因此本类**不能**是 frozen 的。
     """
 
     config: Config
@@ -44,6 +71,8 @@ class AppContext:
     schema_version: int = 0
     paused: bool = False
     capture: Any = None
+    services: Services | None = None
+    stream: Any = None
 
 
 def create_app(context: AppContext) -> Flask:
@@ -61,7 +90,10 @@ def create_app(context: AppContext) -> Flask:
     errors.register(app)
     security.install(app, token=context.token)
     _register_routes(app, context)
-    debug.register(app, context)
+    if context.services is not None:
+        for module in API_MODULES:
+            module.register(app, context)
+        stream.register(app, context)
     return app
 
 
@@ -81,79 +113,6 @@ def _register_routes(app: Flask, context: AppContext) -> None:
     def healthz():
         """无需令牌的存活探针，只回一个字面量，不泄露任何信息。"""
         return {"ok": True}
-
-    @app.get("/api/v1/status")
-    def status():
-        return jsonify(build_status(context))
-
-
-def build_status(context: AppContext) -> dict[str, Any]:
-    """``/api/v1/status`` 的响应体（05 文档 §7）。
-
-    ``capabilities`` 是前端**唯一**的降级依据；``platform`` 仅用于展示与排查，
-    不参与任何逻辑分支。
-    """
-    caps = context.capabilities
-    database_path = context.database.path
-    capture = _capture_status(context)
-    min_date, max_date = _data_range(context)
-    return {
-        "app": "OmniSight",
-        "version": __version__,
-        "port": context.config.server.port,
-        "started_at": context.started_at,
-        "platform": {
-            "id": caps.platform_id,
-            "tier": caps.tier,
-            "os_version": caps.os_version,
-        },
-        "capabilities": caps.to_dict(),
-        "capture": capture,
-        "database": {
-            "path": str(database_path),
-            "schema_version": context.schema_version,
-            "size_bytes": database_path.stat().st_size if database_path.exists() else 0,
-        },
-        "paths": paths.describe(),
-        "data_range": {"min_date": min_date, "max_date": max_date},
-        "data_version": int(context.database.meta_get("data_version", "0") or 0),
-        "degraded": [_notice_to_dict(notice) for notice in caps.degraded],
-        "warnings": [],
-    }
-
-
-def _capture_status(context: AppContext) -> dict[str, Any]:
-    """采集管道的实时状态。没有管道时如实上报"没在跑"，不编造字段。"""
-    if context.capture is None:
-        return {
-            "foreground": {"running": False, "backend": "none"},
-            "keyboard": {"running": False, "backend": "none"},
-            "paused": context.paused,
-            "queue_depth": 0,
-            "dropped_events": 0,
-        }
-    return context.capture.snapshot()
-
-
-def _data_range(context: AppContext) -> tuple[str | None, str | None]:
-    if context.capture is None:
-        return (None, None)
-    try:
-        return context.capture.usage.data_range()
-    except Exception:  # pragma: no cover - 状态接口绝不因为一次查询失败而 500
-        logger.debug("读取数据日期范围失败", exc_info=True)
-        return (None, None)
-
-
-def _notice_to_dict(notice: Any) -> dict[str, Any]:
-    return {
-        "code": notice.code,
-        "severity": notice.severity,
-        "title": notice.title,
-        "detail": notice.detail,
-        "hint": notice.hint,
-        "docs": notice.docs,
-    }
 
 
 class WebServer:
@@ -187,3 +146,6 @@ class WebServer:
             self._thread.join(timeout=timeout)
             self._thread = None
         self._server.server_close()
+
+
+__all__ = ["API_MODULES", "AppContext", "WebServer", "build_status", "create_app"]

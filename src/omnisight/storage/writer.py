@@ -26,6 +26,7 @@ from sqlite3 import Connection
 
 from ..capture.models import KeyEvent, UsageSession
 from ..capture.queue import Event, EventQueue
+from ..core.bus import EventBus
 from ..core.clock import Clock, SystemClock
 from . import capability as capability_table
 from .database import Database
@@ -42,6 +43,11 @@ BATCH_MAX_WAIT_SECONDS = 1.0
 #: 同一批连续失败这么多次后放弃它，避免一条毒药记录让写线程永久空转。
 MAX_BATCH_RETRIES = 5
 HOUR_NS = 3_600_000_000_000
+
+#: 一批数据落盘完成（SSE 的 ``invalidate`` 事件源，05 文档 §7）。载荷是新的
+#: ``data_version``。**推送的是"有新数据了"而不是数据本身**：服务端不猜前端在看哪个
+#: 周期，前端按当前视图决定要不要重取。
+TOPIC_WRITE_FLUSHED = "write_flushed"
 
 _AGG_KEY_BUCKET_UPSERT = """
 INSERT INTO agg_key_{grain} (bucket, key_id, press_count, duration_total_ms, duration_max_ms)
@@ -88,6 +94,35 @@ ON CONFLICT(app_id, key_id) DO UPDATE SET
     duration_max_ms   = MAX(agg_app_key_total.duration_max_ms, excluded.duration_max_ms)
 """
 
+#: 日粒度独有：``longest_visit_ms`` 取 MAX。心跳落盘让 ``MAX(usage_session.duration_ms)``
+#: 恒等于心跳间隔，因此"最长一次访问"只能由写入侧维护——每个心跳段带着**递增**的
+#: 访问时长过来，MAX 自然收敛到整次访问的长度（见 ``UsageSession.visit_duration_ms``）。
+AGG_APP_DAY_UPSERT = """
+INSERT INTO agg_app_day (
+    day_bucket, app_id, duration_ms, session_count, longest_visit_ms, press_count
+) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(day_bucket, app_id) DO UPDATE SET
+    duration_ms      = agg_app_day.duration_ms + excluded.duration_ms,
+    session_count    = agg_app_day.session_count + excluded.session_count,
+    longest_visit_ms = MAX(agg_app_day.longest_visit_ms, excluded.longest_visit_ms),
+    press_count      = agg_app_day.press_count + excluded.press_count
+"""
+
+AGG_PRESS_HOUR_UPSERT = """
+INSERT INTO agg_press_hour (day_bucket, hour, press_count, duration_total_ms)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(day_bucket, hour) DO UPDATE SET
+    press_count       = agg_press_hour.press_count + excluded.press_count,
+    duration_total_ms = agg_press_hour.duration_total_ms + excluded.duration_total_ms
+"""
+
+AGG_PRESS_MINUTE_UPSERT = """
+INSERT INTO agg_press_minute (day_bucket, minute, press_count)
+VALUES (?, ?, ?)
+ON CONFLICT(day_bucket, minute) DO UPDATE SET
+    press_count = agg_press_minute.press_count + excluded.press_count
+"""
+
 _AGG_APP_BUCKET_UPSERT = """
 INSERT INTO agg_app_{grain} ({bucket}, app_id, duration_ms, session_count)
 VALUES (?, ?, ?, ?)
@@ -114,8 +149,9 @@ ON CONFLICT(day_bucket, hour, app_id) DO UPDATE SET
 
 USAGE_SESSION_INSERT = """
 INSERT INTO usage_session (
-    app_id, window_title, start_ts_ns, end_ts_ns, duration_ms, day_bucket, idle_trimmed
-) VALUES (?, ?, ?, ?, ?, ?, ?)
+    app_id, window_title, start_ts_ns, end_ts_ns, duration_ms, day_bucket, idle_trimmed,
+    end_reason, visit_start_ts_ns
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 HEALTH_STAT_UPSERT = """
@@ -129,7 +165,6 @@ ON CONFLICT(day_bucket) DO UPDATE SET
 AGG_KEY_DAY_UPSERT = _AGG_KEY_BUCKET_UPSERT.format(grain="day")
 AGG_KEY_MONTH_UPSERT = _AGG_KEY_BUCKET_UPSERT.format(grain="month")
 AGG_KEY_YEAR_UPSERT = _AGG_KEY_BUCKET_UPSERT.format(grain="year")
-AGG_APP_DAY_UPSERT = _AGG_APP_BUCKET_UPSERT.format(grain="day", bucket="day_bucket")
 AGG_APP_MONTH_UPSERT = _AGG_APP_BUCKET_UPSERT.format(grain="month", bucket="month_bucket")
 AGG_APP_YEAR_UPSERT = _AGG_APP_BUCKET_UPSERT.format(grain="year", bucket="year_bucket")
 
@@ -140,6 +175,12 @@ def day_bucket(ts_ns: int, tz: tzinfo | None) -> str:
 
 def hour_of(ts_ns: int, tz: tzinfo | None) -> int:
     return datetime.fromtimestamp(ts_ns / 1_000_000_000, tz=tz).hour
+
+
+def minute_of_day(moment: datetime) -> int:
+    """0–1439。夏令时回拨那天某个分钟会出现两次，两次都累加到同一格——那一分钟
+    确实过了两遍，按键总量因此守恒（与 :func:`split_by_hour` 同一套理由）。"""
+    return moment.hour * 60 + moment.minute
 
 
 def split_by_hour(
@@ -208,11 +249,16 @@ class _Rollup:
     key_app_day: dict[tuple[str, int, str], list[float]] = field(default_factory=dict)
     app_key_total: dict[tuple[int, str], list[float]] = field(default_factory=dict)
     sessions: list[tuple] = field(default_factory=list)
+    #: ``(日, 应用) → [时长ms, 访问数, 最长访问ms, 按键数]``。按键与会话都会往这里写，
+    #: 因此槽位由 :func:`_app_day_slot` 统一创建——两边各写一半会漏掉"只有按键没有
+    #: 会话"的那一天（无前台时的按键归到 app_id = 0，那天没有会话行）。
     app_day: dict[tuple[str, int], list[int]] = field(default_factory=dict)
     app_month: dict[tuple[str, int], list[int]] = field(default_factory=dict)
     app_year: dict[tuple[str, int], list[int]] = field(default_factory=dict)
     app_total: dict[int, list[int]] = field(default_factory=dict)
     app_hour: dict[tuple[str, int, int], int] = field(default_factory=dict)
+    press_hour: dict[tuple[str, int], list[float]] = field(default_factory=dict)
+    press_minute: dict[tuple[str, int], int] = field(default_factory=dict)
     touched_apps: set[int] = field(default_factory=set)
     key_count: int = 0
     session_count: int = 0
@@ -230,6 +276,15 @@ def _accumulate(target: dict, key, count: float, total: float, maximum: float) -
     slot[0] += count
     slot[1] += total
     slot[2] = max(slot[2], maximum)
+
+
+def _app_day_slot(rollup: _Rollup, day: str, app_id: int) -> list[int]:
+    """``rollup.app_day`` 的槽位：``[时长ms, 访问数, 最长访问ms, 按键数]``。"""
+    slot = rollup.app_day.get((day, app_id))
+    if slot is None:
+        slot = [0, 0, 0, 0]
+        rollup.app_day[(day, app_id)] = slot
+    return slot
 
 
 def _accumulate_pair(target: dict, key, count: float, total: float) -> None:
@@ -257,6 +312,7 @@ class StorageWriter:
         checkpoint_interval_seconds: float = 300.0,
         batch_max_size: int = BATCH_MAX_SIZE,
         batch_max_wait_seconds: float = BATCH_MAX_WAIT_SECONDS,
+        bus: EventBus | None = None,
     ) -> None:
         self._db = db
         self._queue = queue
@@ -279,6 +335,9 @@ class StorageWriter:
         #: 已从队列取出但尚未成功写进 health_stat 的丢弃数。写失败时必须留着，
         #: 否则重试成功后这一笔就永远不见了——而「丢事件必须可见」是硬要求。
         self._pending_dropped = 0
+        self._bus = bus
+        #: 最后一次提交后的 ``data_version``。落盘后广播它，SSE 据此发 ``invalidate``。
+        self._data_version = 0
         self.stats = WriterStats()
 
     def set_capability_provider(self, provider: Callable[[], dict] | None) -> None:
@@ -289,6 +348,18 @@ class StorageWriter:
         （02 文档 §5.1 的能力语义表）。
         """
         self._capability_provider = provider
+
+    # ── 运行期可改的设置（``PATCH /api/v1/settings`` 会调它们）─────────────
+    def set_store_raw(self, store_raw: bool) -> None:
+        """开关原始事件留存。下一批生效。
+
+        关掉之后已有的月表不会被删——那是"删除数据"，属于另一个明确的用户动作
+        （08 文档 §4）。
+        """
+        self._store_raw = store_raw
+
+    def set_checkpoint_interval(self, seconds: float) -> None:
+        self._checkpoint_interval = seconds
 
     # ── 生命周期 ────────────────────────────────────────────────────────
     @property
@@ -320,6 +391,10 @@ class StorageWriter:
             "dropped_events": self._queue.dropped,
             **self.stats.as_dict(),
         }
+
+    @property
+    def data_version(self) -> int:
+        return self._data_version
 
     # ── 主循环 ──────────────────────────────────────────────────────────
     def _loop(self) -> None:
@@ -407,6 +482,10 @@ class StorageWriter:
         self.stats.key_events += rollup.key_count
         self.stats.sessions += rollup.session_count
         self.stats.last_flush_at = now.isoformat(timespec="seconds")
+        # 广播放在事务**之外**：订阅者（SSE）收到通知后会立刻去查库，而事务还没提交时
+        # 它查到的是旧数据——"通知到了但数据还没到"比晚 1 毫秒通知糟得多。
+        if self._bus is not None and not rollup.empty:
+            self._bus.publish(TOPIC_WRITE_FLUSHED, self._data_version)
         return rollup.key_count + rollup.session_count
 
     def _flush_counters_only(self) -> None:
@@ -512,6 +591,17 @@ class StorageWriter:
             [(day, hour, app_id, duration)
              for (day, hour, app_id), duration in rollup.app_hour.items()],
         )
+        _executemany(
+            conn,
+            AGG_PRESS_HOUR_UPSERT,
+            [(day, hour, count, total)
+             for (day, hour), (count, total) in rollup.press_hour.items()],
+        )
+        _executemany(
+            conn,
+            AGG_PRESS_MINUTE_UPSERT,
+            [(day, minute, count) for (day, minute), count in rollup.press_minute.items()],
+        )
 
         if self._registry is not None and rollup.touched_apps:
             AppRegistry.touch(conn, rollup.touched_apps, now)
@@ -528,6 +618,8 @@ class StorageWriter:
                 "ON CONFLICT(key) DO UPDATE SET "
                 "value = CAST(CAST(meta.value AS INTEGER) + 1 AS TEXT)"
             )
+            row = conn.execute("SELECT value FROM meta WHERE key = 'data_version'").fetchone()
+            self._data_version = int(row[0]) if row else 0
 
     def _upsert_capability(self, conn: Connection, now: datetime) -> None:
         if self._capability_provider is None:
@@ -580,6 +672,10 @@ class StorageWriter:
         _accumulate(rollup.key_year, (year, key_id), 1, duration, duration)
         _accumulate(rollup.key_total, key_id, 1, duration, duration)
         _accumulate_pair(rollup.key_hour, (day, hour, key_id), 1, duration)
+        _accumulate_pair(rollup.press_hour, (day, hour), 1, duration)
+        _app_day_slot(rollup, day, app_id)[3] += 1
+        minute = minute_of_day(moment)
+        rollup.press_minute[(day, minute)] = rollup.press_minute.get((day, minute), 0) + 1
         # ★ 应用 × 键：合并的核心产出。哨兵 app_id = 0 也要写——键盘总量必须守恒。
         _accumulate(rollup.key_app_day, (day, app_id, key_id), 1, duration, duration)
         _accumulate(rollup.app_key_total, (app_id, key_id), 1, duration, duration)
@@ -605,36 +701,62 @@ class StorageWriter:
                 session.duration_ms,
                 start_day,
                 int(session.idle_trimmed),
+                session.end_reason,
+                session.visit_start,
             )
         )
 
         per_day: dict[str, int] = {}
+        # 本段在每一天里的结束时刻。累加时长即可得到，不必再算一遍时区。
+        day_ends: dict[str, int] = {}
+        running = session.start_ts_ns
         for day, hour, duration_ms in slices:
             key = (day, hour, app_id)
             rollup.app_hour[key] = rollup.app_hour.get(key, 0) + duration_ms
             per_day[day] = per_day.get(day, 0) + duration_ms
+            running += duration_ms * 1_000_000
+            day_ends[day] = running
 
         total_ms = sum(per_day.values())
+        # 心跳落盘把一次访问切成若干段（04 文档 §2.3）。只有开启访问的那一段才算
+        # "用了一次"——否则在一个应用里连续工作 3 小时会被数成 1080 次使用，而
+        # ``session_count`` 是 05 文档 §3 直接返回给用户看的字段。
+        visits = 1 if session.starts_visit else 0
+        visit_start = session.visit_start
         for day, duration_ms in per_day.items():
             # session_count 只在**起始**桶 +1：跨日会话的时长要分摊到两天，但它仍然只是
             # 一段会话，两边都 +1 会让"平均会话时长"这类指标失真。
             is_start = day == start_day
-            _accumulate_pair(rollup.app_day, (day, app_id), duration_ms, 0)
-            rollup.app_day[(day, app_id)][1] += 1 if is_start else 0
+            day_slot = _app_day_slot(rollup, day, app_id)
+            day_slot[0] += duration_ms
+            day_slot[1] += visits if is_start else 0
+            # ``longest_visit_ms`` 是**按日裁剪**的：跨零点的访问在两边各记自己那一半。
+            # 不裁剪的话第二天会报出一个比当天总时长还长的"最长一次访问"，而
+            # ``longest_visit_ms <= duration_ms`` 是这一行上唯一能机械检查的不变式。
+            # 整次访问的真实跨度仍然查得到——``/usage/sessions`` 与"专注时段"都用它。
+            floor = max(visit_start, _day_start_ns(day, tz))
+            day_slot[2] = max(day_slot[2], (day_ends[day] - floor) // 1_000_000)
             _accumulate_pair(rollup.app_month, (day[:7], app_id), duration_ms, 0)
-            rollup.app_month[(day[:7], app_id)][1] += 1 if is_start else 0
+            rollup.app_month[(day[:7], app_id)][1] += visits if is_start else 0
             _accumulate_pair(rollup.app_year, (day[:4], app_id), duration_ms, 0)
-            rollup.app_year[(day[:4], app_id)][1] += 1 if is_start else 0
+            rollup.app_year[(day[:4], app_id)][1] += visits if is_start else 0
 
         slot = rollup.app_total.get(app_id)
         if slot is None:
-            rollup.app_total[app_id] = [total_ms, 1, session.end_ts_ns]
+            rollup.app_total[app_id] = [total_ms, visits, session.end_ts_ns]
         else:
             slot[0] += total_ms
-            slot[1] += 1
+            slot[1] += visits
             slot[2] = max(slot[2], session.end_ts_ns)
         if app_id != UNKNOWN_APP_ID:
             rollup.touched_apps.add(app_id)
+
+
+def _day_start_ns(day: str, tz: tzinfo | None) -> int:
+    """日期桶 → 当地零点的纪元纳秒。``tz`` 为 ``None`` 时用系统本地时区。"""
+    moment = datetime.fromisoformat(day)
+    moment = moment.replace(tzinfo=tz) if tz else moment.astimezone()
+    return int(moment.timestamp() * 1_000_000_000)
 
 
 def day_bucket_of(moment: datetime) -> str:
@@ -654,10 +776,12 @@ def _executemany(conn: Connection, sql: str, rows: list[tuple]) -> None:
 __all__ = [
     "BATCH_MAX_SIZE",
     "BATCH_MAX_WAIT_SECONDS",
+    "TOPIC_WRITE_FLUSHED",
     "StorageWriter",
     "WriterStats",
     "day_bucket",
     "day_bucket_of",
     "hour_of",
+    "minute_of_day",
     "split_by_hour",
 ]

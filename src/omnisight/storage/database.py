@@ -108,6 +108,29 @@ class Database:
         with self.transaction() as owned:
             owned.execute(sql, (key, value))
 
+    def data_version(self) -> int:
+        """写入计数。前端拿它做"值没变就跳过重绘"（05 文档 §1.4）。"""
+        return int(self.meta_get("data_version", "0") or 0)
+
+    def bump_data_version(self, conn: sqlite3.Connection | None = None) -> int:
+        """递增写入计数并返回新值。
+
+        写线程在自己的批事务里顺手做同一件事；这个方法是给**用户写操作**用的
+        （改别名、改分类、合并应用）——它们同样改变了查询结果，因此必须让缓存失效，
+        否则用户改完名字刷新页面看到的还是旧名字（05 文档 §6）。
+        """
+        sql = (
+            "INSERT INTO meta (key, value) VALUES ('data_version', '1') "
+            "ON CONFLICT(key) DO UPDATE SET "
+            "value = CAST(CAST(meta.value AS INTEGER) + 1 AS TEXT)"
+        )
+        if conn is not None:
+            conn.execute(sql)
+        else:
+            with self.transaction() as owned:
+                owned.execute(sql)
+        return self.data_version()
+
     def schema_version(self) -> int:
         if not self.table_exists("meta"):
             return 0

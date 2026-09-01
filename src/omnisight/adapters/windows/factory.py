@@ -23,6 +23,8 @@ from ..chain import ChainedKeyboardSource
 from ..ports import AdapterOptions, AdapterSet, Capabilities, DegradedNotice, KeyboardSource
 from .autostart import RegistryAutostart
 from .foreground import WindowsForegroundSource
+from .icons import WindowsIconSource
+from .icons import available as _icons_available
 from .idle import WindowsIdleSource
 from .keyboard import BACKEND_NAME as RAW_INPUT_BACKEND
 from .keyboard import RawInputKeyboardSource
@@ -63,6 +65,15 @@ def _tray_available() -> bool:
     return True
 
 
+def _icons_ready() -> bool:
+    """图标链路是否完整：Win32 导出符号 + Pillow（PNG 编码）。"""
+    try:
+        import PIL.Image  # noqa: F401
+    except Exception:  # pragma: no cover - 打包漏了 Pillow
+        return False
+    return _icons_available()
+
+
 def _pynput_available() -> bool:
     try:
         return importlib.util.find_spec("pynput") is not None
@@ -89,16 +100,6 @@ def detect() -> Capabilities:
         permissions_required=(),
         permissions_granted=(),
     )
-
-
-#: 图标提取排在 M2（04 文档 §6 的持久化缓存与后台解析一并做）。
-_ICONS_PENDING = DegradedNotice(
-    code="icons_not_implemented",
-    severity="warning",
-    title="应用图标尚未启用",
-    detail="应用列表会显示首字母色块而不是真实图标；统计数据不受影响。",
-    hint=None,
-)
 
 
 def _build_keyboard(options: AdapterOptions, environment: Capabilities) -> KeyboardSource | None:
@@ -164,15 +165,26 @@ def build(
                 hint="通过浏览器访问仪表盘地址即可使用，退出请用设置页的「退出」按钮",
             )
         )
-    if environment.icons:
-        notices.append(_ICONS_PENDING)
+    # 图标：``detect()`` 只看导出符号在不在，这里再确认渲染链路（GetIconInfo +
+    # GetDIBits + Pillow）也齐备。缺 Pillow 时统计功能完全不受影响，只是没有图标。
+    icon_source = WindowsIconSource() if environment.icons and _icons_ready() else None
+    if environment.icons and icon_source is None:
+        notices.append(
+            DegradedNotice(
+                code="icons_unavailable",
+                severity="info",
+                title="应用图标不可用",
+                detail="应用列表会显示首字母色块而不是真实图标；统计数据不受影响。",
+                hint=None,
+            )
+        )
 
     from dataclasses import replace
 
     effective = replace(
         environment,
-        # 唯一还没接线的能力。绝不上报尚未实现的东西：UI 依据这份数据决定显示哪些面板。
-        icons=False,
+        # 绝不上报拿不到的能力：UI 依据这份数据决定显示哪些面板，谎报会换来一堆 204。
+        icons=icon_source is not None,
         degraded=(*environment.degraded, *notices),
     )
     return AdapterSet(
@@ -187,5 +199,5 @@ def build(
         ),
         keyboard=_build_keyboard(options, environment),
         idle=WindowsIdleSource() if environment.idle else None,
-        icons=None,  # M2
+        icons=icon_source,
     )

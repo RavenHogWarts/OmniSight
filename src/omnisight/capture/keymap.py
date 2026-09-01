@@ -28,13 +28,162 @@ class KeyDefinition:
     #: 该键对应的 USB HID Usage ID；``None`` 表示没有任何平台能报出它（应视为 bug，
     #: 由 ``test_keymap`` 固定住）。
     hid_usage: int | None = None
+    #: 标准指法下按它的手指（05 文档 §4 的人体工学分析）。见 :data:`FINGERS`。
+    finger: str = "unknown"
+    #: 所在键盘分区，供"行分布"统计使用。见 :data:`ROWS`。
+    row: str = "unknown"
 
 
 def _define(pairs: tuple[tuple[str, str], ...]) -> tuple[KeyDefinition, ...]:
     return tuple(
-        KeyDefinition(key_id, label, hid.hid_for_key_id(key_id)) for key_id, label in pairs
+        KeyDefinition(
+            key_id,
+            label,
+            hid.hid_for_key_id(key_id),
+            finger=_FINGER_BY_KEY.get(key_id, "unknown"),
+            row=_ROW_BY_KEY.get(key_id, "unknown"),
+        )
+        for key_id, label in pairs
     )
 
+
+
+#: 手指 id → (展示名, 左右手)。``neutral`` 的键不计入左右平衡：空格通常是第一大键，
+#: 把它单方面算给某只手会让"左右手负荷"这个指标失去意义（05 文档 §4）。
+FINGERS: tuple[tuple[str, str, str], ...] = (
+    ("left_pinky", "左小指", "left"),
+    ("left_ring", "左无名指", "left"),
+    ("left_middle", "左中指", "left"),
+    ("left_index", "左食指", "left"),
+    ("left_thumb", "左拇指", "left"),
+    ("thumb", "拇指", "neutral"),
+    ("right_thumb", "右拇指", "right"),
+    ("right_index", "右食指", "right"),
+    ("right_middle", "右中指", "right"),
+    ("right_ring", "右无名指", "right"),
+    ("right_pinky", "右小指", "right"),
+)
+
+FINGER_NAMES: dict[str, str] = {finger: name for finger, name, _hand in FINGERS}
+FINGER_HANDS: dict[str, str] = {finger: hand for finger, _name, hand in FINGERS}
+
+#: 键盘分区 id → 展示名。``home`` 指主键行（05 文档 §4 的取值），与 ``home`` 这个
+#: **键** id 同名但属于不同命名空间。
+ROWS: tuple[tuple[str, str], ...] = (
+    ("function", "功能行"),
+    ("number", "数字行"),
+    ("top", "上排"),
+    ("home", "主键行"),
+    ("bottom", "下排"),
+    ("modifier", "修饰行"),
+    ("navigation", "导航区"),
+    ("numpad", "小键盘"),
+)
+
+ROW_NAMES: dict[str, str] = dict(ROWS)
+
+#: 被视为修饰键的 key_id（``modifier_ratio`` 的分子）。
+#: **口径**：这里数的是"修饰键自身被按下的次数"，不是"按某个键时按住了修饰键"——
+#: 后者需要和弦信息，而我们既不记录按键顺序也不扫原始事件（08 文档 §2、01 文档 §4.1）。
+MODIFIER_KEYS: frozenset[str] = frozenset(
+    {
+        "shift_left", "shift_right", "control_left", "control_right",
+        "alt_left", "alt_right", "win_left", "win_right", "caps_lock", "menu",
+    }
+)
+
+_FINGER_GROUPS: dict[str, tuple[str, ...]] = {
+    "left_pinky": (
+        "esc", "f1", "grave", "digit1", "tab", "key_q", "caps_lock", "key_a",
+        "shift_left", "iso_backslash", "key_z", "control_left", "win_left",
+    ),
+    "left_ring": ("f2", "digit2", "key_w", "key_s", "key_x"),
+    "left_middle": ("f3", "digit3", "key_e", "key_d", "key_c"),
+    "left_index": (
+        "f4", "f5", "digit4", "digit5", "key_r", "key_t",
+        "key_f", "key_g", "key_v", "key_b",
+    ),
+    "left_thumb": ("alt_left",),
+    "thumb": ("space",),
+    "right_thumb": ("alt_right", "win_right", "numpad_0"),
+    "right_index": (
+        "f6", "f7", "digit6", "digit7", "key_y", "key_u", "key_h", "key_j",
+        "key_n", "key_m", "print_screen", "insert", "delete", "arrow_left",
+        "numpad_1", "numpad_4", "numpad_7",
+        "f13", "f17", "f21",
+    ),
+    "right_middle": (
+        "f8", "digit8", "key_i", "key_k", "comma", "scroll_lock",
+        "home", "end", "arrow_up", "arrow_down",
+        "numpad_2", "numpad_5", "numpad_8",
+        "f14", "f18", "f22",
+    ),
+    "right_ring": (
+        "f9", "digit9", "key_o", "key_l", "period", "pause",
+        "page_up", "page_down", "arrow_right",
+        "numpad_3", "numpad_6", "numpad_9", "numpad_decimal",
+        "f15", "f19", "f23",
+    ),
+    "right_pinky": (
+        "f10", "f11", "f12", "digit0", "minus", "equal", "backspace", "key_p",
+        "bracket_left", "bracket_right", "backslash", "semicolon", "quote",
+        "enter", "slash", "shift_right", "menu", "control_right",
+        "num_lock", "numpad_divide", "numpad_multiply", "numpad_subtract",
+        "numpad_add", "numpad_enter", "numpad_equal",
+        "f16", "f20", "f24",
+    ),
+}
+
+_ROW_GROUPS: dict[str, tuple[str, ...]] = {
+    "function": (
+        "esc", "print_screen", "scroll_lock", "pause",
+        *(f"f{index}" for index in range(1, 25)),
+    ),
+    "number": (
+        "grave", *(f"digit{index}" for index in (*range(1, 10), 0)),
+        "minus", "equal", "backspace",
+    ),
+    "top": (
+        "tab", *(f"key_{letter}" for letter in "qwertyuiop"),
+        "bracket_left", "bracket_right", "backslash",
+    ),
+    "home": (
+        "caps_lock", *(f"key_{letter}" for letter in "asdfghjkl"),
+        "semicolon", "quote", "enter",
+    ),
+    "bottom": (
+        "shift_left", "iso_backslash", *(f"key_{letter}" for letter in "zxcvbnm"),
+        "comma", "period", "slash", "shift_right",
+    ),
+    "modifier": (
+        "control_left", "win_left", "alt_left", "space",
+        "alt_right", "win_right", "menu", "control_right",
+    ),
+    "navigation": (
+        "insert", "home", "page_up", "delete", "end", "page_down",
+        "arrow_up", "arrow_left", "arrow_down", "arrow_right",
+    ),
+    "numpad": (
+        "num_lock", "numpad_divide", "numpad_multiply", "numpad_subtract",
+        "numpad_add", "numpad_enter", "numpad_decimal", "numpad_equal",
+        *(f"numpad_{index}" for index in range(0, 10)),
+    ),
+}
+
+
+def _invert(groups: dict[str, tuple[str, ...]]) -> dict[str, str]:
+    """展开分组表。同一个键出现在两个分组里是笔误，直接拒绝加载。"""
+    result: dict[str, str] = {}
+    for group, key_ids in groups.items():
+        for key_id in key_ids:
+            if key_id in result:
+                raise AssertionError(f"{key_id!r} 同时属于 {result[key_id]!r} 与 {group!r}")
+            result[key_id] = group
+    return result
+
+
+_FINGER_BY_KEY = _invert(_FINGER_GROUPS)
+_ROW_BY_KEY = _invert(_ROW_GROUPS)
 
 _DEFINITIONS: tuple[tuple[str, str], ...] = (
     # ── 功能键行 ──────────────────────────────────────────────────────────
@@ -130,4 +279,17 @@ def is_known(key_id: str) -> bool:
     return key_id in KEY_BY_ID
 
 
-__all__ = ["KEYS", "KEY_BY_ID", "KEY_IDS", "KeyDefinition", "is_known", "label_for"]
+__all__ = [
+    "FINGERS",
+    "FINGER_HANDS",
+    "FINGER_NAMES",
+    "KEYS",
+    "KEY_BY_ID",
+    "KEY_IDS",
+    "MODIFIER_KEYS",
+    "ROWS",
+    "ROW_NAMES",
+    "KeyDefinition",
+    "is_known",
+    "label_for",
+]

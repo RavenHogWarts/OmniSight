@@ -29,7 +29,18 @@ STARTUP_TIMEOUT = 30.0
 TOKEN_HEADER = "X-OmniSight-Token"
 
 #: 每个端点配一个校验函数：只断言 200 等于放过"返回了 200 但内容是空壳"这类打包事故。
-CHECKED_ENDPOINTS = ("/api/v1/status", "/api/v1/_debug/attribution")
+#: M2 起遍历真实接口（M1 的 ``/_debug/attribution`` 已删除）。挑的这几个各有理由：
+#: ``overview`` 一次请求横跨三个服务，``keyboard/layout`` 证明布局数据被收进了产物，
+#: ``maintenance/integrity`` 是聚合自检的常驻出口。
+CHECKED_ENDPOINTS = (
+    "/api/v1/status",
+    "/api/v1/maintenance/integrity",
+    "/api/v1/overview?range=day",
+    "/api/v1/keyboard/layout",
+    "/api/v1/keyboard/heatmap?range=day",
+    "/api/v1/insights/app-keyboard?range=day",
+    "/api/v1/settings",
+)
 
 
 def _get(url: str, token: str | None = None, timeout: float = 5.0):
@@ -89,11 +100,32 @@ def _check_payload(endpoint: str, data: dict) -> list[str]:
             problems.append("打包产物里前台监控没起来")
         if data.get("capabilities", {}).get("keyboard_backend") == "none":
             problems.append("有效能力里键盘后端是 none——采集实际未生效")
-    elif endpoint == "/api/v1/_debug/attribution":
-        if not data.get("consistency", {}).get("match"):
-            problems.append("聚合自检不一致（agg_key_* 各表求和不等）")
-        if "app_keyboard" not in data:
-            problems.append("纵切端点缺少 app_keyboard 段")
+    elif endpoint == "/api/v1/maintenance/integrity":
+        if not data.get("match"):
+            problems.append(f"聚合自检不一致：{data.get('aggregates')}")
+        if len(data.get("aggregates") or {}) < 8:
+            problems.append("自检覆盖的聚合表少于 8 张——新表漏进了核对清单？")
+    elif endpoint.startswith("/api/v1/overview"):
+        for section in ("screen_time", "keyboard", "top_apps", "trend", "highlights"):
+            if section not in data:
+                problems.append(f"概览缺少 {section} 段")
+        if len(data.get("trend", {}).get("buckets") or []) != 24:
+            problems.append("概览的日趋势不是 24 个桶")
+    elif endpoint == "/api/v1/keyboard/layout":
+        rows = data.get("rows") or []
+        if len(rows) != 6:
+            problems.append("键盘布局不是 6 行（布局数据没被收进产物？）")
+        if sum(1 for row in rows for slot in row if slot.get("id") != "gap") != 104:
+            problems.append("ANSI104 布局的键数不对")
+    elif endpoint.startswith("/api/v1/keyboard/heatmap"):
+        if len(data.get("keys") or []) != 104:
+            problems.append("热力图没有覆盖全部键位")
+    elif endpoint.startswith("/api/v1/insights/app-keyboard"):
+        if "unattributed_presses" not in data:
+            problems.append("洞察接口缺少 unattributed_presses（总量守恒无法验证）")
+    elif endpoint == "/api/v1/settings":
+        if "privacy.record_window_titles" not in (data.get("settings") or {}):
+            problems.append("设置接口缺少隐私开关")
     return problems
 
 
@@ -133,6 +165,8 @@ def run(executable: Path, *, keep: bool = False) -> int:
                 continue
             failures.extend(_check_payload(endpoint, json.loads(payload)))
 
+        failures.extend(_check_stream(base, token))
+
         # 无令牌必须被拒——这条防的是"某次重构把令牌校验绕过了"。
         try:
             _get(urljoin(base, "/api/v1/status"))
@@ -160,6 +194,28 @@ def run(executable: Path, *, keep: bool = False) -> int:
         return 1
     print("冒烟测试通过")
     return 0
+
+
+def _check_stream(base: str, token: str) -> list[str]:
+    """SSE 在冻结产物里是否真的能推。
+
+    只读第一行就断开：那一行是连接确认（``: connected``），拿到它就说明响应头、
+    ``text/event-stream`` 与生成器都活着。**不能整段读**——这是一条永不结束的流。
+    """
+    request = urllib.request.Request(urljoin(base, "/api/v1/stream"))
+    request.add_header(TOKEN_HEADER, token)
+    try:
+        with urllib.request.urlopen(request, timeout=5.0) as response:
+            content_type = response.headers.get("Content-Type", "")
+            first = response.readline()
+    except Exception as exc:
+        return [f"SSE 端点不可用：{exc}"]
+    problems: list[str] = []
+    if "text/event-stream" not in content_type:
+        problems.append(f"SSE 的 Content-Type 是 {content_type!r}")
+    if not first.startswith(b":"):
+        problems.append(f"SSE 首帧不是连接确认：{first!r}")
+    return problems
 
 
 def _terminate_tree(process: subprocess.Popen) -> list[str]:

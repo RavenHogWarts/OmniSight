@@ -15,7 +15,7 @@ from pathlib import Path
 from sqlite3 import Connection
 
 from ..database import Database, SchemaTooNewError
-from . import m001_initial
+from . import m001_initial, m002_query_support
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ class Migration:
 
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial schema", m001_initial.up),
+    Migration(2, "M2 查询层所需的列与表", m002_query_support.up),
 )
 
 TARGET_VERSION = MIGRATIONS[-1].version

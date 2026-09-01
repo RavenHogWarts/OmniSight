@@ -28,11 +28,14 @@ from ..capture.foreground import ForegroundMonitor
 from ..capture.keyboard import KeyboardCapture
 from ..capture.queue import EventQueue
 from ..presentation import security
+from ..presentation.stream import StreamHub
 from ..presentation.web import AppContext, WebServer, create_app
+from ..services import Services
+from ..services import categories as category_rules
 from ..storage import capability as capability_table
 from ..storage.database import Database, SchemaTooNewError
 from ..storage.migrations import migrate
-from ..storage.repositories.apps import AppRegistry
+from ..storage.repositories.apps import AppDirectory, AppRegistry
 from ..storage.repositories.keys import KeyRepository
 from ..storage.repositories.usage import UsageRepository
 from ..storage.writer import StorageWriter
@@ -118,6 +121,9 @@ class Runtime:
     started_at: str
     schema_version: int
     capture: CaptureBundle | None = None
+    services: Services | None = None
+    context: AppContext | None = None
+    stream: StreamHub | None = None
     web: WebServer | None = None
     tray: object | None = None
 
@@ -212,6 +218,7 @@ class Lifecycle:
         self._record_capability(database, capabilities, config)
         capture.writer.set_capability_provider(lambda: _capability_row(capabilities, config))
 
+        self._build_services(runtime)
         self._start_web(runtime)
         self._install_signal_handlers()
         adapter_set.notifier.clear()
@@ -246,6 +253,7 @@ class Lifecycle:
             registry=registry,
             clock=self.clock,
             checkpoint_interval_seconds=config.storage.checkpoint_interval_seconds,
+            bus=bus,
         )
         writer.start()
 
@@ -272,6 +280,7 @@ class Lifecycle:
                 excluded=frozenset(config.privacy.excluded_processes),
                 clock=self.clock,
                 paused=config.capture.paused,
+                bus=bus,
             )
             monitor.start()
             bundle.foreground = monitor
@@ -378,7 +387,12 @@ class Lifecycle:
             url = f"{url}?token={token}"
         webbrowser.open(url)
 
-    def _start_web(self, runtime: Runtime) -> None:
+    def _build_services(self, runtime: Runtime) -> None:
+        """装配服务层与表现层上下文（02 文档 §1 的分层）。
+
+        ``on_config_change`` 让设置接口改完配置后，表现层与运行时看到的是同一份新配置——
+        少了这个回调，用户改完设置刷新页面还会看到旧值，而设置接口已经回报"已生效"。
+        """
         context = AppContext(
             config=runtime.config,
             database=runtime.database,
@@ -390,6 +404,50 @@ class Lifecycle:
             paused=runtime.config.capture.paused,
             capture=runtime.capture,
         )
+
+        def on_config_change(new_config: Config) -> None:
+            runtime.config = new_config
+            context.config = new_config
+            context.paused = new_config.capture.paused
+
+        services = Services.build(
+            database=runtime.database,
+            config=runtime.config,
+            capabilities=runtime.capabilities,
+            config_path=paths.config_path(runtime.app_root),
+            clock=self.clock,
+            capture=runtime.capture,
+            adapters=runtime.adapter_set,
+            on_config_change=on_config_change,
+        )
+        context.services = services
+        bus = runtime.capture.bus if runtime.capture is not None else None
+        runtime.stream = StreamHub(bus, context) if bus is not None else None
+        context.stream = runtime.stream
+        runtime.services = services
+        runtime.context = context
+        self._refresh_categories(runtime)
+
+    def _refresh_categories(self, runtime: Runtime) -> None:
+        """给还没被用户改过的应用补自动分类。
+
+        分类规则会随版本更新，而已入库的行不会自己变。只改
+        ``category_source = 'auto'`` 的行——用户的选择优先于规则。
+        """
+        try:
+            changed = AppDirectory(runtime.database).apply_auto_categories(
+                category_rules.categorize
+            )
+        except Exception:  # pragma: no cover - 分类刷新失败不影响启动
+            logger.debug("刷新自动分类失败", exc_info=True)
+            return
+        if changed:
+            logger.info("按最新规则更新了 %s 个应用的自动分类", changed)
+
+    def _start_web(self, runtime: Runtime) -> None:
+        context = runtime.context
+        if context is None:  # pragma: no cover - _build_services 必在此之前调用
+            raise StartupAborted("内部错误", "服务层未装配", EXIT_STARTUP_FAILED)
         app = create_app(context)
         try:
             server = WebServer(app, runtime.config.server.host, runtime.config.server.port)
@@ -459,6 +517,8 @@ class Lifecycle:
             if capture.foreground is not None:
                 _guard("停止前台监控", capture.foreground.stop)
             _guard("落盘剩余事件", lambda: capture.writer.stop(timeout=5.0))
+        if runtime.stream is not None:
+            _guard("停止实时推送", runtime.stream.stop)
         if runtime.web is not None:
             _guard("停止 Web 服务", runtime.web.stop)
         _guard("移除 runtime.json", lambda: security.remove_runtime_file(runtime.data_dir))
