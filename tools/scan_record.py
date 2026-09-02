@@ -98,13 +98,13 @@ class Scanned:
     size: int
     digest: str
     result: ScanResult
-    #: 是否是**发布出去的**那件（便携 zip）。裸 EXE 只是构建产物，但它仍然要被扫——
-    #: 杀软报的是它，而用户核对下载用的是 zip 的校验值。两件事都要在记录里说清楚。
+    #: 是否是**发布出去的**那两件之一（便携 zip / 安装包）。裸 EXE 只是构建产物，但它
+    #: 仍然要被扫——杀软报的是它，而用户核对下载用的是发布物的校验值。两件事都要说清楚。
     published: bool = False
 
     @property
     def role(self) -> str:
-        return "发布物" if self.published else "zip 内的可执行文件"
+        return "发布物" if self.published else "两件发布物内含的可执行文件"
 
     @property
     def lookup(self) -> str:
@@ -230,7 +230,7 @@ def collect(dist: Path = DIST, *, run_scan: bool = True) -> tuple[list[Scanned],
     静默少一行，而"少一行"和"这件产物没问题"在文档里长得一模一样。
     """
     cli, engine = (defender_cli() if run_scan else (None, ""))
-    published = build.artifact_names()[1]
+    published = set(build.published_names())
     scanned: list[Scanned] = []
     for name in build.artifact_names():
         path = dist / name
@@ -243,7 +243,7 @@ def collect(dist: Path = DIST, *, run_scan: bool = True) -> tuple[list[Scanned],
                 size=path.stat().st_size,
                 digest=build.sha256_of(path),
                 result=result,
-                published=name == published,
+                published=name in published,
             )
         )
     return scanned, engine
@@ -271,7 +271,11 @@ def render(
     engine_line = f"Windows Defender（引擎平台版本 {engine}）" if engine else "Windows Defender"
     vt_state = virustotal or "**未提交**（提交是人工步骤，见下）"
     vt_link = f"\n公开报告：<{virustotal_url}>\n" if virustotal_url else ""
-    published = next((item.name for item in scanned if item.published), build.artifact_names()[1])
+    # 每件发布物给一行核对命令。这里是**普通 f-string**，不是下面那个大模板的一部分，
+    # 所以反斜杠只需转义一次——多一层就会在文档里印出 `.\\OmniSight-...`。
+    checks = "\n".join(
+        f"Get-FileHash .\\{item.name} -Algorithm SHA256" for item in scanned if item.published
+    ) or "Get-FileHash .\\<下载到的文件> -Algorithm SHA256"
     return f"""# 发布物扫描记录
 
 本文件由 `tools/scan_record.py` 生成，请勿手改——每次发布重新生成一份。
@@ -287,8 +291,8 @@ OmniSight 全局读取键盘输入，杀软把它标为可疑是合理的启发�
 
 ## 产物与校验值
 
-**发布只提供便携 zip 一件产物**；下表同时列出 zip 内的可执行文件，因为杀软报的是
-它，而你核对下载用的是 zip 的校验值。
+**发布两件产物**：便携 zip 与安装包（分工是安装位置，见 [README](../README.md)）。
+下表同时列出它们内含的可执行文件，因为杀软报的是它，而你核对下载用的是发布物的校验值。
 
 | 文件 | 角色 | 大小 | SHA-256 |
 | --- | --- | --- | --- |
@@ -297,7 +301,7 @@ OmniSight 全局读取键盘输入，杀软把它标为可疑是合理的启发�
 下载后自己算一遍，与上表比对：
 
 ```powershell
-Get-FileHash .\\{published} -Algorithm SHA256
+{checks}
 ```
 
 ## 本机杀软扫描

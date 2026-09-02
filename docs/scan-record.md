@@ -8,23 +8,25 @@ OmniSight 全局读取键盘输入，杀软把它标为可疑是合理的启发�
 只提供可核对的事实。
 
 - 程序版本：`0.1.0-alpha.1`
-- 记录时间：2026-09-02T20:53:46+08:00
+- 记录时间：2026-09-03T00:14:34+08:00
 - 生成环境：Python 3.12.13 / win32
 
 ## 产物与校验值
 
-**发布只提供便携 zip 一件产物**；下表同时列出 zip 内的可执行文件，因为杀软报的是
-它，而你核对下载用的是 zip 的校验值。
+**发布两件产物**：便携 zip 与安装包（分工是安装位置，见 [README](../README.md)）。
+下表同时列出它们内含的可执行文件，因为杀软报的是它，而你核对下载用的是发布物的校验值。
 
 | 文件 | 角色 | 大小 | SHA-256 |
 | --- | --- | --- | --- |
-| `OmniSight.exe` | zip 内的可执行文件 | 21.3 MB | `98fe186175de92cef8516f143952571862482a94a56f26c18d3fc3066db782bd` |
-| `OmniSight-portable.zip` | 发布物 | 21.0 MB | `46d06b27863dd2b6db5fb9ecd37a31448d0f3b39945acfc3c9c398d2d4b39923` |
+| `OmniSight.exe` | 两件发布物内含的可执行文件 | 21.3 MB | `91eb1fc2eadd4998d9db33c468ec58b731c97932e92f19c6aedfe8a684169877` |
+| `OmniSight-portable.zip` | 发布物 | 21.0 MB | `855a6ee08599af5e3e4203cf47dad1aaf763931694d8abdb7e3ffdb52c348301` |
+| `OmniSight-Setup.exe` | 发布物 | 22.9 MB | `b980d068e994b5d91afd045ce57513f2d8798789298aef40808ef790aa9aceb2` |
 
 下载后自己算一遍，与上表比对：
 
 ```powershell
 Get-FileHash .\OmniSight-portable.zip -Algorithm SHA256
+Get-FileHash .\OmniSight-Setup.exe -Algorithm SHA256
 ```
 
 ## 本机杀软扫描
@@ -35,6 +37,7 @@ Get-FileHash .\OmniSight-portable.zip -Algorithm SHA256
 | --- | --- | --- |
 | `OmniSight.exe` | 未执行（引擎不可用） | [Failed][0x80004005] 未指定的错误 |
 | `OmniSight-portable.zip` | 未执行（引擎不可用） | [Failed][0x80004005] 未指定的错误 |
+| `OmniSight-Setup.exe` | 未执行（引擎不可用） | [Failed][0x80004005] 未指定的错误 |
 
 复现命令（`<MpCmdRun>` 在 `%ProgramData%\Microsoft\Windows Defender\Platform\<版本>\` 下）：
 
@@ -53,8 +56,9 @@ Get-FileHash .\OmniSight-portable.zip -Algorithm SHA256
 
 按 SHA-256 查询（**查询不上传文件**，用的是上表里本地算出的哈希）：
 
-- `OmniSight.exe` → <https://www.virustotal.com/gui/file/98fe186175de92cef8516f143952571862482a94a56f26c18d3fc3066db782bd>
-- `OmniSight-portable.zip` → <https://www.virustotal.com/gui/file/46d06b27863dd2b6db5fb9ecd37a31448d0f3b39945acfc3c9c398d2d4b39923>
+- `OmniSight.exe` → <https://www.virustotal.com/gui/file/91eb1fc2eadd4998d9db33c468ec58b731c97932e92f19c6aedfe8a684169877>
+- `OmniSight-portable.zip` → <https://www.virustotal.com/gui/file/855a6ee08599af5e3e4203cf47dad1aaf763931694d8abdb7e3ffdb52c348301>
+- `OmniSight-Setup.exe` → <https://www.virustotal.com/gui/file/b980d068e994b5d91afd045ce57513f2d8798789298aef40808ef790aa9aceb2>
 
 提交样本是人工步骤：上传到 VirusTotal 等于公开发布这个文件，此后任何人都能按
 哈希取走样本，因此这个决定由维护者本人做，构建脚本不代劳。首次发布时上面的

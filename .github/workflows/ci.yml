@@ -19,8 +19,13 @@ jobs:
       # 平台泄漏静态检查：01 文档「平台无关性」那条非功能需求的执行机制
       - run: python tools/check_platform_leaks.py
       - run: pytest -q --cov=omnisight --cov-report=term-missing
+      # 安装包要 Inno Setup 的 ISCC.exe。runner 镜像不保证带它，所以自己装一次；
+      # 找不到编译器时 --release 会直接失败（那是有意的，见 10 文档 §10.1）。
+      - name: 安装 Inno Setup
+        run: choco install innosetup -y --no-progress
       # --release 才组装发布物（默认只出 EXE，见 tools/build.py 的说明）。
-      # 发布物只有便携 zip 一件：裸 EXE 带不走 LICENSE、许可清单与 README.txt。
+      # 发布两件产物：便携 zip 与安装包。裸 EXE 不发布——它带不走 LICENSE、
+      # 许可清单与 README.txt，那几份是分发义务。
       - run: python tools/build.py --release
       - run: python tools/smoke.py dist/OmniSight.exe
       - run: pip-licenses --fail-on="GPL"
@@ -30,6 +35,8 @@ jobs:
           path: |
             dist/OmniSight-portable.zip
             dist/OmniSight-portable.zip.sha256
+            dist/OmniSight-Setup.exe
+            dist/OmniSight-Setup.exe.sha256
 
   # 二级平台：只跑与平台无关的测试。
   #

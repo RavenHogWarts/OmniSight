@@ -125,9 +125,13 @@ def test_collect_hashes_every_artifact_and_can_skip_scanning(dist: Path):
 
 
 def test_collect_ignores_artifacts_that_were_not_built(dist: Path):
-    (dist / scan_record.build.artifact_names()[1]).unlink()
+    """``--no-installer`` 组装出来的 ``dist/`` 里没有安装包，记录里就不该凭空多一行。"""
+    (dist / scan_record.build.installer_name()).unlink()
     scanned, _ = scan_record.collect(dist, run_scan=False)
-    assert [item.name for item in scanned] == [scan_record.build.artifact_names()[0]]
+    assert [item.name for item in scanned] == [
+        scan_record.build._executable_name(),
+        scan_record.build.portable_name(),
+    ]
 
 
 def test_render_records_the_facts_a_user_can_check(dist: Path):
@@ -152,16 +156,17 @@ def test_render_carries_a_submitted_virustotal_result(dist: Path):
     assert "未提交" not in text.split("## VirusTotal")[1].splitlines()[1]
 
 
-def test_the_record_says_which_file_is_actually_published(dist: Path):
-    """发布只有便携 zip；裸 EXE 仍要被扫（杀软报的是它），但核对下载用的是 zip 的
-    校验值——两件事混在一起会让用户去核对一个不存在的下载。"""
+def test_the_record_says_which_files_are_actually_published(dist: Path):
+    """发布物是便携 zip 与安装包；裸 EXE 仍要被扫（杀软报的是它），但核对下载用的是
+    那两件的校验值——混在一起会让用户去核对一个他没下载的文件。"""
     scanned, _ = scan_record.collect(dist, run_scan=False)
     published = [item for item in scanned if item.published]
-    assert [item.name for item in published] == [scan_record.build.artifact_names()[1]]
+    assert [item.name for item in published] == list(scan_record.build.published_names())
     text = scan_record.render(scanned)
-    assert "发布只提供便携 zip" in text
-    assert f"Get-FileHash .\\{published[0].name}" in text
-    assert "zip 内的可执行文件" in text
+    assert "发布两件产物" in text
+    for item in published:
+        assert f"Get-FileHash .\\{item.name}" in text
+    assert "内含的可执行文件" in text
 
 def test_main_writes_the_record_and_reports_missing_artifacts(dist: Path, tmp_path: Path, capsys):
     out = tmp_path / "docs" / "scan-record.md"

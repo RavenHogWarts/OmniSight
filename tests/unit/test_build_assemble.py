@@ -3,12 +3,17 @@
 ``assemble`` 被设计成**可脱离真实构建单独调用**（``--assemble-only``），测试正是
 这么用它的：假 EXE + 临时目录。几条硬判据：
 
-* **发布物只有便携 zip 一件**，裸 EXE 不发布——它带不走许可正文与说明；
-* ``portable.marker`` **只进 zip**，不留 ``dist/``——留一份就意味着手动双击
-  ``dist/OmniSight.exe`` 会以便携模式跑（M3 偏离 74 的教训）；
-* zip 的 ``.sha256`` 内容与产物实际摘要一致（它是用户核对下载的唯一手段）；
-* ``README.txt`` 是 CRLF（读者用记事本），且随 zip 走、不摊在 ``dist/`` 里；
-* 清单四件套随 zip 分发（缺一件就不是"少个附件"，是分发义务缺失）。
+* **发布物两件**：便携 zip 与安装包，裸 EXE 不发布——它带不走许可正文与说明；
+* ``portable.marker`` **只进 zip**，不留 ``dist/``、更不进安装包——留一份就意味着手动
+  双击 ``dist/OmniSight.exe`` 会以便携模式跑（M3 偏离 74 的教训），而装进 Program Files
+  的那一份带上它只会让程序往一个不可写的目录写数据；
+* 每件发布物的 ``.sha256`` 内容与产物实际摘要一致（它是用户核对下载的唯一手段）；
+* ``README.txt`` 是 CRLF（读者用记事本），且**两种形态各一份**——数据位置与卸载步骤
+  完全不同，把两套说明并排写进同一份文件等于让用户先猜自己装的是哪一种；
+* 清单四件套随两件产物分发（缺一件就不是"少个附件"，是分发义务缺失）。
+
+**除专门测安装包的那几条，其余用例一律 ``installer=False``**：编译安装包要 Inno Setup
+的 ISCC.exe，而测试不该依赖一个可选的外部工具链（非 Windows 上更是根本没有）。
 
 代码签名（10 文档 §2.3）的三条判据在文件末尾：默认不签名也能构建、签名**发生在
 算摘要之前**、以及口令不进构建日志。
@@ -71,13 +76,13 @@ def test_render_readme_takes_the_port_from_the_default_config():
     assert str(build._default_port()) in default_port
 
 
-def test_assemble_produces_one_artifact_the_portable_zip(release_tree: Path):
+def test_assemble_without_an_installer_produces_just_the_portable_zip(release_tree: Path):
     dist = release_tree / "dist"
-    artifacts = build.assemble(dist=dist, regenerate_licenses=False)
+    artifacts = build.assemble(dist=dist, regenerate_licenses=False, installer=False)
     exe_name = build._executable_name()
-    zip_name = build.artifact_names()[1]
+    zip_name = build.portable_name()
 
-    # 发布物只有 zip 一件；裸 EXE 不发布，也就没有它的校验值文件。
+    # 裸 EXE 不发布，也就没有它的校验值文件。
     assert [item.path.name for item in artifacts] == [zip_name]
     assert not (dist / f"{exe_name}.sha256").exists()
 
@@ -113,13 +118,13 @@ def test_assemble_refuses_to_run_without_an_exe(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(build, "ROOT", root)
     monkeypatch.setattr(build, "BUILD", root / "build")
     with pytest.raises(SystemExit, match="找不到构建产物"):
-        build.assemble(dist=root / "dist", regenerate_licenses=False)
+        build.assemble(dist=root / "dist", regenerate_licenses=False, installer=False)
 
 
 def test_assemble_refuses_when_release_files_are_missing(release_tree: Path):
     (release_tree / "LICENSE").unlink()
     with pytest.raises(SystemExit, match="LICENSE"):
-        build.assemble(dist=release_tree / "dist", regenerate_licenses=False)
+        build.assemble(dist=release_tree / "dist", regenerate_licenses=False, installer=False)
 
 
 def test_clean_dist_preserves_user_data(release_tree: Path):
@@ -136,7 +141,7 @@ def test_clean_dist_preserves_user_data(release_tree: Path):
 
 def test_artifact_describe_mentions_size_and_digest(release_tree: Path):
     dist = release_tree / "dist"
-    (artifact := next(iter(build.assemble(dist=dist, regenerate_licenses=False))))
+    (artifact := next(iter(build.assemble(dist=dist, regenerate_licenses=False, installer=False))))
     line = artifact.describe()
     assert artifact.path.name in line
     assert "sha256=" in line
@@ -158,17 +163,29 @@ def test_a_plain_build_does_not_assemble_a_release(monkeypatch):
 def test_assemble_only_skips_pyinstaller(monkeypatch):
     """``--assemble-only`` 用现有 EXE 重新组装，不该再跑一次 PyInstaller。"""
     seen: list[str] = []
-    monkeypatch.setattr(build, "assemble", lambda: seen.append("assemble"))
+    monkeypatch.setattr(build, "assemble", lambda **_kwargs: seen.append("assemble"))
     monkeypatch.setattr(build, "build", lambda **_kwargs: seen.append("build"))
     assert build.main(["--assemble-only"]) == 0
     assert seen == ["assemble"]
+
+
+def test_no_installer_reaches_both_paths(monkeypatch):
+    """没装 Inno Setup 的人也要能组装出便携 zip——那个开关必须真的传下去。"""
+    seen: list[bool] = []
+    monkeypatch.setattr(build, "assemble", lambda **kwargs: seen.append(kwargs["installer"]))
+    monkeypatch.setattr(build, "build", lambda **kwargs: seen.append(kwargs["installer"]))
+    build.main(["--assemble-only", "--no-installer"])
+    build.main(["--release", "--no-installer"])
+    build.main(["--release"])
+    assert seen == [False, False, True]
 
 
 def test_help_lists_the_release_flag(capsys):
     assert build.main(["--help"]) == 0
     printed = capsys.readouterr().out
     assert "--release" in printed and "--assemble-only" in printed
-    assert "便携 zip" in printed
+    assert "--no-installer" in printed
+    assert "便携 zip" in printed and "安装包" in printed
 
 
 # ── 代码签名（10 文档 §2.3）──────────────────────────────────────────────
@@ -213,7 +230,7 @@ def test_assemble_signs_before_zipping_and_hashing(release_tree: Path, monkeypat
     monkeypatch.setattr(
         build, "sign", lambda exe, _config: exe.write_bytes(exe.read_bytes() + b" signature")
     )
-    artifacts = build.assemble(dist=dist, regenerate_licenses=False)
+    artifacts = build.assemble(dist=dist, regenerate_licenses=False, installer=False)
     exe_name = build._executable_name()
 
     # 进 zip 的必须是签过名的那份字节。
@@ -235,17 +252,34 @@ def test_readme_stops_claiming_unsigned_when_the_build_is_signed(release_tree: P
 
     monkeypatch.setattr(build, "signing_from_env", lambda *_args: build.Signing(thumbprint="AB12"))
     monkeypatch.setattr(build, "sign", lambda *_args: None)
-    artifacts = build.assemble(dist=release_tree / "dist", regenerate_licenses=False)
+    artifacts = build.assemble(
+        dist=release_tree / "dist", regenerate_licenses=False, installer=False
+    )
     with zipfile.ZipFile(artifacts[0].path) as bundle:
         shipped = bundle.read("README.txt").decode("utf-8")
     assert "未做代码签名" not in shipped
 
 
-def test_the_readme_points_at_the_zip_not_a_bare_exe():
-    """发布只有 zip，校验说明必须对着 zip 说——让用户去核对一个不存在的下载最伤信任。"""
-    text = build.render_readme()
-    assert build.artifact_names()[1] in text
-    assert "不单独发布" in text
+def test_the_readme_points_at_the_artifact_it_ships_with(release_tree: Path):
+    """校验说明必须对着**用户手上那个文件**说——让人去核对一个他没下载的东西最伤信任。"""
+    portable = build.render_readme(portable=True)
+    installed = build.render_readme(portable=False)
+    assert build.portable_name() in portable
+    assert build.installer_name() not in portable
+    assert build.installer_name() in installed
+    assert "不单独发布" in portable and "不单独发布" in installed
+
+
+def test_the_installed_readme_answers_the_two_questions_that_differ(release_tree: Path):
+    """安装版与便携版真正不同的只有两件事：数据在哪、怎么卸载。"""
+    installed = build.render_readme(portable=False)
+    assert "%LOCALAPPDATA%" in installed
+    assert "portable.marker），数据在解压目录里" not in installed
+    assert "已安装的应用" in installed and "卸载" in installed
+    # 卸载会问要不要删数据，且**默认保留**——静默删掉几个月的记录是不可接受的。
+    assert "默认保留" in installed
+    # 「开始」菜单才是安装版的入口，双击 EXE 是便携版的说法。
+    assert "开始" in installed
 
 
 def test_a_failed_signature_aborts_instead_of_shipping_unsigned(monkeypatch, tmp_path: Path):
@@ -269,4 +303,145 @@ def test_a_missing_signtool_says_which_variable_points_at_it(monkeypatch, tmp_pa
     monkeypatch.setattr(build.subprocess, "run", missing)
     with pytest.raises(SystemExit, match="OMNISIGHT_SIGNTOOL"):
         build.sign(exe, build.Signing(tool="nope.exe", thumbprint="AB12"))
+
+
+# ── 安装包（10 文档 §10.1）──────────────────────────────────────────────
+
+
+def test_find_iscc_prefers_the_environment_variable(tmp_path: Path):
+    """自动发现只能覆盖常见位置；"我把 Program Files 放在 D 盘"这类机器全靠这个变量。"""
+    iscc = tmp_path / "ISCC.exe"
+    iscc.write_bytes(b"MZ")
+    assert build.find_iscc({build.ISCC_ENV: str(iscc)}) == iscc
+    # 给目录也行：谁都会顺手粘一个安装目录进去。
+    assert build.find_iscc({build.ISCC_ENV: str(tmp_path)}) == iscc
+    # 带引号的路径同样常见（从属性页复制过来就带着引号）。
+    assert build.find_iscc({build.ISCC_ENV: f'"{iscc}"'}) == iscc
+
+
+def test_a_wrong_iscc_path_does_not_fall_back_silently(tmp_path: Path):
+    """显式指定却写错时回退到另一个编译器，会让用户以为自己指定的那个生效了。"""
+    assert build.find_iscc({build.ISCC_ENV: str(tmp_path / "nope" / "ISCC.exe")}) is None
+
+
+def test_find_iscc_looks_inside_program_files(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(build.shutil, "which", lambda _name: None)
+    target = tmp_path / "Inno Setup 7" / build.ISCC_NAME
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"MZ")
+    assert build.find_iscc({"ProgramFiles": str(tmp_path)}) == target
+
+
+def test_a_missing_compiler_names_the_variable_and_the_way_out(monkeypatch):
+    """``--release`` 缺一件产物必须让构建红掉——"这次只有便携版"与"忘了装 Inno"
+    在 ``dist/`` 里长得一模一样。
+    """
+    monkeypatch.setattr(build, "find_iscc", lambda *_args: None)
+    with pytest.raises(SystemExit, match="OMNISIGHT_ISCC"):
+        build.build_installer()
+    monkeypatch.setattr(build, "find_iscc", lambda *_args: None)
+    with pytest.raises(SystemExit, match="--no-installer"):
+        build.build_installer()
+
+
+def test_the_installer_is_signed_and_hashed_like_the_zip(release_tree: Path, monkeypatch):
+    """安装包才是用户真正双击的那个文件，SmartScreen 首先看的也是它。"""
+    dist = release_tree / "dist"
+    setup = dist / build.installer_name()
+
+    def fake_iscc(target_dist: Path, **_kwargs) -> Path:
+        setup.write_bytes(b"MZ fake setup")
+        return setup
+
+    monkeypatch.setattr(build, "build_installer", fake_iscc)
+    monkeypatch.setattr(build, "signing_from_env", lambda *_args: build.Signing(thumbprint="AB12"))
+    monkeypatch.setattr(
+        build, "sign", lambda path, _config: path.write_bytes(path.read_bytes() + b" signature")
+    )
+    artifacts = build.assemble(dist=dist, regenerate_licenses=False, installer=True)
+
+    assert [item.path.name for item in artifacts] == [
+        build.portable_name(),
+        build.installer_name(),
+    ]
+    # 签名排在算摘要之前：顺序颠倒就会发出一份校验不上的安装包。
+    assert setup.read_bytes().endswith(b" signature")
+    for item in artifacts:
+        recorded = (dist / f"{item.path.name}.sha256").read_text(encoding="utf-8")
+        assert recorded.startswith(build.sha256_of(item.path))
+
+
+def test_the_installer_stage_is_not_the_portable_one(release_tree: Path):
+    """装进 Program Files 的那一份带上 ``portable.marker`` 只会让程序往不可写的目录
+    写数据，然后启动失败。``LICENSE`` 还要换成 Inno 能显示的 ``LICENSE.txt``。
+    """
+    stage = build._stage_installer_files()
+    names = {path.name for path in stage.iterdir()}
+    assert build.PORTABLE_MARKER not in names
+    assert "LICENSE.txt" in names and "LICENSE" not in names
+    assert {"README.txt", "THIRD_PARTY_NOTICES.md", "config.example.json"} <= names
+    # Inno 用 RichEdit 显示许可，只有 LF 的文本会挤成一行。
+    license_text = (stage / "LICENSE.txt").read_bytes()
+    assert b"\r\n" in license_text
+    readme = (stage / "README.txt").read_bytes()
+    assert b"\r\n" in readme and b"\n" not in readme.replace(b"\r\n", b"")
+
+
+# ── 安装脚本本身（installer/omnisight.iss）─────────────────────────────
+
+
+def _iss_text() -> str:
+    return build.INSTALLER_SCRIPT.read_text(encoding="utf-8-sig")
+
+
+def test_the_installer_script_is_saved_with_a_bom():
+    """Inno 只在见到 BOM 时才按 UTF-8 解析 .iss。没有它，向导上的中文全是乱码——
+    而这件事在编译时**不报错**，只有真的运行一次安装包才看得出来。
+    """
+    assert build.INSTALLER_SCRIPT.read_bytes().startswith(b"\xef\xbb\xbf")
+
+
+def test_the_installer_waits_for_the_running_instance():
+    """``AppMutex`` 必须与程序自己的单实例互斥体同名，否则升级时会去覆盖一个正在
+    运行的 EXE：Windows 拒绝写入，安装报错，而原因完全看不出来。
+    """
+    import re
+
+    source = (
+        ROOT / "src" / "omnisight" / "adapters" / "windows" / "single_instance.py"
+    ).read_text(encoding="utf-8")
+    match = re.search(r'DEFAULT_MUTEX_NAME = r"([^"]+)"', source)
+    assert match, "单实例锁的名字变了形态，这条断言要跟着改"
+    assert f"AppMutex={match.group(1)}" in _iss_text()
+
+
+def test_the_installer_asks_for_admin_because_program_files_is_the_point():
+    """装到普通用户不可写的目录是安装版**存在的理由**（10 文档 §5.2 的取舍表），
+    不是顺手要的权限。
+    """
+    text = _iss_text()
+    assert "PrivilegesRequired=admin" in text
+    assert "DefaultDirName={autopf}" in text
+
+
+def test_the_installer_never_ships_the_portable_marker():
+    """便携标记进了 Program Files 就是让程序往一个不可写的目录写数据。"""
+    sources = [line for line in _iss_text().splitlines() if line.strip().startswith("Source:")]
+    assert sources, "[Files] 段空了？"
+    assert not any(build.PORTABLE_MARKER in line for line in sources)
+
+
+def test_the_installer_launches_the_app_without_its_own_admin_token():
+    """安装器是提权的：不加 ``runasoriginaluser``，装完启动的程序会继承管理员权限，
+    用户会莫名其妙看到托盘写着"管理员模式"。
+    """
+    run_lines = _iss_text().split("[Run]")[1].split("[")[0]
+    assert "runasoriginaluser" in run_lines
+
+
+def test_the_installer_output_name_matches_the_artifact_list():
+    """名字在两处各写一遍，改名那天扫描记录与校验值会静默少一件。"""
+    stem = build.installer_name().removesuffix(".exe")
+    assert "OutputBaseFilename={#AppName}-Setup" in _iss_text()
+    assert stem.endswith("-Setup")
 

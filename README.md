@@ -29,26 +29,31 @@
 
 ## 下载与安装
 
-程序不需要安装，也不需要 Python。**发布只提供一件产物：`OmniSight-portable.zip`**——单文件 EXE 本来就不需要安装步骤，"安装版 vs 便携版"那道选择题没有实质内容；而裸 EXE 带不走许可正文与说明（`LICENSE`、第三方清单、`README.txt` 都在压缩包里）。
+发布提供**两件产物**，都不需要 Python：
 
-解压到任意可写目录（桌面、文档、U 盘都行；别放 `Program Files` 那类需要管理员权限的位置），双击 `OmniSight.exe` 即可。
+| 产物 | 适合 | 数据位置 |
+| --- | --- | --- |
+| `OmniSight-Setup.exe` | 想装进系统、要开始菜单项与标准卸载项 | `%LOCALAPPDATA%\OmniSight\` |
+| `OmniSight-portable.zip` | 解压即用、想随身带走或不想动系统 | 解压目录下的 `data/`、`logs/`、`config.json` |
 
-| 情况 | 数据位置 |
-| --- | --- |
-| 默认（解压后同级有 `portable.marker`） | 解压目录下的 `data/`、`logs/`、`config.json` |
-| 删掉 `portable.marker` 后 | `%LOCALAPPDATA%\OmniSight\`（Windows 惯例位置） |
+两者的差别只有**安装位置**，功能完全一样。安装版装进 `Program Files`（安装过程需要一次管理员确认，这也是规划中的「登录时以管理员身份启动」唯一能指向的位置）；便携版解压到任意**可写**目录（桌面、文档、U 盘都行，别放 `Program Files` 那类需要管理员权限的地方）。
+
+便携版靠解压后同级的 `portable.marker` 决定数据放在哪：删掉它，数据就回到 `%LOCALAPPDATA%\OmniSight\`（已有的 `data/` 不会被自动搬走）。
+
+裸 `OmniSight.exe` 不单独发布——它带不走许可正文与说明（`LICENSE`、第三方清单、`README.txt` 随两件产物分发）。
 
 **下载后请核对校验值。** 本程序未做代码签名，Windows 会显示 SmartScreen 警告（点"更多信息 → 仍要运行"），部分杀软也可能因为"读键盘"这一行为报警——因此校验值是你确认拿到的确实是这份产物的唯一手段：
 
 ```powershell
+Get-FileHash .\OmniSight-Setup.exe -Algorithm SHA256
 Get-FileHash .\OmniSight-portable.zip -Algorithm SHA256
 ```
 
-与发布页的 `OmniSight-portable.zip.sha256` 比对。每次发布的校验值、本机杀软扫描结论与按哈希查询 VirusTotal 的地址都记录在 [docs/scan-record.md](docs/scan-record.md)；杀软误报的详细说明与应对见 [docs/faq.md](docs/faq.md)。
+与发布页同名的 `.sha256` 文件比对。每次发布的校验值、本机杀软扫描结论与按哈希查询 VirusTotal 的地址都记录在 [docs/scan-record.md](docs/scan-record.md)；杀软误报的详细说明与应对见 [docs/faq.md](docs/faq.md)。
 
 ## 首次启动
 
-解压后双击 `OmniSight.exe`。程序常驻托盘，不会自己弹窗口。托盘菜单：
+安装版从「开始」菜单启动，便携版解压后双击 `OmniSight.exe`。程序常驻托盘，不会自己弹窗口。托盘菜单：
 
 ```
 打开 OmniSight            默认项，双击图标即可
@@ -91,20 +96,25 @@ Get-FileHash .\OmniSight-portable.zip -Algorithm SHA256
 
 | 情况 | 位置 |
 | --- | --- |
-| 默认（发布包解压后的样子） | 程序同级目录（`portable.marker` 存在时）：`config.json`、`data/`、`logs/` |
-| 删掉 `portable.marker` | `%LOCALAPPDATA%\OmniSight\`（Windows 惯例位置，已有的 `data/` 不会自动搬走） |
+| 安装版 | `%LOCALAPPDATA%\OmniSight\`：`config.json`、`data/`、`logs/`（程序在 `Program Files`，与数据分开） |
+| 便携版（解压后的默认样子） | 程序同级目录（`portable.marker` 存在时）：`config.json`、`data/`、`logs/` |
+| 便携版删掉 `portable.marker` | `%LOCALAPPDATA%\OmniSight\`（已有的 `data/` 不会自动搬走） |
 | 升级沿用 | 程序同级已有 `data/omnisight.db` 时保持原位，绝不搬走 |
 
 托盘「打开数据目录」「打开日志目录」直接跳过去。`logs/` 下除运行日志外还有崩溃报告（`crash-<时间戳>.txt`）——它只在本机保存，不含窗口标题、按键内容或局部变量，可以直接附在问题报告里。
 
 ## 完全卸载
 
+**安装版**：托盘 →「退出」，然后「设置 → 应用 → 已安装的应用」里卸载。卸载过程会问要不要一并删除统计数据（**默认保留**，选「是」才删），并会清掉程序写的开机自启项。
+
+**便携版**：
+
 1. 托盘 →「退出」
 2. 关掉开机自启：托盘取消勾选「开机自启」，或删除注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 下的 `OmniSight` 值
 3. 删除数据目录（上表位置）
 4. 删除 `OmniSight.exe` 本身
 
-程序不写系统目录、不装服务、不装驱动，除第 2 步那个自启项外不留任何注册表项。
+两种形态都不装服务、不装驱动、不改系统设置；除那个自启项外不留任何注册表项（安装版另有标准的卸载登记项，卸载时一并消失）。
 
 ## 从源码运行
 
