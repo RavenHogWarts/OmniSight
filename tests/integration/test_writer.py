@@ -373,7 +373,7 @@ def test_writer_batch_is_atomic_on_failure(database, monkeypatch):
     for index in range(50):
         queue.put(_key_event(DAY_ONE + timedelta(seconds=index), "key_a", app_id))
 
-    original = StorageWriter._persist
+    original = StorageWriter.persist
     calls = {"n": 0}
 
     def explode(self, conn, rollup, now, **kwargs):
@@ -381,7 +381,7 @@ def test_writer_batch_is_atomic_on_failure(database, monkeypatch):
         original(self, conn, rollup, now, **kwargs)  # 先真的写一部分
         raise RuntimeError("模拟落盘中途失败")
 
-    monkeypatch.setattr(StorageWriter, "_persist", explode)
+    monkeypatch.setattr(StorageWriter, "persist", explode)
     writer.flush_once()
 
     conn = database.connect()
@@ -392,7 +392,7 @@ def test_writer_batch_is_atomic_on_failure(database, monkeypatch):
     # 整批放回队首等待重试，不丢。
     assert queue.depth == 50
 
-    monkeypatch.setattr(StorageWriter, "_persist", original)
+    monkeypatch.setattr(StorageWriter, "persist", original)
     _drain(writer, queue)
     assert conn.execute("SELECT SUM(press_count) FROM agg_key_day").fetchone()[0] == 50
 
@@ -406,7 +406,7 @@ def test_a_poison_batch_is_abandoned_instead_of_spinning_forever(database, monke
     def always_fail(self, conn, rollup, now, **kwargs):
         raise RuntimeError("毒药批次")
 
-    monkeypatch.setattr(StorageWriter, "_persist", always_fail)
+    monkeypatch.setattr(StorageWriter, "persist", always_fail)
     for _ in range(6):
         writer.flush_once()
 
@@ -428,16 +428,16 @@ def test_partition_cache_is_not_poisoned_by_a_rolled_back_data_transaction(
     app_id = _app(registry, "code.exe")
     queue.put(_key_event(DAY_ONE, "key_a", app_id))
 
-    original = StorageWriter._persist
+    original = StorageWriter.persist
     monkeypatch.setattr(
         StorageWriter,
-        "_persist",
+        "persist",
         lambda self, conn, rollup, now, **kwargs: (_ for _ in ()).throw(RuntimeError("失败")),
     )
     writer.flush_once()
     assert queue.depth == 1
 
-    monkeypatch.setattr(StorageWriter, "_persist", original)
+    monkeypatch.setattr(StorageWriter, "persist", original)
     _drain(writer, queue)
     assert database.connect().execute(
         "SELECT SUM(press_count) FROM agg_key_day"

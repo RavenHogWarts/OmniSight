@@ -296,6 +296,14 @@ function dataSection(status) {
       exportButton('keyboard', 'csv', '导出键盘统计 CSV'),
       exportButton('all', 'json', '导出全部 JSON'),
     ),
+    h(
+      'div',
+      { class: 'app-actions' },
+      h('button', {
+        class: 'button', type: 'button', text: '从旧版导入数据…',
+        attrs: { 'data-action': 'import:open' },
+      }),
+    ),
     h('div', { class: 'field__note', text: '备份、重算聚合与删除数据排在后续版本。' }),
   );
 }

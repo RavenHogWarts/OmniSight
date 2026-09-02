@@ -15,6 +15,7 @@ import { getState, setState, subscribe } from './core/store.js';
 import { connect as connectStream, startPolling } from './core/stream.js';
 import { restore as restoreTheme, cycle as cycleTheme, watchSystem } from './core/theme.js';
 import { mountBanners } from './components/degraded.js';
+import { mountImportBanner, openImportWizard } from './components/import-wizard.js';
 import { mountPeriodNav, step as stepPeriod, goToday } from './components/period-nav.js';
 import { mountStatus } from './components/status-dot.js';
 import { hide as hideTooltip, show as showTooltip } from './components/tooltip.js';
@@ -79,6 +80,7 @@ const ACTIONS = {
   'route:go': (dataset) => go(dataset.route),
   'theme:cycle': () => cycleTheme(),
   'settings:open': () => openSettingsDrawer(),
+  'import:open': () => openImportWizard(),
   'period:prev': () => stepPeriod(-1),
   'period:next': () => stepPeriod(1),
   'period:today': () => goToday(),
@@ -262,6 +264,8 @@ async function main() {
   watchSystem();
 
   mountBanners(document.getElementById('banners'));
+  // 检测旧数据不阻塞启动（09 文档 §2.1）：结果晚一点到也没关系。
+  mountImportBanner(document.getElementById('banners'));
   mountStatus(document.getElementById('status-host'));
   mountPeriodNav(document.getElementById('periodbar'));
   installDelegation();

@@ -22,7 +22,7 @@ from omnisight.presentation.web import create_app
 from seeded import SECRET_TITLE
 
 #: 路径参数的填充值。新增带参路由时在这里加一项，否则下面的遍历会跳过它并失败。
-PARAM_VALUES = {"app_id": "1", "key_id": "key_a"}
+PARAM_VALUES = {"app_id": "1", "key_id": "key_a", "process_name": "code.exe"}
 #: 需要副作用或长连接的路由不在只读遍历里跑；它们各自有专门的用例。
 SKIP_ENDPOINTS = {"stream", "capture_pause", "static"}
 
@@ -124,6 +124,11 @@ def test_every_api_endpoint_requires_the_token(api_context, paths):
         if path.startswith("/api/v1/"):
             assert response.status_code == 401, f"{path} 没有拦住无令牌请求"
             assert response.get_json()["error"]["code"] == "unauthorized"
+        elif path.startswith("/api/"):
+            # 旧接口兼容层（05 文档 §8）：按端点名前缀免令牌——迁移期的旧
+            # KeyTrace 客户端不知道令牌。只断言"没被令牌拦住"；缺参数或无数据
+            # 时的结构化 400/404 是旧语义的一部分，由兼容层自己的用例覆盖。
+            assert response.status_code != 401, f"{path} 不应要求令牌"
         else:
             assert response.status_code < 400, f"{path} 应当是公开的"
 

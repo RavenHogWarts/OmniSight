@@ -24,6 +24,7 @@
 @import url("components/drawer.css");
 @import url("components/form.css");
 @import url("components/table.css");
+@import url("components/import.css");
 
 @import url("views/overview.css");
 @import url("views/apps.css");

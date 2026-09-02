@@ -419,6 +419,8 @@ class Lifecycle:
             capture=runtime.capture,
             adapters=runtime.adapter_set,
             on_config_change=on_config_change,
+            bus=runtime.capture.bus if runtime.capture is not None else None,
+            data_dir=runtime.data_dir,
         )
         context.services = services
         bus = runtime.capture.bus if runtime.capture is not None else None

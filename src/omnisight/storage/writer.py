@@ -450,14 +450,14 @@ class StorageWriter:
 
     # ── 写入 ────────────────────────────────────────────────────────────
     def _write_batch(self, batch: list[Event]) -> int:
-        rollup = self._build_rollup(batch)
+        rollup = self.build_rollup(batch)
         now = self._clock.now()
         self._pending_dropped += self._queue.take_dropped()
         dropped = self._pending_dropped
         try:
-            self._ensure_partitions(rollup)
+            self.ensure_partitions(rollup)
             with self._db.transaction() as conn:
-                self._persist(conn, rollup, now, dropped=dropped, write_errors=0)
+                self.persist(conn, rollup, now, dropped=dropped, write_errors=0)
         except Exception:
             self.stats.write_errors += 1
             self._retries += 1
@@ -511,7 +511,7 @@ class StorageWriter:
         except Exception:  # pragma: no cover - 连 health_stat 都写不进去只能记日志
             logger.error("无法记录写入失败计数")
 
-    def _ensure_partitions(self, rollup: _Rollup) -> None:
+    def ensure_partitions(self, rollup: _Rollup) -> None:
         """月表的 DDL 走**独立事务**先提交，不与数据事务共命运。
 
         它必须在数据事务之外：数据事务失败会回滚，把刚建的表一起撤掉，而
@@ -534,7 +534,7 @@ class StorageWriter:
             self._partitions.reset()
             raise
 
-    def _persist(
+    def persist(
         self,
         conn: Connection,
         rollup: _Rollup,
@@ -632,7 +632,7 @@ class StorageWriter:
         capability_table.upsert(conn, day_bucket=day_bucket_of(now), now=now, **snapshot)
 
     # ── 内存 rollup ─────────────────────────────────────────────────────
-    def _build_rollup(self, batch: list[Event]) -> _Rollup:
+    def build_rollup(self, batch: list[Event]) -> _Rollup:
         rollup = _Rollup()
         tz = self._tz
         for event in batch:

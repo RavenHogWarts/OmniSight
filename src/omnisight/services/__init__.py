@@ -24,6 +24,7 @@ from .context import ServiceContext
 from .export import ExportService
 from .insights import InsightService
 from .keyboard import KeyboardService
+from .legacy import LegacyService
 from .period import Period
 from .settings import SettingsService
 from .usage import UsageService
@@ -49,6 +50,7 @@ class Services:
     insights: InsightService
     settings: SettingsService
     export: ExportService
+    legacy: LegacyService
 
     @classmethod
     def build(
@@ -63,6 +65,8 @@ class Services:
         adapters: Any = None,
         cache: QueryCache | None = None,
         on_config_change: Any = None,
+        bus: Any = None,
+        data_dir: Path | None = None,
     ) -> Services:
         context = ServiceContext(
             database=database,
@@ -79,6 +83,17 @@ class Services:
         insights = InsightService(context, apps, usage, keyboard)
         settings = SettingsService(context, config_path=config_path, on_change=on_config_change)
         export = ExportService(context, usage, keyboard)
+        from ..core import paths as _paths
+        from ..core.clock import resolve_timezone
+
+        legacy = LegacyService(
+            database,
+            data_dir=data_dir or _paths.data_dir(),
+            tz=resolve_timezone(config.ui.timezone) if config.ui.timezone else None,
+            store_raw=config.capture.store_raw_key_events,
+            platform_id=capabilities.platform_id,
+            bus=bus,
+        )
         return cls(
             context=context,
             apps=apps,
@@ -87,6 +102,7 @@ class Services:
             insights=insights,
             settings=settings,
             export=export,
+            legacy=legacy,
         )
 
     # ── 概览：首屏唯一的数据请求 ────────────────────────────────────────
@@ -174,6 +190,7 @@ __all__ = [
     "ExportService",
     "InsightService",
     "KeyboardService",
+    "LegacyService",
     "ServiceContext",
     "Services",
     "SettingsService",

@@ -26,6 +26,8 @@ from .api import apps as apps_api
 from .api import export as export_api
 from .api import insights as insights_api
 from .api import keyboard as keyboard_api
+from .api import legacy as legacy_api
+from .api import legacy_import as legacy_import_api
 from .api import overview as overview_api
 from .api import settings as settings_api
 from .api import system as system_api
@@ -49,6 +51,8 @@ API_MODULES = (
     insights_api,
     settings_api,
     export_api,
+    legacy_import_api,
+    legacy_api,
 )
 
 

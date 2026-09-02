@@ -1,0 +1,156 @@
+/* 导入向导与检测横幅（09 文档 §2）。横幅沿用 banner 的布局，向导内容在抽屉里。 */
+
+.banner--info {
+  border-left: 3px solid var(--accent);
+}
+
+.banner__actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex: none;
+}
+
+.import-wizard__title {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: var(--font-size-lg);
+  margin: 0 0 var(--space-3);
+}
+
+.import-wizard__step {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+.import-wizard__foot-row {
+  display: flex;
+  gap: var(--space-2);
+  width: 100%;
+  align-items: center;
+}
+
+.import-sources {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.import-source__main {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.import-source__main span {
+  display: grid;
+  gap: 2px;
+}
+
+.import-source__path {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  word-break: break-all;
+}
+
+.import-source__meta {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.import-manual {
+  margin: 0 0 var(--space-3);
+}
+
+.import-manual summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.import-manual .field {
+  margin-bottom: var(--space-2);
+}
+
+.import-losses {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.import-losses li {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.import-losses__mark {
+  color: var(--status-warn-text);
+  flex: none;
+}
+
+.import-losses--summary {
+  margin-top: var(--space-2);
+}
+
+.import-losses--summary summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: var(--space-2) 0;
+}
+
+.import-progress {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.import-progress__bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+
+.import-progress__fill {
+  height: 100%;
+  width: 40%;
+  background: var(--accent);
+  border-radius: 4px;
+  animation: import-progress-indeterminate 1.6s ease-in-out infinite;
+}
+
+@keyframes import-progress-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .import-progress__fill {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
+}
+
+.import-progress__counts {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.import-report {
+  margin-bottom: var(--space-3);
+}

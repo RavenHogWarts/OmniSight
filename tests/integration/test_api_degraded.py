@@ -31,6 +31,15 @@ def _path_with_range(path: str, range_name: str) -> str:
 _ALLOWED = {
     "/api/v1/apps/1": {200, 404},
     "/api/v1/apps/1/icon": {200, 204, 404},
+    # 导入报告只在导入完成后存在（05 文档 §8 的错误语义：404 + 结构化 code）。
+    "/api/v1/import/report": {200, 404},
+    # 旧接口兼容层：按名字找不到应用时旧版就是 404，图标缺失是 204，
+    # 缺 process_name 时是结构化 400（05 文档 §8；遍历只带 range 参数）。
+    "/api/apps/heatmap": {200, 400, 404},
+    "/api/heatmap": {200, 400},  # 旧 KeyTrace 没有 custom range，结构化 400 是正确行为
+    "/api/apps/icon": {200, 204, 404},
+    "/api/icon": {200, 204, 404},
+    "/api/integrations/keytrace/sessions": {200, 400, 404},
 }
 
 

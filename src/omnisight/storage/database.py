@@ -163,8 +163,13 @@ class Database:
     def backup_to(self, target: Path) -> Path:
         """在线备份，无需停机（03 文档 §9）。"""
         target.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(target) as destination:
+        # ``with sqlite3.connect(...)`` 只管理事务、不关闭连接——漏掉 close 会让
+        # Windows 上的备份目标文件一直被占用（M5 踩过）。
+        destination = sqlite3.connect(target)
+        try:
             self.connect().backup(destination)
+        finally:
+            destination.close()
         return target
 
     def checkpoint(self, mode: str = "PASSIVE") -> None:

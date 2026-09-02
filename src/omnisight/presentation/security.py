@@ -46,6 +46,19 @@ CSP = (
 PUBLIC_ENDPOINTS = frozenset({"static", "index", "favicon", "healthz"})
 
 
+def _is_token_exempt(endpoint: str | None) -> bool:
+    """旧接口兼容层（05 文档 §8）按端点名前缀豁免令牌。
+
+    旧 KeyTrace 的 HTTP 客户端不知道 OmniSight 的会话令牌——迁移期共存
+    （12 文档 M5 判据）要求这些端点能被它直接调用。这不削弱威胁模型：
+    令牌防的是网页，而网页跨源读不到这些响应（上面没有任何
+    ``Access-Control-Allow-*`` 头）；能直连它们的本地进程本来就能读数据库文件。
+    Host 校验对所有端点依然生效。前缀约定由 ``presentation/api/legacy.py``
+    的视图函数命名（``legacy_*``）保证。
+    """
+    return endpoint is not None and endpoint.startswith("legacy_")
+
+
 def new_token() -> str:
     return secrets.token_urlsafe(32)
 
@@ -95,6 +108,8 @@ def install(app: Flask, *, token: str) -> None:
     @app.before_request
     def _require_token():
         if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
+            return None
+        if _is_token_exempt(request.endpoint):
             return None
         supplied = request.headers.get(TOKEN_HEADER, "")
         if not supplied:
