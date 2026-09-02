@@ -13,8 +13,8 @@
 
 1. **打包版**。开发模式下任务只能指向解释器（``python.exe -m omnisight``），而真正被
    执行的代码在一个可写的源码目录里——对解释器做路径判定证明不了任何事情。
-2. **EXE 位于普通用户不可写的目录**（Program Files / Windows 之下）。判定用路径前缀，
-   不算 ACL：会有漏判（管理员放宽过权限的 Program Files 子目录），但方向是保守的。
+2. **EXE 所在目录普通用户改不动**。判定**读目录与 EXE 的 DACL**，不看路径长什么样：
+   装到哪个盘都行，只要那个位置未提权的程序碰不到（见 :func:`is_protected_location`）。
 3. **当前进程已提权**。创建和删除 ``HighestAvailable`` 的任务本身就需要管理员权限，
    否则 Windows 自己就会拒绝（这也是上面那条"不能是 UAC 绕过通道"的另一半保障）。
 
@@ -54,8 +54,9 @@ TIMEOUT_SECONDS = 20.0
 #: 取值只为让本模块在非 Windows 上也能导入（纯函数部分因此可以跨平台测）。
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
-#: 普通用户不可写的目录。取环境变量而不是写死盘符：系统装在 D: 的机器不少见。
-#: ``ProgramW6432`` 是 32 位进程看 64 位 Program Files 的那个变量，一并算上。
+#: 兜底用的目录前缀：只在 DACL 读不出来时才用（见 :func:`is_protected_location`）。
+#: 取环境变量而不是写死盘符：系统装在 D: 的机器不少见。``ProgramW6432`` 是 32 位进程看
+#: 64 位 Program Files 的那个变量，一并算上。
 PROTECTED_ROOT_VARS = (
     "ProgramFiles",
     "ProgramFiles(x86)",
@@ -63,6 +64,47 @@ PROTECTED_ROOT_VARS = (
     "SystemRoot",
     "windir",
 )
+
+#: 广义"普通用户"：这些 SID 出现在一条允许写的 ACE 里，就意味着一个**未提权**的程序能把
+#: EXE 换掉。``BUILTIN\\Administrators``（S-1-5-32-544）**刻意不在其中**——UAC 过滤后的令牌
+#: 里那个 SID 是 deny-only，针对它的允许 ACE 给不出任何权限，所以它不是漏洞。
+BROAD_SIDS = frozenset(
+    {
+        "S-1-1-0",  # Everyone
+        "S-1-5-11",  # Authenticated Users
+        "S-1-5-4",  # INTERACTIVE
+        "S-1-5-32-545",  # Users
+        "S-1-5-32-546",  # Guests
+        "S-1-5-32-547",  # Power Users（历史遗留，实际等价于可写）
+    }
+)
+
+#: 允许当所有者的主体。**所有者隐含 WRITE_DAC**：他随时能给自己加写权限，于是 DACL 现在
+#: 写着什么都不作数。这一条挡住的是"用户自己建的目录"——那种目录的 DACL 往往也很干净。
+ADMIN_OWNER_SIDS = frozenset(
+    {
+        "S-1-5-32-544",  # BUILTIN\Administrators
+        "S-1-5-18",  # NT AUTHORITY\SYSTEM
+        # NT SERVICE\TrustedInstaller：C:\Program Files 就归它
+        "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
+    }
+)
+
+#: 足以把一个 EXE 换掉的任一权限。``FILE_DELETE_CHILD`` 也算——删掉再放一个新的同样有效。
+WRITE_MASK = (
+    0x0002  # FILE_WRITE_DATA / FILE_ADD_FILE
+    | 0x0004  # FILE_APPEND_DATA / FILE_ADD_SUBDIRECTORY
+    | 0x0040  # FILE_DELETE_CHILD
+    | 0x00010000  # DELETE
+    | 0x00040000  # WRITE_DAC
+    | 0x00080000  # WRITE_OWNER
+    | 0x10000000  # GENERIC_ALL
+    | 0x40000000  # GENERIC_WRITE
+)
+
+#: 只影响子对象、对本对象无效的 ACE（``(OI)(CI)(IO)`` 里的那个 IO），不参与判定。
+INHERIT_ONLY_ACE = 0x08
+ACCESS_ALLOWED_ACE_TYPE = 0x00
 
 _DECLARATION = re.compile(r"^\s*<\?xml[^>]*\?>", re.IGNORECASE)
 
@@ -154,13 +196,13 @@ def parse_task(xml: str) -> TaskInfo | None:
     return TaskInfo(command=f"{command} {arguments}".strip(), run_level=run_level)
 
 
-def is_protected_location(executable: str, environ: Mapping[str, str] | None = None) -> bool:
-    """``executable`` 是否位于普通用户不可写的目录。
+def _under_protected_root(executable: str, environ: Mapping[str, str]) -> bool:
+    """兜底判定：``executable`` 是否在 Program Files / Windows 之下。
 
-    比较时在根目录后面补一个分隔符：否则 ``C:\\Program Files Extra\\x.exe`` 会因为
-    前缀相同而被当成装在 Program Files 里——那正是这道闸要挡住的东西。
+    只在 DACL 读不出来时用（见 :func:`is_protected_location`）。比较时在根目录后面补一个
+    分隔符：否则 ``C:\\Program Files Extra\\x.exe`` 会因为前缀相同而被当成装在 Program
+    Files 里——那正是这道闸要挡住的东西。
     """
-    environ = environ if environ is not None else os.environ
     target = ntpath.normcase(ntpath.normpath(executable))
     for name in PROTECTED_ROOT_VARS:
         root = _env(environ, name)
@@ -170,6 +212,80 @@ def is_protected_location(executable: str, environ: Mapping[str, str] | None = N
         if target.startswith(prefix):
             return True
     return False
+
+
+def writable_by_normal_users(path: str) -> bool | None:
+    """一个**未提权**的程序能改这个文件/目录吗；``None`` = 查不出来。
+
+    读所有者与 DACL，自己判，不做 ``AccessCheck``：那需要一个"普通用户"的令牌，而我们手上
+    只有自己的。两条判据：
+
+    * **所有者不是管理员一类** → 直接算可写。所有者隐含 ``WRITE_DAC``，他随时能给自己加权限，
+      DACL 现在写着什么都不作数。用户自己建的目录就是这一类，而它们的 DACL 往往看起来很干净。
+    * **有一条允许写的 ACE 落在广义"普通用户"上** → 可写。``Administrators`` 不算（见
+      :data:`BROAD_SIDS` 的说明）。
+
+    刻意忽略拒绝 ACE：正确的求值顺序会让"拒绝"抵消掉"允许"，而漏算它只会让判定**偏严**
+    （把一个其实安全的目录判成可写）。这道闸宁可多拦。
+    """
+    try:
+        import win32security
+    except ImportError:  # pragma: no cover - 打包漏了 pywin32
+        logger.warning("win32security 不可用，退回按路径前缀判定 EXE 位置")
+        return None
+    try:
+        descriptor = win32security.GetFileSecurity(
+            path,
+            win32security.OWNER_SECURITY_INFORMATION | win32security.DACL_SECURITY_INFORMATION,
+        )
+        owner = descriptor.GetSecurityDescriptorOwner()
+        dacl = descriptor.GetSecurityDescriptorDacl()
+    except Exception:  # pywin32 抛 pywintypes.error，路径不存在也走这里
+        logger.debug("读不到 %s 的安全描述符", path, exc_info=True)
+        return None
+    if owner is not None and win32security.ConvertSidToStringSid(owner) not in ADMIN_OWNER_SIDS:
+        return True
+    if dacl is None:
+        return True  # NULL DACL = 谁都能写
+    for index in range(dacl.GetAceCount()):
+        ace = dacl.GetAce(index)
+        (ace_type, ace_flags), mask, sid = ace[0], ace[1], ace[-1]
+        if ace_type != ACCESS_ALLOWED_ACE_TYPE or ace_flags & INHERIT_ONLY_ACE:
+            continue
+        if not mask & WRITE_MASK:
+            continue
+        if win32security.ConvertSidToStringSid(sid) in BROAD_SIDS:
+            return True
+    return False
+
+
+def is_protected_location(executable: str, environ: Mapping[str, str] | None = None) -> bool:
+    """``executable`` 是否位于一个**未提权的程序改不动**的位置。
+
+    **判定读 ACL，不看路径长什么样**（2026-09-03 改）。原先按 ``%ProgramFiles%`` 等前缀判，
+    结果把一个完全安全的位置拒掉了：本机实测 ``D:\\Program Files\\OmniSight`` 由提权的安装器
+    创建，所有者是 ``BUILTIN\\Administrators``、``Users`` 只有读+执行——它与 ``C:\\Program
+    Files`` 下的目录一样动不了，而按前缀判会说"这不是 Program Files"。**装到哪个盘不重要，
+    重要的是那个位置未提权的程序碰不到**，而这件事只有 ACL 答得上来。
+
+    目录与 EXE 两个都查：拿到目录的写权限可以换掉整个文件，拿到文件的写权限可以就地改它。
+
+    DACL 读不出来时（缺 pywin32、奇怪的文件系统、路径不存在）退回原来的前缀判定
+    ——那比"一律拒绝"有用，也比"一律放行"安全。
+
+    **已知的停止点**：不追溯父目录。如果 ``D:\\Program Files`` 本身归普通用户所有（用户手
+    建的目录就是这样），他能改写那一级的 DACL、进而删掉并替换我们这一级。要把这条链走到底
+    没有明确的终点，而这道闸的目的是拦住"解压到桌面就开开关"，不是抵抗一个已经拿到你账户、
+    还愿意在你眼皮下重排 ACL 的对手——那种对手有比这条启动项更省事的路。
+    """
+    environ = environ if environ is not None else os.environ
+    directory = ntpath.dirname(ntpath.normpath(executable)) or ntpath.normpath(executable)
+    verdicts = [writable_by_normal_users(target) for target in (directory, executable)]
+    if any(verdict is True for verdict in verdicts):
+        return False
+    if all(verdict is None for verdict in verdicts):
+        return _under_protected_root(executable, environ)
+    return True
 
 
 def blocked_reason(
@@ -191,11 +307,12 @@ def blocked_reason(
             "而真正执行的代码在一个可写的源码目录里，那样的静默提权启动项不安全"
         )
     if not is_protected_location(executable, environ):
+        where = ntpath.dirname(executable) or executable
         return (
-            "需要先把程序装到**系统的** Program Files 或 Windows 目录之下"
-            "（%ProgramFiles% 指向的那一个）。别的分区上同名的 Program Files 通常普通用户"
-            "就能改，不算；而放在可写目录里的程序，一个登录即静默提权的启动项等于给任何"
-            "能改那个目录的程序一条管理员通道"
+            "程序所在的目录**普通用户就能改写**，这种位置不能开这个开关："
+            "任何以你的身份运行的程序都能把 EXE 换掉，而这条启动项会在下次登录时"
+            "无提示地用管理员权限运行它。装到只有管理员能写的目录（安装包默认的 "
+            f"Program Files 就是）之后就能开。当前位置：{where}"
         )
     if not elevated:
         return "创建和删除这个登录任务本身需要管理员权限：请先用托盘的「以管理员身份重启」"

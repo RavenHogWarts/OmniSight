@@ -155,14 +155,143 @@ def test_decode_falls_back_to_the_console_code_page(monkeypatch):
     assert logon_task._decode("拒绝访问".encode("cp936")) == "拒绝访问"
 
 
-# ── 闸门 ────────────────────────────────────────────────────────────────
+# ── 闸门：位置判定 ──────────────────────────────────────────────────────
+#
+# 判定读 ACL，不看路径长什么样。下面这组用假的 ``win32security`` 把四条决策分支钉死——
+# 一道安全判定不该只有在某台特定机器上才试得出来。真机那一趟在本节末尾。
+class FakeSecurityDescriptor:
+    def __init__(self, owner: str | None, aces: list | None) -> None:
+        self._owner = owner
+        self._aces = aces
+
+    def GetSecurityDescriptorOwner(self):  # pywin32 那边的名字
+        return self._owner
+
+    def GetSecurityDescriptorDacl(self):
+        if self._aces is None:
+            return None
+        return FakeDacl(self._aces)
+
+
+class FakeDacl:
+    def __init__(self, aces: list) -> None:
+        self._aces = aces
+
+    def GetAceCount(self) -> int:
+        return len(self._aces)
+
+    def GetAce(self, index: int):
+        return self._aces[index]
+
+
+ADMINISTRATORS = "S-1-5-32-544"
+USERS = "S-1-5-32-545"
+EVERYONE = "S-1-1-0"
+A_NORMAL_USER = "S-1-5-21-1-2-3-1001"
+READ_EXECUTE = 0x1200A9
+MODIFY = 0x1301BF
+
+
+def fake_security(monkeypatch, owner: str | None, aces: list | None):
+    """把 ``win32security`` 换成一个只会背书的替身。"""
+    import sys
+    from types import SimpleNamespace
+
+    descriptor = FakeSecurityDescriptor(owner, aces)
+    monkeypatch.setitem(
+        sys.modules,
+        "win32security",
+        SimpleNamespace(
+            OWNER_SECURITY_INFORMATION=1,
+            DACL_SECURITY_INFORMATION=4,
+            GetFileSecurity=lambda *_args: descriptor,
+            ConvertSidToStringSid=str,
+        ),
+    )
+
+
+def test_an_installer_created_directory_is_protected_wherever_it_sits(monkeypatch):
+    """本机实测的形状（2026-09-03，``D:\\Program Files\\OmniSight``）：提权的安装器建出来的
+    目录归 ``Administrators`` 所有、``Users`` 只有读+执行。它和 ``C:\\Program Files`` 下的
+    目录一样动不了，**装在哪个盘无关**——原先按 ``%ProgramFiles%`` 前缀判会把它拒掉。
+    """
+    fake_security(monkeypatch, ADMINISTRATORS, [((0, 0), READ_EXECUTE, USERS)])
+    for path in (r"D:\Program Files\OmniSight\OmniSight.exe", r"X:\Apps\OmniSight\OmniSight.exe"):
+        assert logon_task.is_protected_location(path, {}) is True
+
+
+def test_a_write_ace_for_ordinary_users_is_a_hole(monkeypatch):
+    fake_security(monkeypatch, ADMINISTRATORS, [((0, 0), MODIFY, USERS)])
+    assert logon_task.is_protected_location(r"D:\Apps\OmniSight\OmniSight.exe", {}) is False
+
+
+def test_an_ace_for_administrators_is_not_a_hole(monkeypatch):
+    """UAC 过滤后的令牌里 ``Administrators`` 是 deny-only：针对它的允许 ACE 给不出任何权限。
+    把它算成"可写"会让**每一个** Program Files 目录都判成不安全，这道闸就永远开不了。
+    """
+    fake_security(monkeypatch, ADMINISTRATORS, [((0, 0), 0x1F01FF, ADMINISTRATORS)])
+    assert logon_task.is_protected_location(r"C:\Program Files\OmniSight\OmniSight.exe", {}) is True
+
+
+def test_a_directory_the_user_owns_is_a_hole_whatever_its_dacl_says(monkeypatch):
+    """所有者隐含 ``WRITE_DAC``：他随时能给自己加写权限，DACL 现在写着什么都不作数。
+    用户自己建的目录就是这一类，而它们的 DACL 往往看起来很干净。
+    """
+    fake_security(monkeypatch, A_NORMAL_USER, [((0, 0), READ_EXECUTE, USERS)])
+    assert logon_task.is_protected_location(r"D:\Program Files\Mine\OmniSight.exe", {}) is False
+
+
+def test_an_inherit_only_ace_does_not_apply_to_this_object(monkeypatch):
+    """``(OI)(CI)(IO)`` 的那条 ``CREATOR OWNER`` 全权 ACE 在几乎每个目录上都有，它只影响
+    **将来建出来的子对象**。把它算进来会让所有目录都判成可写。
+    """
+    fake_security(
+        monkeypatch, ADMINISTRATORS, [((0, logon_task.INHERIT_ONLY_ACE), 0x10000000, EVERYONE)]
+    )
+    assert logon_task.is_protected_location(r"C:\Program Files\OmniSight\OmniSight.exe", {}) is True
+
+
+def test_a_null_dacl_means_anyone_can_write(monkeypatch):
+    fake_security(monkeypatch, ADMINISTRATORS, None)
+    installed = r"C:\Program Files\OmniSight\OmniSight.exe"
+    assert logon_task.is_protected_location(installed, {}) is False
+
+
+def test_a_user_writable_location_says_so_and_names_itself(monkeypatch):
+    """说明文字要能被照着做：说出"这个目录你自己就能改"，并把那个目录写出来。
+    原先写的是"请装到系统的 Program Files"，而用户明明装在了一个安全的 Program Files 里
+    ——那条说明把一个判错的结论解释得很有道理，比不解释更糟。
+    """
+    fake_security(monkeypatch, A_NORMAL_USER, [((0, 0), MODIFY, USERS)])
+    reason = logon_task.blocked_reason(
+        elevated=True, frozen=True, executable=r"C:\Users\me\Desktop\OmniSight\OmniSight.exe"
+    )
+    assert "改写" in reason
+    assert r"C:\Users\me\Desktop\OmniSight" in reason
+
+
+@pytest.mark.windows_only
+def test_the_real_api_agrees_about_a_directory_we_just_created(tmp_path):
+    """真机对一遍：临时目录（用户自己建的）可写，``%SystemRoot%`` 不可写。
+
+    这一条盯的是**接线**——上面那组用替身钉的是判定，而 ``GetFileSecurity`` 的调用形式、
+    ACE 元组的形状、SID 的转换都只有真的调一次才知道对不对。
+    """
+    import os
+
+    assert logon_task.writable_by_normal_users(str(tmp_path)) is True
+    assert logon_task.writable_by_normal_users(os.environ["SYSTEMROOT"]) is False
+    assert logon_task.is_protected_location(str(tmp_path / "OmniSight.exe")) is False
+
+
+# ── 闸门：读不到 ACL 时的兜底（路径前缀）────────────────────────────────
 def test_a_neighbouring_directory_is_not_program_files():
     """``C:\\Program Files Extra`` 与 Program Files 前缀相同，而它普通用户可写——
     比较时必须补上分隔符，否则这道闸挡不住任何东西。"""
     environ = {"ProgramFiles": PROGRAM_FILES}
-    assert logon_task.is_protected_location(INSTALLED, environ) is True
+    assert logon_task._under_protected_root(INSTALLED, environ) is True
     assert (
-        logon_task.is_protected_location(r"C:\Program Files Extra\OmniSight.exe", environ) is False
+        logon_task._under_protected_root(r"C:\Program Files Extra\OmniSight.exe", environ) is False
     )
 
 
@@ -170,29 +299,23 @@ def test_protected_roots_are_read_case_insensitively():
     """``dict(os.environ)`` 在 Windows 上把键全变成大写，按 ``ProgramFiles`` 查恒为空
     ——症状是开关无缘无故是灰的（同一个坑在 tools/scan_record.py 里踩过一次）。"""
     for key in ("ProgramFiles", "PROGRAMFILES", "programfiles"):
-        assert logon_task.is_protected_location(INSTALLED, {key: PROGRAM_FILES}) is True
+        assert logon_task._under_protected_root(INSTALLED, {key: PROGRAM_FILES}) is True
 
 
 def test_nothing_is_protected_when_the_environment_is_empty():
-    assert logon_task.is_protected_location(INSTALLED, {}) is False
+    assert logon_task._under_protected_root(INSTALLED, {}) is False
 
 
-def test_a_program_files_on_another_drive_does_not_count():
-    """本机实测到的情形（2026-09-03）：用户把安装包装到了 ``D:\\Program Files\\OmniSight``。
-
-    那个目录**不是** ``%ProgramFiles%``——数据分区根目录的默认 ACL 通常允许普通用户建
-    目录，于是同名的 Program Files 往往是可写的。判定只认环境变量指向的那几个，方向保守；
-    而说明文字必须点明这件事，否则用户看着"请装到 Program Files"会以为程序判错了。
-    """
+def test_an_unreadable_dacl_falls_back_to_the_path_prefix(monkeypatch):
+    """缺 pywin32、奇怪的文件系统、路径还不存在——那时按前缀判比"一律拒绝"有用，
+    也比"一律放行"安全。"""
+    monkeypatch.setattr(logon_task, "writable_by_normal_users", lambda _path: None)
     environ = {"ProgramFiles": PROGRAM_FILES}
-    elsewhere = r"D:\Program Files\OmniSight\OmniSight.exe"
-    assert logon_task.is_protected_location(elsewhere, environ) is False
-    reason = logon_task.blocked_reason(
-        elevated=True, frozen=True, executable=elsewhere, environ=environ
-    )
-    assert "%ProgramFiles%" in reason and "分区" in reason
+    assert logon_task.is_protected_location(INSTALLED, environ) is True
+    assert logon_task.is_protected_location(PORTABLE, environ) is False
 
 
+# ── 闸门：三个条件的顺序 ────────────────────────────────────────────────
 def test_development_mode_is_refused_before_anything_else_is_looked_at():
     """开发模式下任务只能指向解释器，而真正执行的代码在一个可写的源码目录里——对
     ``python.exe`` 做路径判定证明不了任何事情，哪怕它自己装在 Program Files 里。"""

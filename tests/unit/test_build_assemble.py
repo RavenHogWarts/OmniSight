@@ -466,10 +466,12 @@ def test_the_uninstaller_removes_the_logon_task():
 
 
 def test_the_windows_build_carries_the_com_modules_for_de_elevation():
-    """``pythoncom`` / ``win32com.client.dynamic`` 是惰性导入的，漏了它们不会让程序崩——
-    只会让管理员模式下的浏览器悄悄跟着提权（elevation.shell_dispatch 退回 None）。
-    这种缺失谁都发现不了，所以打包参数里显式写上。
+    """``pythoncom`` / ``win32com.client.dynamic`` / ``win32security`` 都是惰性导入的，漏了
+    它们不会让程序崩：前两个只会让管理员模式下的浏览器悄悄跟着提权，第三个会让登录任务那道
+    闸退回按路径前缀判，于是装在 ``D:\\Program Files`` 的安装版被莫名拒掉。三种缺失都没人
+    发现得了，所以打包参数里显式写上。
     """
     windows_args = build.PLATFORM["win32"]
     assert "--hidden-import=pythoncom" in windows_args
     assert "--hidden-import=win32com.client.dynamic" in windows_args
+    assert "--hidden-import=win32security" in windows_args

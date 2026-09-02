@@ -91,6 +91,10 @@ PLATFORM: dict[str, list[str]] = {
         # 谁都发现不了，所以显式写上而不是指望静态分析扫到函数体里那两行 import。
         "--hidden-import=pythoncom",
         "--hidden-import=win32com.client.dynamic",
+        # 「登录时以管理员身份启动」那道闸要读目录的 ACL 判断"普通用户能不能改掉这个 EXE"
+        # （adapters/windows/logon_task.py 的 writable_by_normal_users）。同样是惰性导入，
+        # 同样是"漏了不崩、只是悄悄退回按路径前缀判"——而那正是这一版要修掉的错判。
+        "--hidden-import=win32security",
     ],
     "darwin": [
         # 不用 --onefile：TCC（隐私权限）记录绑定 bundle id + 签名，而 onefile 每次

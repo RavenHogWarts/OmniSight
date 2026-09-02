@@ -8,7 +8,7 @@ OmniSight 全局读取键盘输入，杀软把它标为可疑是合理的启发�
 只提供可核对的事实。
 
 - 程序版本：`0.1.0-alpha.1`
-- 记录时间：2026-09-03T02:11:24+08:00
+- 记录时间：2026-09-03T02:38:37+08:00
 - 生成环境：Python 3.12.13 / win32
 
 ## 产物与校验值
@@ -18,9 +18,9 @@ OmniSight 全局读取键盘输入，杀软把它标为可疑是合理的启发�
 
 | 文件 | 角色 | 大小 | SHA-256 |
 | --- | --- | --- | --- |
-| `OmniSight.exe` | 两件发布物内含的可执行文件 | 24.6 MB | `faa5a1ffed6cb2371ba4ffd57bad2cc674c4b0a38f32f3744d2592765497a9bb` |
-| `OmniSight-portable.zip` | 发布物 | 24.3 MB | `7899276967623c28617e1210bd975c89be9ad2d13ae21a271a160293f571f59c` |
-| `OmniSight-Setup.exe` | 发布物 | 26.2 MB | `fbd0bfef0034c720cee8eca69dea8ef71c443225c74b3da2c07052fdce3a5ab5` |
+| `OmniSight.exe` | 两件发布物内含的可执行文件 | 24.6 MB | `635e720dcf7a3769f91af21fc29e682764b414d2ddce0ca0a5903f6a36182561` |
+| `OmniSight-portable.zip` | 发布物 | 24.4 MB | `ae4c3216aa45f6f3bd512f1210fe22967c7621158d5673f810a9183ee9f002a8` |
+| `OmniSight-Setup.exe` | 发布物 | 26.3 MB | `84bc9247f07c86f0eb72e69744e80d22d0e0e71389c4152cae4d510ecab5fc1a` |
 
 下载后自己算一遍，与上表比对：
 
@@ -56,9 +56,9 @@ Get-FileHash .\OmniSight-Setup.exe -Algorithm SHA256
 
 按 SHA-256 查询（**查询不上传文件**，用的是上表里本地算出的哈希）：
 
-- `OmniSight.exe` → <https://www.virustotal.com/gui/file/faa5a1ffed6cb2371ba4ffd57bad2cc674c4b0a38f32f3744d2592765497a9bb>
-- `OmniSight-portable.zip` → <https://www.virustotal.com/gui/file/7899276967623c28617e1210bd975c89be9ad2d13ae21a271a160293f571f59c>
-- `OmniSight-Setup.exe` → <https://www.virustotal.com/gui/file/fbd0bfef0034c720cee8eca69dea8ef71c443225c74b3da2c07052fdce3a5ab5>
+- `OmniSight.exe` → <https://www.virustotal.com/gui/file/635e720dcf7a3769f91af21fc29e682764b414d2ddce0ca0a5903f6a36182561>
+- `OmniSight-portable.zip` → <https://www.virustotal.com/gui/file/ae4c3216aa45f6f3bd512f1210fe22967c7621158d5673f810a9183ee9f002a8>
+- `OmniSight-Setup.exe` → <https://www.virustotal.com/gui/file/84bc9247f07c86f0eb72e69744e80d22d0e0e71389c4152cae4d510ecab5fc1a>
 
 提交样本是人工步骤：上传到 VirusTotal 等于公开发布这个文件，此后任何人都能按
 哈希取走样本，因此这个决定由维护者本人做，构建脚本不代劳。首次发布时上面的
