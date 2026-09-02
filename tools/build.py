@@ -85,6 +85,12 @@ PLATFORM: dict[str, list[str]] = {
         "--icon=assets/omnisight.ico",
         # tzdata 必须显式收集，否则 ZoneInfo 在打包后找不到时区库。
         "--collect-data=tzdata",
+        # 管理员模式下降权打开仪表盘要借桌面 shell 的 IShellDispatch2（COM，见
+        # adapters/windows/elevation.py 的 shell_dispatch）。这两个模块是惰性导入的，
+        # 而漏了它们**不会让程序崩**——只会让提权状态下的浏览器悄悄跟着提权。这种缺失
+        # 谁都发现不了，所以显式写上而不是指望静态分析扫到函数体里那两行 import。
+        "--hidden-import=pythoncom",
+        "--hidden-import=win32com.client.dynamic",
     ],
     "darwin": [
         # 不用 --onefile：TCC（隐私权限）记录绑定 bundle id + 签名，而 onefile 每次

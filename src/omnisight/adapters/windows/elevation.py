@@ -54,6 +54,14 @@ SEE_MASK_NOASYNC = 0x00000100
 SW_SHOWNORMAL = 1
 ERROR_CANCELLED = 1223
 
+#: ``CLSID_ShellWindows``。桌面上那个 shell 视图跑在**普通完整性级别**的 explorer 里，
+#: 把 ``ShellExecute`` 交给它就等于降权——这是 Windows 上唯一不需要额外服务、计划任务或
+#: 令牌操作的降权办法（``open_unelevated`` 的 URL 分支）。
+CLSID_SHELL_WINDOWS = "{9BA05972-F6A8-11CF-A442-00A0C90A8F39}"
+#: ``IShellWindows.FindWindowSW`` 的两个入参：找桌面那一个，并且要它的 ``IDispatch``。
+SWC_DESKTOP = 8
+SWFO_NEEDDISPATCH = 1
+
 
 class SHELLEXECUTEINFOW(ctypes.Structure):
     """``ShellExecuteExW`` 的入参。
@@ -201,8 +209,8 @@ def _local_path(target: str) -> str | None:
     这个区分是踩出来的（2026-09-02 实测）：**explorer.exe 只可靠地处理路径。**
     把带查询串的 URL（仪表盘地址一定带 ``?token=``）交给它，它会把整个参数当成一个
     看不懂的路径，然后**打开"文档"文件夹**——而 ``Popen`` 照样返回成功，调用方无从
-    发现自己刚把用户送错了地方。静默送错比报错糟得多，所以 URL 在这里就被挡回去，
-    由调用方按常规方式打开（代价见 :meth:`WindowsElevation.open_unelevated`）。
+    发现自己刚把用户送错了地方。静默送错比报错糟得多，所以 URL 在这里就被挑出来，
+    交给 :func:`shell_dispatch` 那条 COM 通道（见 :meth:`WindowsElevation.open_unelevated`）。
     """
     parsed = urlparse(target)
     scheme = parsed.scheme.lower()
@@ -216,6 +224,51 @@ def _local_path(target: str) -> str | None:
     if len(scheme) > 1:
         return None
     return target
+
+
+def shell_dispatch() -> object | None:
+    """桌面 shell 的 ``IShellDispatch2``；拿不到时返回 ``None``。
+
+    这条链子长，但每一环都必要：``CLSID_ShellWindows`` 拿到的是**已经在跑的** explorer
+    里那个集合（不是新建一个进程，那样又会继承管理员令牌），从中找出桌面视图，再顺着
+    ``Document.Application`` 取回它的 ``IShellDispatch2``。之后调它的 ``ShellExecute``，
+    真正执行的是 explorer 那个普通权限的进程。
+
+    用 ``dynamic.Dispatch`` 而不是 ``win32com.client.Dispatch``：后者会去查类型库、必要时
+    在运行时用 makepy **生成**一个包装模块，而打包产物里既没有生成好的模块也不该在用户机
+    器上生成代码。纯后期绑定只多一次 ``IDispatch`` 查名字，这里一共调三次。
+
+    失败一律返回 ``None`` 让调用方兜底：拿不到降权通道时"照常打开"仍然是可用的，而抛异常
+    会把一次打开仪表盘变成一次崩溃。
+    """
+    try:
+        import pythoncom
+        from win32com.client import dynamic
+    except ImportError:  # pragma: no cover - 打包漏了 pywin32
+        logger.debug("win32com 不可用，降权打开走兜底")
+        return None
+    try:
+        # 托盘回调所在的线程未必初始化过 COM。已经初始化过会返回 S_FALSE（无害），
+        # 套间模式不同则抛 RPC_E_CHANGED_MODE——那种情况下后面的调用照样能走。
+        try:
+            pythoncom.CoInitialize()
+        except Exception:  # 见上：这里失败不影响后续调用
+            logger.debug("CoInitialize 未成功，继续尝试", exc_info=True)
+        windows = dynamic.Dispatch(
+            pythoncom.CoCreateInstance(
+                CLSID_SHELL_WINDOWS,
+                None,
+                pythoncom.CLSCTX_LOCAL_SERVER,
+                pythoncom.IID_IDispatch,
+            )
+        )
+        desktop = windows.FindWindowSW(
+            pythoncom.Empty, pythoncom.Empty, SWC_DESKTOP, 0, SWFO_NEEDDISPATCH
+        )
+        return desktop.Document.Application
+    except Exception:  # pythoncom 抛 com_error，链子断在中途还会是 AttributeError
+        logger.debug("拿不到桌面 shell 的 IShellDispatch2", exc_info=True)
+        return None
 
 
 class WindowsElevation:
@@ -284,32 +337,36 @@ class WindowsElevation:
         return False
 
     def open_unelevated(self, target: str) -> bool:
-        """以普通权限打开**本地目录**；URL 一律返回 False，交回调用方。
+        """以普通权限打开本地路径或 URL；没能降权时返回 False，由调用方兜底。
 
-        为什么要降权：子进程默认继承父进程的令牌，管理员模式下直接打开文件管理器或
-        浏览器，它们就跟着拿到管理员权限。explorer.exe 跑在普通完整性级别上，把请求
-        转交给它就等于降了权。
+        为什么要降权：子进程默认继承父进程的令牌，管理员模式下直接打开文件管理器或浏览器，
+        它们就跟着拿到管理员权限——一个记录键盘的程序不该顺手把浏览器也提上去。
 
-        **为什么 URL 不走这条路**（2026-09-02 实测修正）：explorer.exe 只可靠地处理
-        路径。仪表盘地址一定带 ``?token=``，交给它的结果是**打开"文档"文件夹**，而
-        ``Popen`` 返回成功，于是调用方连兜底的机会都没有——静默送错比报错糟得多。
-        因此 URL 在 :func:`_local_path` 那里就被挡回去，由调用方按常规方式打开：
+        两种目标走两条路，因为它们的坑不同：
 
-        * 浏览器已经在运行（常态）：新进程把地址交给已在运行的那个普通权限实例后自己
-          退出，最终标签页落在普通权限的浏览器里；
-        * 浏览器没在运行：它会随本程序一起以管理员权限启动。这是当前的已知代价，
-          `docs/privacy.md` §8.1 与 10 文档 §5.2 都如实写明。
+        * **本地路径** → ``explorer.exe``。它跑在普通完整性级别上，把请求转交给它就降了权。
+        * **URL** → 桌面 shell 的 ``IShellDispatch2.ShellExecute``（见 :func:`shell_dispatch`）。
+          URL **不能**走 explorer：仪表盘地址一定带 ``?token=``，而 explorer 会把整个参数
+          当成一个看不懂的路径，然后**打开"文档"文件夹**，同时 ``Popen`` 返回成功——调用方
+          连兜底的机会都没有（2026-09-02 实测，见 :func:`_local_path`）。COM 这条路把地址
+          原样交给桌面 shell，查询串完整保留（2026-09-03 实测确认）。
 
-        可靠的降权打开 URL 需要借运行中的 explorer 的 ``IShellDispatch2.ShellExecute``
-        （COM），那条路要 pywin32 的 ``win32com`` 进打包产物，且只有真的提权跑一次才
-        验得出来——留作后续，不在这一批里拿一个测不了的机制换掉一个能用的兜底。
+        拿不到 COM 通道时返回 False，调用方退回 ``webbrowser.open``：那时浏览器若没在运行
+        会跟着以管理员权限启动，代价如实写在 `docs/privacy.md` §8.1 与 10 文档 §5.2。
         """
         if not self.is_elevated():
             return False
         path = _local_path(target)
         if path is None:
-            logger.debug("%s 是 URL，不走 explorer 降权（见 open_unelevated 的说明）", target)
-            return False
+            dispatch = shell_dispatch()
+            if dispatch is None:
+                return False
+            try:
+                dispatch.ShellExecute(target)
+            except Exception:
+                logger.exception("桌面 shell 未能打开 %s", target)
+                return False
+            return True
         try:
             subprocess.Popen([_explorer_path(), path], close_fds=True)
         except OSError:

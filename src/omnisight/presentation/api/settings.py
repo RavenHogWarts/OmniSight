@@ -49,7 +49,30 @@ def register(app: Flask, context: Any) -> None:
             raise ApiError(
                 f"写入自启项失败：{exc}", code="internal_error", status=500
             ) from exc
-        return jsonify({**envelope(context), "enabled": state})
+        return jsonify({**envelope(context), **state})
+
+    @app.post("/api/v1/settings/autostart-elevated")
+    def settings_autostart_elevated():
+        """「登录时以管理员身份启动」（Windows 的 ``/RL HIGHEST`` 登录任务，10 文档 §5.3）。
+
+        与上面那个端点分开而不是加一个 ``elevated`` 字段：两者的机制、所需权限与失败
+        原因都不同，合成一个端点会让 422 的 ``capability`` 说不清是哪一条不可用。
+        """
+        require_same_site()
+        enabled = body_bool(json_body(), "enabled")
+        try:
+            state = context.services.settings.set_autostart_elevated(enabled)
+        except CapabilityMissing as exc:
+            raise CapabilityUnavailable(exc.capability, exc.message) from exc
+        except PermissionError as exc:
+            # 适配器最里面那道闸（见 logon_task.set_enabled）。走到这里说明服务层的检查
+            # 与适配器的判断不一致，如实报 422 而不是 500——用户能做的事是一样的。
+            raise CapabilityUnavailable("autostart_elevated", str(exc)) from exc
+        except OSError as exc:
+            raise ApiError(
+                f"设置登录任务失败：{exc}", code="internal_error", status=500
+            ) from exc
+        return jsonify({**envelope(context), **state})
 
     @app.post("/api/v1/capture/pause")
     def capture_pause():

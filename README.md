@@ -36,7 +36,7 @@
 | `OmniSight-Setup.exe` | 想装进系统、要开始菜单项与标准卸载项 | `%LOCALAPPDATA%\OmniSight\` |
 | `OmniSight-portable.zip` | 解压即用、想随身带走或不想动系统 | 解压目录下的 `data/`、`logs/`、`config.json` |
 
-两者的差别只有**安装位置**，功能完全一样。安装版装进 `Program Files`（安装过程需要一次管理员确认，这也是规划中的「登录时以管理员身份启动」唯一能指向的位置）；便携版解压到任意**可写**目录（桌面、文档、U 盘都行，别放 `Program Files` 那类需要管理员权限的地方）。
+两者的差别只有**安装位置**，功能完全一样，只有一处例外：设置页的「登录时以管理员身份启动」只有安装版能开（它建的登录任务必须指向一个普通用户改不了的 EXE，理由见 [docs/faq.md](docs/faq.md)）。安装版装进 `Program Files`（安装过程需要一次管理员确认）；便携版解压到任意**可写**目录（桌面、文档、U 盘都行，别放 `Program Files` 那类需要管理员权限的地方）。
 
 便携版靠解压后同级的 `portable.marker` 决定数据放在哪：删掉它，数据就回到 `%LOCALAPPDATA%\OmniSight\`（已有的 `data/` 不会被自动搬走）。
 

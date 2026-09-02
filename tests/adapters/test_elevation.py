@@ -124,20 +124,66 @@ def test_local_targets_are_resolved_to_paths(elevation, target: str, expected: s
         "https://example.org",
     ],
 )
-def test_urls_are_refused_instead_of_being_handed_to_explorer(elevation, target: str):
+def test_urls_are_never_handed_to_explorer(elevation, target: str):
     """实测踩到的那个坑（2026-09-02）：explorer.exe 拿到带查询串的 URL 会**打开"文档"
     文件夹**，而 ``Popen`` 照样成功——用户点「打开 OmniSight」看到的是资源管理器。
-    静默送错比报错糟得多，所以这里直接挡回去，由调用方按常规方式打开。
+    静默送错比报错糟得多，所以 URL 在这里就被挑出来，走桌面 shell 的 COM 通道。
     """
     assert elevation._local_path(target) is None
 
 
-def test_a_url_launches_nothing_at_all_even_when_elevated(control, elevation, monkeypatch):
+class FakeShell:
+    """桌面 shell 的 ``IShellDispatch2`` 替身。"""
+
+    def __init__(self, *, boom: bool = False) -> None:
+        self.boom = boom
+        self.opened: list[str] = []
+
+    def ShellExecute(self, target: str, *_args: object) -> None:  # COM 那边的名字
+        if self.boom:
+            raise RuntimeError("com_error")
+        self.opened.append(target)
+
+
+def test_a_url_goes_through_the_desktop_shell_with_its_query_string_intact(
+    control, elevation, monkeypatch
+):
+    """2026-09-03 实测确认：桌面 shell 把地址原样交给浏览器，``?token=`` 完好——而这正是
+    explorer.exe 会当成路径、然后打开"文档"文件夹的那一部分。
+    """
+    shell = FakeShell()
     launched: list[object] = []
+    monkeypatch.setattr(elevation, "shell_dispatch", lambda: shell)
+    monkeypatch.setattr(elevation.subprocess, "Popen", lambda *a, **k: launched.append(a))
+    control._elevated = True
+    assert control.open_unelevated("http://127.0.0.1:6100/?token=t") is True
+    assert shell.opened == ["http://127.0.0.1:6100/?token=t"]
+    assert launched == [], "URL 绝不能落到 explorer.exe 手里"
+
+
+@pytest.mark.parametrize("shell", [None, FakeShell(boom=True)])
+def test_a_url_is_handed_back_to_the_caller_when_the_shell_channel_fails(
+    control, elevation, monkeypatch, shell
+):
+    """拿不到降权通道时返回 False，由调用方 ``webbrowser.open``：那时浏览器若没在运行会
+    跟着提权，代价如实写在 docs/privacy.md §8.1——但用户至少看到了仪表盘。
+    """
+    launched: list[object] = []
+    monkeypatch.setattr(elevation, "shell_dispatch", lambda: shell)
     monkeypatch.setattr(elevation.subprocess, "Popen", lambda *a, **k: launched.append(a))
     control._elevated = True
     assert control.open_unelevated("http://127.0.0.1:6100/?token=t") is False
-    assert launched == [], "宁可让调用方兜底，也不能打开一个错的东西"
+    assert launched == []
+
+
+def test_the_shell_channel_never_raises_on_a_real_machine(elevation):
+    """这条 COM 链子有五环，任何一环都可能在别人的机器上断掉（explorer 没在跑、组策略
+    禁了脚本宿主）。断掉必须表现为 ``None``——一次打开仪表盘不该变成一次崩溃。
+
+    不断言拿得到：CI 的 Windows runner 没有交互式桌面，那里本来就是 ``None``。
+    """
+    dispatch = elevation.shell_dispatch()
+    assert dispatch is None or hasattr(dispatch, "ShellExecute")
 
 
 def test_a_directory_is_opened_through_explorer_when_elevated(control, elevation, monkeypatch):

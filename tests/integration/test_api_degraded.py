@@ -171,3 +171,97 @@ def test_icon_urls_are_omitted_when_the_platform_cannot_provide_icons(
     payload = client.get("/api/v1/usage/period?range=day").get_json()
     assert payload["apps"]
     assert all(app["icon_url"] is None for app in payload["apps"])
+
+
+class _Plain:
+    """注册表自启项的替身。"""
+
+    def __init__(self, enabled: bool = True) -> None:
+        self.enabled = enabled
+
+    def is_enabled(self) -> bool:
+        return self.enabled
+
+    def set_enabled(self, enabled: bool) -> None:
+        self.enabled = enabled
+
+
+class _Task:
+    """登录任务的替身。``reason`` 非空 = 闸门关着（10 文档 §5.3）。"""
+
+    def __init__(self, *, enabled: bool = False, reason: str = "", boom: bool = False) -> None:
+        self.enabled = enabled
+        self.reason = reason
+        self.boom = boom
+
+    def is_enabled(self) -> bool:
+        return self.enabled
+
+    def is_present(self) -> bool:
+        return self.enabled
+
+    def change_blocked_reason(self) -> str:
+        return self.reason
+
+    def set_enabled(self, enabled: bool) -> None:
+        if self.boom:
+            raise PermissionError("这个位置不允许建静默提权的登录任务")
+        self.enabled = enabled
+
+
+def _with_adapters(api_context, **ports):
+    from types import SimpleNamespace
+
+    api_context.services.context.adapters = SimpleNamespace(**ports)
+
+
+def test_the_logon_task_switch_is_absent_where_there_is_no_such_mechanism(api_context, api_client):
+    """二级平台上不下发那一行：一个永远灰着的开关只会招来"为什么点不了"（05 文档 §7）。"""
+    _with_adapters(api_context, autostart=_Plain())
+    described = api_client.get("/api/v1/settings").get_json()["settings"]
+    assert "system.autostart_elevated" not in described
+
+    response = api_client.post("/api/v1/settings/autostart-elevated", json={"enabled": True})
+    assert response.status_code == 422
+    assert response.get_json()["error"]["capability"] == "autostart_elevated"
+
+
+def test_a_closed_gate_is_422_with_the_reason_the_user_can_act_on(api_context, api_client):
+    """"此刻做不到"的写操作是 422，并且要说清做不到什么（05 文档 §1.5）。这个开关不可用
+    的三种理由对应三种不同的下一步动作，只回一个 422 等于让用户猜。"""
+    _with_adapters(api_context, autostart=_Plain(), autostart_elevated=_Task(reason="要先提权"))
+    described = api_client.get("/api/v1/settings").get_json()["settings"]
+    entry = described["system.autostart_elevated"]
+    assert entry["available"] is False and entry["unavailable_reason"] == "要先提权"
+
+    response = api_client.post("/api/v1/settings/autostart-elevated", json={"enabled": True})
+    assert response.status_code == 422
+    error = response.get_json()["error"]
+    assert error["capability"] == "autostart_elevated"
+    assert "要先提权" in error["message"]
+
+
+def test_the_adapters_own_gate_is_also_422_rather_than_500(api_context, api_client):
+    """适配器最里面那道闸（``logon_task.set_enabled`` 抛 ``PermissionError``）。走到这里
+    说明两层的判断不一致，但用户能做的事和 422 时一样——报 500 只会让他去找日志。"""
+    _with_adapters(api_context, autostart=_Plain(), autostart_elevated=_Task(boom=True))
+    response = api_client.post("/api/v1/settings/autostart-elevated", json={"enabled": True})
+    assert response.status_code == 422
+    assert response.get_json()["error"]["capability"] == "autostart_elevated"
+
+
+def test_turning_on_the_logon_task_reports_that_it_took_the_other_one_down(api_context, api_client):
+    """两条机制互斥。**说出来**是要紧的：用户刚刚开的这一项让另一个开关翻了个面。"""
+    plain, task = _Plain(True), _Task()
+    _with_adapters(api_context, autostart=plain, autostart_elevated=task)
+    payload = api_client.post(
+        "/api/v1/settings/autostart-elevated", json={"enabled": True}
+    ).get_json()
+    assert payload["enabled"] is True
+    assert "开机自启" in payload["note"]
+    assert plain.enabled is False
+
+    described = api_client.get("/api/v1/settings").get_json()["settings"]
+    assert described["system.autostart_elevated"]["value"] is True
+    # 注册表项确实关了，但"开机自启：关"是假话——程序每次登录都照常起来。
+    assert "接管" in described["system.autostart"]["note"]

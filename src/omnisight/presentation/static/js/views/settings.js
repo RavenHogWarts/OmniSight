@@ -49,6 +49,7 @@ const LABELS = {
   'storage.checkpoint_interval_seconds': 'WAL 检查点间隔（秒）',
   'server.port': '端口',
   'system.autostart': '开机自启',
+  'system.autostart_elevated': '登录时以管理员身份启动',
 };
 
 const OPTION_LABELS = {
@@ -194,6 +195,10 @@ export function openSettings(payload, status, onReload) {
         section.append(autostartField(settings[key], onReload));
         continue;
       }
+      if (key === 'system.autostart_elevated') {
+        section.append(autostartElevatedField(settings[key], onReload));
+        continue;
+      }
       section.append(field(key, settings[key], apply));
     }
     if (group.prefixes[0] === 'ui.') section.append(heatField());
@@ -246,15 +251,50 @@ function autostartField(spec, onReload) {
     onChange: async (value) => {
       try {
         const result = await post('/settings/autostart', { enabled: value });
-        ok(result.enabled ? '已设置开机自启' : '已取消开机自启');
+        ok([result.enabled ? '已设置开机自启' : '已取消开机自启', result.note].filter(Boolean).join('；'));
         if (onReload) onReload();
       } catch (error) {
         fail(error.message);
+        // 失败后必须重读：开关已经被点着了，而真实状态没变（例如"要先关掉登录任务"
+        // 那个 422），留着一个反的开关就是谎报。
+        if (onReload) onReload();
       }
     },
   });
   row.append(h('div', { class: 'field__label' }, h('span', { text: '开机自启' })), toggle.root);
   if (spec.unavailable_reason) row.append(h('div', { class: 'field__note', text: spec.unavailable_reason }));
+  if (spec.note) row.append(h('div', { class: 'field__note', text: spec.note }));
+  return row;
+}
+
+/**
+ * 「登录时以管理员身份启动」：/RL HIGHEST 的登录计划任务（10 文档 §5.3）。
+ *
+ * 不可用的原因**一定要显示**：这个开关多数时候是灰的（要装到 Program Files、要先提权），
+ * 而三种原因对应三种完全不同的下一步动作。原因与说明两行都留着——只显示原因的话，用户
+ * 不知道这个开关本来是干什么的。
+ */
+function autostartElevatedField(spec, onReload) {
+  const row = h('div', { class: 'field', dataset: { available: String(spec.available !== false) } });
+  const label = labelOf('system.autostart_elevated');
+  const toggle = switchControl({
+    checked: Boolean(spec.value),
+    disabled: spec.available === false,
+    label,
+    onChange: async (value) => {
+      try {
+        const result = await post('/settings/autostart-elevated', { enabled: value });
+        ok([result.enabled ? `已开启${label}` : `已关闭${label}`, result.note].filter(Boolean).join('；'));
+        if (onReload) onReload();
+      } catch (error) {
+        fail(error.message);
+        if (onReload) onReload();
+      }
+    },
+  });
+  row.append(h('div', { class: 'field__label' }, h('span', { text: label })), toggle.root);
+  if (spec.unavailable_reason) row.append(h('div', { class: 'field__note', text: spec.unavailable_reason }));
+  if (spec.note) row.append(h('div', { class: 'field__note', text: spec.note }));
   return row;
 }
 

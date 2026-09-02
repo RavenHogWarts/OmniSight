@@ -206,6 +206,33 @@ class AutostartControl(Protocol):
 
 
 @runtime_checkable
+class ElevatedAutostartControl(Protocol):
+    """开机自启，但以管理员身份（Windows 的 ``/RL HIGHEST`` 登录任务，10 文档 §5.3）。
+
+    刻意**不**做成 :class:`AutostartControl` 的一个参数：两者是两套机制（注册表项 vs
+    计划任务），改动所需的权限不同（前者只写 ``HKCU``，后者建任务就要管理员），而且
+    **互斥**——同时开着会在登录时启动两个实例。互斥由服务层维护，因为只有那一层同时
+    看得到两个端口。
+
+    :meth:`change_blocked_reason` 返回的是**给用户看的一句话**，而不是一个布尔值：这个
+    开关不可用的三种理由（开发模式、程序在可写目录、当前没提权）对应三种完全不同的下一
+    步动作，只给一个灰开关等于让用户猜（05 文档 §7）。
+    """
+
+    def is_enabled(self) -> bool:
+        """任务存在、指向当前程序**且**真的会提权。"""
+
+    def is_present(self) -> bool:
+        """任务存在，但可能指向旧路径或没有提权。用于把"看起来是关的"说清楚。"""
+
+    def change_blocked_reason(self) -> str:
+        """此刻不能改这个开关的原因；``""`` = 可以改。"""
+
+    def set_enabled(self, enabled: bool) -> None:
+        """建立或删除登录任务。被闸门挡住时抛 :class:`PermissionError`。"""
+
+
+@runtime_checkable
 class ElevationControl(Protocol):
     """管理员（提权）运行模式（10 文档 §5.2）。
 
@@ -269,6 +296,9 @@ class AdapterSet:
     instance_lock: InstanceLock
     notifier: Notifier
     autostart: AutostartControl | None = None
+    #: 以管理员身份的开机自启（Windows 的登录计划任务）。``None`` = 本平台没有这条机制，
+    #: 设置页据此不显示那一项。
+    autostart_elevated: ElevatedAutostartControl | None = None
     #: 管理员模式（Windows 的 UAC）。``None`` = 本平台还没有实现，托盘据此隐藏那一项。
     elevation: ElevationControl | None = None
     foreground: ForegroundSource | None = None

@@ -557,8 +557,11 @@ class Lifecycle:
                 runtime, runtime.config.dashboard_url(runtime.token)
             ),
             on_quit=self.shutdown,
-            autostart_state=(autostart.is_enabled if autostart else None),
-            on_toggle_autostart=(autostart.set_enabled if autostart else None),
+            # 一个勾选框，两条机制（注册表项 / 登录计划任务）——见 :meth:`_autostart_enabled`。
+            autostart_state=(lambda: self._autostart_enabled(runtime)) if autostart else None,
+            on_toggle_autostart=(
+                (lambda enabled: self._toggle_autostart(runtime, enabled)) if autostart else None
+            ),
             # 暂停走的是**设置服务**，不是直接去掐采集组件：只有走服务才会一并
             # 写回 config.json（重启后仍是暂停的）并清查询缓存。托盘与设置页
             # 因此是同一条路径的两个入口，不可能出现两处状态不一致。
@@ -584,6 +587,42 @@ class Lifecycle:
             # 没有托盘时这是用户唯一能看到访问地址的地方（10 文档 §5.1）。
             print(f"OmniSight 正在运行：{runtime.config.dashboard_url(runtime.token)}")
         tray.run()
+
+    def _autostart_enabled(self, runtime: Runtime) -> bool:
+        """托盘那个勾选框的真值：**两条自启机制里任意一条开着就算开着**。
+
+        只看注册表项会在「登录时以管理员身份启动」开着时显示未勾选，而程序每次登录都
+        照常起来——托盘谎报比功能缺失更糟（10 文档 §4、§5.3）。
+        """
+        autostart = runtime.adapter_set.autostart
+        if autostart is not None and autostart.is_enabled():
+            return True
+        elevated = runtime.adapter_set.autostart_elevated
+        return elevated is not None and elevated.is_enabled()
+
+    def _toggle_autostart(self, runtime: Runtime, enabled: bool) -> None:
+        """托盘的开机自启开关：一个勾选框，两条机制。
+
+        **关**要把两条都关掉，否则用户取消了勾选、程序还是每次登录都起来。**开**只开注册
+        表项：从托盘勾一下不该顺带建一个每次登录静默提权的计划任务，那个决定连同它的代价
+        一起摆在设置页上（10 文档 §5.3）。两者互斥由设置服务维护，这里只借它那一条路。
+        """
+        elevated = runtime.adapter_set.autostart_elevated
+        if not enabled and elevated is not None and elevated.is_enabled():
+            reason = elevated.change_blocked_reason()
+            if reason:
+                # 托盘没有说话的地方，只能进日志——而设置页那一行会把同样的原因写出来。
+                logger.warning("「登录时以管理员身份启动」没能关掉：%s", reason)
+            else:
+                elevated.set_enabled(False)
+        services = runtime.services
+        if services is None:
+            # 服务层没装配起来时也要把用户点的那一下做掉（``_set_paused`` 同理）。
+            autostart = runtime.adapter_set.autostart
+            if autostart is not None:
+                autostart.set_enabled(enabled)
+            return
+        services.settings.set_autostart(enabled)
 
     def _set_paused(self, runtime: Runtime, paused: bool) -> None:
         """托盘的暂停开关。服务层不可用时退回直接掐采集组件——用户点了暂停，

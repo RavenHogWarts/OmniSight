@@ -165,7 +165,17 @@ class SettingsService:
             if spec.note:
                 entry["note"] = spec.note
             items[spec.path] = entry
-        items["system.autostart"] = self._autostart_entry()
+        autostart_entry = self._autostart_entry()
+        elevated_entry = self._autostart_elevated_entry()
+        if elevated_entry is not None and elevated_entry["value"]:
+            # 两条机制互斥，普通那一行必须说清"现在由登录任务接管"：否则设置页显示
+            # 「开机自启 关」而程序每次登录都在启动，那是谎报（10 文档 §4）。
+            autostart_entry["note"] = (
+                "现在由下面的「登录时以管理员身份启动」接管：两者互斥，开着那一项时这一项就是关的"
+            )
+        items["system.autostart"] = autostart_entry
+        if elevated_entry is not None:
+            items["system.autostart_elevated"] = elevated_entry
         return {
             "settings": items,
             "categories": categories.catalog(),
@@ -205,12 +215,85 @@ class SettingsService:
             **({} if available else {"unavailable_reason": "当前环境不支持自动配置开机自启"}),
         }
 
-    def set_autostart(self, enabled: bool) -> bool:
+    def _elevated_control(self) -> Any:
+        """登录任务端口。用 ``getattr`` 是因为二级平台的适配器集合里根本没有这一项。"""
+        return getattr(self._ctx.adapters, "autostart_elevated", None)
+
+    def _autostart_elevated_entry(self) -> dict[str, object] | None:
+        """「登录时以管理员身份启动」这一行；本平台没有这条机制时返回 ``None``。
+
+        返回 ``None`` 而不是一个 ``available: false`` 的行：macOS / Linux 上永远灰着的
+        开关只会招来"为什么点不了"，而那个问题没有答案（托盘的提权项同理）。
+        """
+        control = self._elevated_control()
+        if control is None:
+            return None
+        try:
+            enabled = bool(control.is_enabled())
+            reason = str(control.change_blocked_reason())
+            # 只在"看起来是关的"时候再查一次：那正是需要区分"没有这个任务"和"有一个指向
+            # 别处（或没提权）的任务"的时候，而每次查都要跑一趟 schtasks。
+            stale = bool(control.is_present()) if not enabled else False
+        except OSError:  # pragma: no cover - schtasks 不可用
+            logger.debug("读取登录任务状态失败", exc_info=True)
+            return None
+        note = "登录时用一个计划任务把程序以管理员身份启动，没有 UAC 提示。"
+        if stale:
+            note += "当前存在一个指向别处或不提权的同名任务，打开这个开关会改写它。"
+        entry: dict[str, object] = {
+            "value": enabled,
+            "default": False,
+            "kind": "bool",
+            "applies": HOT,
+            "available": not reason,
+            "note": note,
+        }
+        if reason:
+            entry["unavailable_reason"] = reason
+        return entry
+
+    def set_autostart(self, enabled: bool) -> dict[str, object]:
         control = getattr(self._ctx.adapters, "autostart", None)
         if control is None or not self._ctx.capabilities.autostart:
             raise CapabilityMissing("autostart", "当前环境不支持自动配置开机自启")
+        note = ""
+        elevated = self._elevated_control()
+        if enabled and elevated is not None and elevated.is_enabled():
+            # 互斥：两条机制同时开着会在登录时启动两个实例（后一个撞上单实例锁就退出，
+            # 而"哪一个先起来"决定了这次是不是管理员模式——那不该由竞速决定）。
+            reason = str(elevated.change_blocked_reason())
+            if reason:
+                raise CapabilityMissing(
+                    "autostart_elevated",
+                    f"要先关掉「登录时以管理员身份启动」，而现在改不了它：{reason}",
+                )
+            elevated.set_enabled(False)
+            note = "已关掉「登录时以管理员身份启动」：两条机制互斥"
         control.set_enabled(enabled)
-        return bool(control.is_enabled())
+        return {"enabled": bool(control.is_enabled()), "note": note}
+
+    def set_autostart_elevated(self, enabled: bool) -> dict[str, object]:
+        control = self._elevated_control()
+        if control is None:
+            raise CapabilityMissing(
+                "autostart_elevated", "当前平台没有「登录时以管理员身份启动」这条机制"
+            )
+        reason = str(control.change_blocked_reason())
+        if reason:
+            # 闸门的理由本身就是给用户的答复（05 文档 §1.5：此刻做不到的写操作是 422）。
+            raise CapabilityMissing("autostart_elevated", reason)
+        # 先建任务再撤注册表项：反过来一旦建任务失败，用户就同时丢了原本好用的自启。
+        control.set_enabled(enabled)
+        note = ""
+        plain = getattr(self._ctx.adapters, "autostart", None)
+        if enabled and plain is not None:
+            was_enabled = bool(plain.is_enabled())
+            # 无条件删：指向旧路径的残留项也要一起走，否则登录时它还会去启动一个不存在
+            # 的路径。删一个不存在的自启项是空操作。
+            plain.set_enabled(False)
+            if was_enabled:
+                note = "已关掉普通的「开机自启」：两条机制互斥"
+        return {"enabled": bool(control.is_enabled()), "note": note}
 
     # ── 写 ──────────────────────────────────────────────────────────────
     def patch(self, updates: dict[str, Any]) -> dict[str, object]:

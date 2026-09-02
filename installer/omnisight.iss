@@ -5,7 +5,7 @@
 ; 直接打开时下面的默认值让它仍然能编译，产物标成 0.0.0-dev 以免被误当成发布版。
 ;
 ; 为什么要有安装版（M6 只发便携 zip，见偏离 110/117）：
-; 规划中的「登录时以管理员身份启动」要求 EXE 位于**普通用户不可写的目录**，否则那条
+; 「登录时以管理员身份启动」要求 EXE 位于**普通用户不可写的目录**，否则那条
 ; 无提示提权的启动项等于给任何以该用户身份运行的程序一条静默的管理员通道。把程序装进
 ; Program Files 是便携包做不到、而安装包唯一必须做的事。
 ;
@@ -90,6 +90,14 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppName}.exe"; Tasks: deskt
 ; 管理员权限**，用户会莫名其妙看到托盘提示写着"管理员模式"。
 Filename: "{app}\{#AppName}.exe"; Description: "立即运行 {#AppName}"; \
     Flags: nowait postinstall skipifsilent runasoriginaluser
+
+[UninstallRun]
+; 删掉「登录时以管理员身份启动」的登录任务。这个名字就是 logon_task.py 的 TASK_NAME，
+; 两处必须一致（测试钉住）。留着它等于留下一条指向已删除 EXE 的静默提权启动项——它启动
+; 不了任何东西，但"卸载后再无残留"这句承诺要清的正是这种东西。
+; 任务不存在时 schtasks 返回非零，Inno 不检查 Run 项的退出码，正合适。
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""OmniSight-LogonElevated"" /F"; \
+    Flags: runhidden; RunOnceId: "DelLogonTask"
 
 [Registry]
 ; 只在卸载时清掉程序自己写的自启项（安装时不动它）。留着一个指向已删除 EXE 的

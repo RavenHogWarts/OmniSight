@@ -29,6 +29,7 @@ from .icons import available as _icons_available
 from .idle import WindowsIdleSource
 from .keyboard import BACKEND_NAME as RAW_INPUT_BACKEND
 from .keyboard import RawInputKeyboardSource
+from .logon_task import LogonTaskAutostart
 from .notifier import MessageBoxNotifier
 from .single_instance import NamedMutexInstanceLock
 
@@ -152,7 +153,12 @@ def build(
     options = options or AdapterOptions()
     notices: list[DegradedNotice] = []
 
+    # 只构造，不查权限：``WindowsElevation`` 第一次被问到状态时才去读令牌。
+    elevation = WindowsElevation()
     autostart = RegistryAutostart()
+    # 登录任务的闸门要问"此刻提权了吗"，共用上面那一个探测器：它的答案有缓存，而设置页
+    # 每打开一次都会问一遍。
+    autostart_elevated = LogonTaskAutostart(is_elevated=elevation.is_elevated)
     if autostart.repair_if_stale():
         logger.info("已把过期的开机自启项改写为当前程序路径")
     # 自启项存在 + EXE 被设成"始终以管理员身份运行" = 自启**静默不生效**：登录期
@@ -212,8 +218,9 @@ def build(
         instance_lock=NamedMutexInstanceLock(),
         notifier=MessageBoxNotifier(app_root),
         autostart=autostart,
-        # 只构造，不查权限：``WindowsElevation`` 第一次被问到状态时才去读令牌。
-        elevation=WindowsElevation(),
+        autostart_elevated=autostart_elevated,
+        # 只构造，不查权限（见上面 ``elevation`` 的说明）。
+        elevation=elevation,
         foreground=(
             WindowsForegroundSource(titles_enabled=options.record_window_titles)
             if environment.foreground

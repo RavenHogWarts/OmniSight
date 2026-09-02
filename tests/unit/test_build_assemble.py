@@ -445,3 +445,31 @@ def test_the_installer_output_name_matches_the_artifact_list():
     assert "OutputBaseFilename={#AppName}-Setup" in _iss_text()
     assert stem.endswith("-Setup")
 
+
+
+def test_the_uninstaller_removes_the_logon_task():
+    """任务名在 .iss 与 logon_task.py 里各写一遍，两处必须一致（``AppMutex`` 同理）。
+
+    不一致的后果是卸载后留下一条**指向已删除 EXE 的静默提权启动项**——它启动不了任何
+    东西，但"卸载后再无残留"这句承诺要清的正是这种东西，而没人会去任务计划里核对。
+    """
+    import re
+
+    source = (ROOT / "src" / "omnisight" / "adapters" / "windows" / "logon_task.py").read_text(
+        encoding="utf-8"
+    )
+    match = re.search(r'TASK_NAME = "([^"]+)"', source)
+    assert match, "任务名变了形态，这条断言要跟着改"
+    text = _iss_text()
+    assert "[UninstallRun]" in text
+    assert f'/Delete /TN ""{match.group(1)}"" /F' in text
+
+
+def test_the_windows_build_carries_the_com_modules_for_de_elevation():
+    """``pythoncom`` / ``win32com.client.dynamic`` 是惰性导入的，漏了它们不会让程序崩——
+    只会让管理员模式下的浏览器悄悄跟着提权（elevation.shell_dispatch 退回 None）。
+    这种缺失谁都发现不了，所以打包参数里显式写上。
+    """
+    windows_args = build.PLATFORM["win32"]
+    assert "--hidden-import=pythoncom" in windows_args
+    assert "--hidden-import=win32com.client.dynamic" in windows_args
