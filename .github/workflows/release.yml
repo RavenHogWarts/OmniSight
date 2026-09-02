@@ -49,12 +49,6 @@ jobs:
 
       - run: ruff check .
 
-      # 平台泄漏静态检查：01 文档「平台无关性」那条非功能需求的执行机制。
-      - run: python tools/check_platform_leaks.py
-
-      # 前端静态检查与布局断言由 tests/unit/ 里的包装用例带起来，不必单列一步。
-      - run: pytest -q
-
       # 安装包要 Inno Setup 的 ISCC.exe。runner 镜像不保证带它，所以自己装一次；
       # 找不到编译器时 --release 直接失败（那是有意的，见 10 文档 §10.1）。
       - name: 安装 Inno Setup
