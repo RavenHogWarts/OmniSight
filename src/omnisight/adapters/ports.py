@@ -206,6 +206,45 @@ class AutostartControl(Protocol):
 
 
 @runtime_checkable
+class ElevationControl(Protocol):
+    """管理员（提权）运行模式（10 文档 §5.2）。
+
+    存在的理由是一条平台事实：普通权限的进程收不到发往更高权限进程的键盘输入，
+    于是"以管理员身份运行的编辑器里敲的键一个都没统计到"这种缺口只能靠**把自己也
+    提权**来补。三个平台的做法完全不同（Windows 是 UAC + ``ShellExecuteEx "runas"``，
+    macOS 是授权框，Linux 是 ``pkexec``），而调用方只需要状态与一个动作。
+
+    它**不进** :class:`Capabilities`：那份数据回答的是"能采集到什么"，而权限层级是
+    "此刻以什么身份在跑"。更要紧的是不能把"没提权"做成一条 :class:`DegradedNotice`
+    ——普通权限是推荐状态，把它标成降级等于催促每一个用户给一个记录键盘的程序更多
+    权限（08 文档 §8 的立场正相反）。
+    """
+
+    def is_elevated(self) -> bool:
+        """当前进程是否以管理员 / root 身份运行。"""
+
+    def can_elevate(self) -> bool:
+        """能否**以同一个账户**提权。
+
+        False 有两种成因：已经提过了，或者当前账户根本不是管理员——后者提权会切换到
+        另一个账户，数据目录随之改变。调用方应据此禁掉入口，而不是让用户踩进去。
+        """
+
+    def relaunch_elevated(self) -> bool:
+        """请求以管理员身份重启。
+
+        True 表示新进程已在启动，调用方**必须**随即停机（否则两个实例同时抢锁）；
+        False 表示用户取消或系统拒绝，当前进程照常继续运行。
+        """
+
+    def open_unelevated(self, target: str) -> bool:
+        """以普通权限打开 URL 或目录；没能降权时返回 False，由调用方兜底。
+
+        提权进程的子进程默认继承管理员令牌，直接打开浏览器等于交给它一份管理员权限。
+        """
+
+
+@runtime_checkable
 class InstanceLock(Protocol):
     def acquire(self) -> bool: ...
 
@@ -230,6 +269,8 @@ class AdapterSet:
     instance_lock: InstanceLock
     notifier: Notifier
     autostart: AutostartControl | None = None
+    #: 管理员模式（Windows 的 UAC）。``None`` = 本平台还没有实现，托盘据此隐藏那一项。
+    elevation: ElevationControl | None = None
     foreground: ForegroundSource | None = None
     keyboard: KeyboardSource | None = None
     idle: IdleSource | None = None

@@ -17,13 +17,17 @@
   自己拿到材料的最短路径。
 * **关于与隐私说明**：把首启说明重新打开一次（08 文档 §6.1），而不是只在第一次
   运行时出现一次就再也找不到。
+
+M7 追加 **以管理员身份重启**（10 文档 §5.2）：以管理员身份运行的程序（管理员模式的
+VS Code、终端、任务管理器）里敲的键，普通权限的进程一个也收不到，而"那个应用的按键数
+一直是 0"这种症状几乎不可能被用户自己归因。这一项刻意**不做成勾选框**——提权只能靠
+重启成一个新进程，勾掉它并不会回到普通权限，而一个勾不掉的勾选框是在说谎。
 """
 
 from __future__ import annotations
 
 import logging
 import threading
-import webbrowser
 from collections.abc import Callable
 from pathlib import Path
 
@@ -34,6 +38,21 @@ logger = logging.getLogger(__name__)
 ICON_SIZE = 64
 ACCENT = (47, 141, 251, 255)
 MUTED = (140, 140, 148, 255)
+
+#: 管理员模式那一项在三种状态下的文字。三种状态由装配层给出（见
+#: ``omnisight.core.lifecycle._elevation_state``），托盘只负责把它翻译成一行字：
+#:
+#: * ``elevated``——已经在管理员模式里跑。写"本次"是因为它确实只对本次运行有效：
+#:   下次启动回到普通权限（10 文档 §5.2）。
+#: * ``available``——可以提权（管理员账户的受限令牌），点一下弹 UAC 确认框。
+#: * ``unavailable``——当前账户不是管理员。提权会切换到**另一个账户**，数据目录随之
+#:   改变，所以这一项是灰的，且必须在文字里说明原因——一个没有解释的灰按钮只会
+#:   带来"为什么点不了"。
+ELEVATION_LABELS = {
+    "elevated": "本次已在管理员模式运行",
+    "available": "以管理员身份重启",
+    "unavailable": "以管理员身份重启（需要管理员账户）",
+}
 
 
 def load_icon_image(asset: Path | None = None, *, paused: bool = False) -> Image.Image:
@@ -73,11 +92,14 @@ class TrayIcon:
         self,
         *,
         dashboard_url: Callable[[], str],
+        open_dashboard: Callable[[], None],
         on_quit: Callable[[], None],
         autostart_state: Callable[[], bool] | None = None,
         on_toggle_autostart: Callable[[bool], None] | None = None,
         paused_state: Callable[[], bool] | None = None,
         on_toggle_pause: Callable[[bool], None] | None = None,
+        elevation_state: Callable[[], str] | None = None,
+        on_elevate: Callable[[], None] | None = None,
         open_data_dir: Callable[[], None] | None = None,
         open_logs_dir: Callable[[], None] | None = None,
         on_about: Callable[[], None] | None = None,
@@ -86,11 +108,14 @@ class TrayIcon:
     ) -> None:
         self.actions = {
             "dashboard_url": dashboard_url,
+            "open_dashboard": open_dashboard,
             "on_quit": on_quit,
             "autostart_state": autostart_state,
             "on_toggle_autostart": on_toggle_autostart,
             "paused_state": paused_state,
             "on_toggle_pause": on_toggle_pause,
+            "elevation_state": elevation_state,
+            "on_elevate": on_elevate,
             "open_data_dir": open_data_dir,
             "open_logs_dir": open_logs_dir,
             "on_about": on_about,
@@ -147,6 +172,17 @@ class TrayIcon:
                 checked=lambda _item: self._paused,
                 enabled=self.actions["on_toggle_pause"] is not None,
             ),
+            pystray.MenuItem(
+                # 文字随状态变，因此传的是可调用对象而不是字符串（pystray 支持）。
+                self._elevation_label,
+                self._elevate,
+                # 只有"能提权"时可点。已经是管理员就无事可做；标准用户账户点下去会提权
+                # 成另一个账户，数据目录随之改变——那不是用户要的东西。
+                enabled=lambda _item: self._elevation_state() == "available",
+                # 端口不存在的平台（macOS / Linux 尚未实现）干脆不显示这一项：一个永远
+                # 灰着的菜单项只会带来"为什么点不了"。
+                visible=self.actions["on_elevate"] is not None,
+            ),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(
                 "开机自启",
@@ -180,8 +216,32 @@ class TrayIcon:
         )
 
     def _title(self) -> str:
-        """悬浮提示。暂停时必须能看出来——图标灰度在某些主题下不明显。"""
-        return "OmniSight（记录已暂停）" if self._paused else "OmniSight"
+        """悬浮提示。两件事必须能看出来：记录停了没有、是不是管理员模式。
+
+        暂停时图标虽然会变灰，但灰度在某些主题下不明显；而"我这个记录键盘的程序正以
+        管理员权限跑着"更是应当能随时看见，托盘提示是它唯一的常驻位置。
+        """
+        marks = []
+        if self._paused:
+            marks.append("记录已暂停")
+        if self._elevation_state() == "elevated":
+            marks.append("管理员模式")
+        return f"OmniSight（{' · '.join(marks)}）" if marks else "OmniSight"
+
+    def _elevation_state(self) -> str:
+        """``elevated`` | ``available`` | ``unavailable``。读不到就按最保守的一档。"""
+        getter = self.actions["elevation_state"]
+        if getter is None:
+            return "unavailable"
+        try:
+            state = str(getter())
+        except Exception:
+            logger.exception("读取管理员模式状态失败")
+            return "unavailable"
+        return state if state in ELEVATION_LABELS else "unavailable"
+
+    def _elevation_label(self, _item: object = None) -> str:
+        return ELEVATION_LABELS[self._elevation_state()]
 
     def _autostart_checked(self) -> bool:
         getter = self.actions["autostart_state"]
@@ -195,7 +255,10 @@ class TrayIcon:
 
     # ── 回调 ────────────────────────────────────────────────────────────
     def _open_dashboard(self, *_args: object) -> None:
-        webbrowser.open(self.actions["dashboard_url"]())
+        """怎么打开由装配层决定：管理员模式下要降权，否则浏览器会继承管理员令牌
+        （见 ``lifecycle._open_external``）。托盘只负责"用户点了这一项"。
+        """
+        self.actions["open_dashboard"]()
 
     def _toggle_autostart(self, icon, _item) -> None:
         toggle = self.actions["on_toggle_autostart"]
@@ -224,6 +287,20 @@ class TrayIcon:
             return
         self.set_paused(wanted)
         icon.update_menu()
+
+    def _elevate(self, _icon, _item) -> None:
+        """以管理员身份重启。
+
+        成功就意味着**本进程马上要退出了**（装配层收到"新实例已在启动"后立即停机），
+        因此这里不刷新菜单；用户在 UAC 确认框上点了取消时什么都没变，也没什么可刷。
+        """
+        handler = self.actions["on_elevate"]
+        if handler is None:
+            return
+        try:
+            handler()
+        except Exception:
+            logger.exception("以管理员身份重启失败")
 
     def _open_data_dir(self, *_args: object) -> None:
         opener = self.actions["open_data_dir"]

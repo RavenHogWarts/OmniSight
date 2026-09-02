@@ -21,7 +21,8 @@ from pathlib import Path
 
 from ..chain import ChainedKeyboardSource
 from ..ports import AdapterOptions, AdapterSet, Capabilities, DegradedNotice, KeyboardSource
-from .autostart import RegistryAutostart
+from .autostart import RegistryAutostart, always_elevated_by_compat_flag
+from .elevation import WindowsElevation
 from .foreground import WindowsForegroundSource
 from .icons import WindowsIconSource
 from .icons import available as _icons_available
@@ -154,6 +155,25 @@ def build(
     autostart = RegistryAutostart()
     if autostart.repair_if_stale():
         logger.info("已把过期的开机自启项改写为当前程序路径")
+    # 自启项存在 + EXE 被设成"始终以管理员身份运行" = 自启**静默不生效**：登录期
+    # Windows 不为 Run 项弹 UAC，那一项直接不启动。而注册表项还在，托盘与设置页会
+    # 照旧显示"已启用"——谎报比功能缺失更糟（10 文档 §4、§5.3）。
+    if autostart.is_present() and always_elevated_by_compat_flag():
+        notices.append(
+            DegradedNotice(
+                code="autostart_blocked_by_elevation",
+                severity="warning",
+                title="开机自启不会生效",
+                detail=(
+                    "这个程序被设成了始终以管理员身份运行（EXE 属性页的兼容性选项），"
+                    "而登录时的自启项无法提权，因此它每次开机都不会启动。"
+                ),
+                hint=(
+                    "去掉属性页「兼容性」里的「以管理员身份运行此程序」，"
+                    "或改用设置页的「登录时以管理员身份启动」（计划任务）"
+                ),
+            )
+        )
 
     if not environment.tray:
         notices.append(
@@ -192,6 +212,8 @@ def build(
         instance_lock=NamedMutexInstanceLock(),
         notifier=MessageBoxNotifier(app_root),
         autostart=autostart,
+        # 只构造，不查权限：``WindowsElevation`` 第一次被问到状态时才去读令牌。
+        elevation=WindowsElevation(),
         foreground=(
             WindowsForegroundSource(titles_enabled=options.record_window_titles)
             if environment.foreground

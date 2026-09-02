@@ -22,6 +22,39 @@ RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 VALUE_NAME = "OmniSight"
 AUTOSTART_FLAG = "--autostart"
 
+#: 属性页「兼容性」里那个"以管理员身份运行此程序"落在这里：值名是 EXE 的完整路径，
+#: 值数据形如 ``~ RUNASADMIN``（多个兼容性层以空格分隔）。用户勾一下就会写进来。
+LAYERS_KEY = r"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+RUNASADMIN_LAYER = "RUNASADMIN"
+
+
+def _layer_tokens(target: str, root: int) -> list[str]:
+    try:
+        with winreg.OpenKey(root, LAYERS_KEY) as key:
+            value, _ = winreg.QueryValueEx(key, target)
+    except FileNotFoundError:
+        return []
+    except OSError:  # pragma: no cover - 注册表被策略锁定
+        return []
+    return str(value).upper().split() if isinstance(value, str) else []
+
+
+def always_elevated_by_compat_flag(target: Path | None = None) -> bool:
+    """用户是否在 EXE 属性页勾了"以管理员身份运行此程序"。
+
+    **为什么要查它**：勾了之后开机自启会**静默失效**——登录期 Windows 不为 ``Run`` 项弹
+    UAC，那一项直接不启动，也不给任何提示，而注册表项还在，于是 :meth:`RegistryAutostart
+    .is_enabled` 照旧报"已启用"。UI 谎报比功能缺失更糟（10 文档 §4），所以装配时探测这个
+    组合，让它变成一条用户看得见的说明（``autostart_blocked_by_elevation``）。
+
+    两个位置都要查：``HKCU`` 是用户自己勾的，``HKLM`` 是管理员给全机器设的。
+    """
+    executable = str(Path(target or sys.executable).resolve())
+    for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        if RUNASADMIN_LAYER in _layer_tokens(executable, root):
+            return True
+    return False
+
 
 def startup_command() -> str:
     """自启项应有的命令行。开发模式指向 ``python -m omnisight``。"""

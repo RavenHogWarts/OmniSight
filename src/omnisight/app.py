@@ -25,9 +25,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="由开机自启项调用（当前与手动启动行为相同，保留用于区分场景）",
     )
+    parser.add_argument(
+        "--takeover",
+        action="store_true",
+        help=(
+            "接管正在退出的旧实例：加锁前多等一会儿。"
+            "由托盘「以管理员身份重启」内部使用，不必手工输入（10 文档 §5.2）"
+        ),
+    )
     return parser
 
 
 def run(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return Lifecycle(autostart_invocation=args.autostart).start()
+    return Lifecycle(autostart_invocation=args.autostart, takeover=args.takeover).start()

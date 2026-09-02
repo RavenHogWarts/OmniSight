@@ -9,6 +9,11 @@
    自己在什么环境上——这条信息要进日志。
 
 ``shutdown()`` 必须幂等：注销与强杀可能让它被并发调用两次（02 文档 §5.2）。
+
+``--takeover``（托盘「以管理员身份重启」拉起的新实例会带上它）在加锁那一步多等一会儿：
+提权后的进程与正在停机的旧进程必然有一段重叠，而"第二个实例"与"接班的实例"在锁面前
+长得一模一样。等待的上限有限，超时就当作普通的第二实例处理——绝不允许两个记录器同时
+往一个库里写（10 文档 §5.2）。
 """
 
 from __future__ import annotations
@@ -16,13 +21,20 @@ from __future__ import annotations
 import logging
 import signal
 import threading
+import time
 import webbrowser
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from .. import __version__, adapters
-from ..adapters.ports import AdapterOptions, AdapterSet, Capabilities, CaptureUnavailable
+from ..adapters.ports import (
+    AdapterOptions,
+    AdapterSet,
+    Capabilities,
+    CaptureUnavailable,
+    ElevationControl,
+)
 from ..capture.coordinator import CaptureCoordinator
 from ..capture.foreground import ForegroundMonitor
 from ..capture.keyboard import KeyboardCapture
@@ -52,6 +64,11 @@ logger = logging.getLogger(__name__)
 EXIT_OK = 0
 EXIT_STARTUP_FAILED = 1
 EXIT_ALREADY_RUNNING = 2
+
+#: ``--takeover`` 时等旧实例交出单实例锁的上限。旧实例停机要落盘剩余事件（写线程
+#: ``stop(timeout=5.0)``）再做一次 WAL checkpoint，几秒是正常的，15 秒是"它其实没在退"。
+TAKEOVER_WAIT_SECONDS = 15.0
+TAKEOVER_POLL_SECONDS = 0.25
 
 
 class StartupAborted(Exception):
@@ -132,8 +149,10 @@ class Runtime:
 class Lifecycle:
     """编排启动与退出。一个实例只跑一次。"""
 
-    def __init__(self, *, autostart_invocation: bool = False) -> None:
+    def __init__(self, *, autostart_invocation: bool = False, takeover: bool = False) -> None:
         self.autostart_invocation = autostart_invocation
+        #: 由提权重启拉起：加锁前多等一会儿，让正在停机的旧实例先退干净。
+        self.takeover = takeover
         self.runtime: Runtime | None = None
         self.clock = SystemClock()
         # 崩溃报告里那行"在什么系统上崩的"的来源。探测完成后填上；在那之前崩溃
@@ -198,7 +217,7 @@ class Lifecycle:
 
         data_dir = paths.ensure_dir(paths.data_dir(app_root, config.storage.data_dir))
 
-        if not adapter_set.instance_lock.acquire():
+        if not self._acquire_instance_lock(adapter_set):
             self._handle_second_instance(adapter_set, config, data_dir)
             return EXIT_ALREADY_RUNNING
 
@@ -390,6 +409,38 @@ class Lifecycle:
                 **_capability_row(capabilities, config),
             )
 
+    def _acquire_instance_lock(self, adapter_set: AdapterSet) -> bool:
+        """拿单实例锁。``--takeover`` 时容许旧实例还没退完，等它一会儿。
+
+        提权重启的两个进程必然有一段重叠：旧实例是在 UAC 得到确认**之后**才开始停机的
+        （反过来做的话，用户点「否」就只剩一个已经退出的程序）。于是新实例这里必然会
+        先扑空一次。
+
+        等待的是锁而不是"旧进程的 PID"，因为 :meth:`shutdown` 里**释放锁排在停 Web
+        之后**：锁一到手，端口也必定已经放开了。这个顺序是这条握手能成立的前提，改
+        ``shutdown()`` 的步骤顺序时要一并考虑。
+
+        超时就当普通的第二实例处理（打开已有实例的页面后退出）。宁可"提权没生效"，
+        也不能出现两个记录器同时往一个库里写。
+        """
+        lock = adapter_set.instance_lock
+        if lock.acquire():
+            return True
+        if not self.takeover:
+            return False
+        logger.info("接管模式：等旧实例交出单实例锁（最多 %ss）", TAKEOVER_WAIT_SECONDS)
+        deadline = time.monotonic() + TAKEOVER_WAIT_SECONDS
+        while time.monotonic() < deadline:
+            time.sleep(TAKEOVER_POLL_SECONDS)
+            if lock.acquire():
+                logger.info("旧实例已退出，接管成功")
+                return True
+        logger.warning(
+            "旧实例在 %ss 内没有退出，本实例不启动——绝不让两个实例同时写同一个库",
+            TAKEOVER_WAIT_SECONDS,
+        )
+        return False
+
     def _handle_second_instance(
         self, adapter_set: AdapterSet, config: Config, data_dir: Path
     ) -> None:
@@ -496,9 +547,15 @@ class Lifecycle:
         from ..tray import TrayIcon
 
         autostart = runtime.adapter_set.autostart
+        elevation = runtime.adapter_set.elevation
         asset = _icon_asset()
         tray = TrayIcon(
             dashboard_url=lambda: runtime.config.dashboard_url(runtime.token),
+            # 托盘不再自己 ``webbrowser.open``：管理员模式下"怎么打开"是一个有讲究的
+            # 决定（见 :meth:`_open_external`），而那不是一层 pystray 封装该知道的事。
+            open_dashboard=lambda: self._open_external(
+                runtime, runtime.config.dashboard_url(runtime.token)
+            ),
             on_quit=self.shutdown,
             autostart_state=(autostart.is_enabled if autostart else None),
             on_toggle_autostart=(autostart.set_enabled if autostart else None),
@@ -507,12 +564,17 @@ class Lifecycle:
             # 因此是同一条路径的两个入口，不可能出现两处状态不一致。
             paused_state=lambda: runtime.config.capture.paused,
             on_toggle_pause=lambda paused: self._set_paused(runtime, paused),
-            open_data_dir=lambda: webbrowser.open(runtime.data_dir.as_uri()),
-            open_logs_dir=lambda: webbrowser.open(
-                paths.ensure_dir(paths.logs_dir(runtime.app_root)).as_uri()
+            # 端口为 None 的平台（macOS / Linux 尚未实现）不显示那一项。
+            elevation_state=(
+                (lambda: _elevation_state(elevation)) if elevation is not None else None
             ),
-            on_about=lambda: webbrowser.open(
-                f"{runtime.config.dashboard_url(runtime.token)}#about"
+            on_elevate=(lambda: self._elevate(runtime)) if elevation is not None else None,
+            open_data_dir=lambda: self._open_external(runtime, runtime.data_dir.as_uri()),
+            open_logs_dir=lambda: self._open_external(
+                runtime, paths.ensure_dir(paths.logs_dir(runtime.app_root)).as_uri()
+            ),
+            on_about=lambda: self._open_external(
+                runtime, f"{runtime.config.dashboard_url(runtime.token)}#about"
             ),
             asset=asset,
             available=runtime.capabilities.tray,
@@ -537,6 +599,51 @@ class Lifecycle:
             return
         services.settings.patch({"capture.paused": paused})
         logger.info("托盘%s采集", "暂停" if paused else "恢复")
+
+    def _elevate(self, runtime: Runtime) -> None:
+        """托盘的「以管理员身份重启」（10 文档 §5.2）。
+
+        顺序不能反：**先等 UAC 有结果，再停机**。反过来做的话，用户在确认框上点「否」
+        就只剩下一个已经退出的程序——而他要表达的只是"算了，别提权"。
+
+        新实例带 ``--takeover`` 启动，会等本实例把单实例锁与端口放掉再继续
+        （见 :meth:`_acquire_instance_lock`）。
+
+        线程上下文：本回调跑在托盘的消息循环线程上（pystray 的菜单项是同步派发的），
+        而 UAC 确认框是模态的——确认框在屏幕上的那几秒托盘不响应右键，采集线程照常
+        工作。确认之后的 :meth:`shutdown` 与托盘「退出」走的是同一条路径。
+        """
+        elevation = runtime.adapter_set.elevation
+        if elevation is None:  # pragma: no cover - 端口缺失时托盘不显示那一项
+            return
+        try:
+            started = elevation.relaunch_elevated()
+        except Exception:
+            logger.exception("请求以管理员身份重启失败")
+            return
+        if not started:
+            logger.info("提权没有发生（用户取消或系统拒绝），继续以普通权限运行")
+            return
+        logger.info("管理员模式的新实例已在启动，本实例开始停机")
+        self.shutdown()
+
+    def _open_external(self, runtime: Runtime, target: str) -> None:
+        """打开浏览器或文件管理器。
+
+        管理员模式下尽量**降权**打开：子进程默认继承父进程的令牌，于是从提权的
+        OmniSight 里打开的程序会跟着拿到管理员权限。目录能可靠降权（走 explorer.exe）；
+        URL 目前不能，端口会如实返回 False，这里退回常规打开——**打不开是最坏的结果**，
+        那是用户唯一的入口。取舍与代价见 ``adapters/windows/elevation.py`` 的
+        ``open_unelevated`` 与 10 文档 §5.2。
+        """
+        elevation = runtime.adapter_set.elevation
+        if elevation is not None:
+            try:
+                if elevation.is_elevated() and elevation.open_unelevated(target):
+                    return
+            except Exception:
+                logger.exception("降权打开 %s 失败，退回默认方式", target)
+        webbrowser.open(target)
 
     def _install_signal_handlers(self) -> None:
         """把平台各异的关闭信号统一收敛到 :meth:`shutdown`（02 文档 §5.2）。"""
@@ -589,6 +696,24 @@ def _guard(what: str, action) -> None:
         action()
     except Exception:
         logger.exception("停机步骤失败：%s", what)
+
+
+def _elevation_state(control: ElevationControl) -> str:
+    """把提权端口的状态压成托盘要显示的三档之一（10 文档 §5.2）。
+
+    ``elevated`` 已在管理员模式；``available`` 可以提权；``unavailable`` 提不了
+    （当前账户不是管理员——提权会换成另一个账户，数据目录随之改变）。
+
+    收敛在这里而不是托盘里：托盘只该把状态翻译成一行字，而"什么算能提权"是平台语义。
+    读状态永不抛异常——菜单每次右键都要画一遍，一个异常会毁掉整个菜单。
+    """
+    try:
+        if control.is_elevated():
+            return "elevated"
+        return "available" if control.can_elevate() else "unavailable"
+    except Exception:
+        logger.exception("读取提权状态失败，按不可提权处理")
+        return "unavailable"
 
 
 def _capability_row(capabilities: Capabilities, config: Config) -> dict[str, object]:
