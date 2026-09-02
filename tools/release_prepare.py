@@ -409,4 +409,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # 见 tools/_console.py：runner 上 stdout 是管道，按 locale 挑到 cp1252，
+    # 一行中文输出就能让进程死在 UnicodeEncodeError 上。
+    from _console import use_utf8_output
+
+    use_utf8_output()
     sys.exit(main())

@@ -18,6 +18,12 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    env:
+      # runner 把子进程的 stdout 接成管道，于是 Python 不走控制台的 Unicode 接口，
+      # 而是按 locale 挑编码——实测 cp1252。那样任何一行中文输出都会抛
+      # UnicodeEncodeError 把这条流水线弄红（第一次发版就死在脚本报喜的那一行上）。
+      # 工具自己也各有一道（tools/_console.py），两道互不依赖。
+      PYTHONIOENCODING: utf-8
     # 冒烟测试要启动真实产物并等它探活。挂住时宁可红掉，也别静静烧掉 6 小时额度。
     timeout-minutes: 45
     steps:
