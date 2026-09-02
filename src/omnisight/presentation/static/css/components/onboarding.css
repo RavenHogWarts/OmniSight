@@ -1,0 +1,147 @@
+/* 首次运行说明（08 文档 §6.1）。
+ *
+ * 它是**居中对话框**而不是抽屉：抽屉的语义是"侧边的次要面板，随时可以划走"，
+ * 而这一屏在首次运行时必须被读到。scrim 复用 drawer.css 里那一份。
+ *
+ * 高度上限 + 内部滚动是必需的：路径行在便携模式下可能很长，而窗口可能只有 600px 高。 */
+.onboarding {
+  position: fixed;
+  z-index: 90;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(620px, calc(100vw - var(--space-8)));
+  max-height: min(90vh, 760px);
+  overflow-y: auto;
+  padding: var(--space-6);
+  display: grid;
+  gap: var(--space-5);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  animation: onboarding-in var(--duration-normal) var(--ease-out);
+}
+
+.onboarding:focus { outline: none; }
+
+.onboarding__head h2 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xl);
+  letter-spacing: var(--tracking-tight);
+}
+
+.onboarding__head p { margin: 0; }
+
+/* 两张清单并排：并排才能一眼看出"记录"与"不记录"是对照关系。
+ * 窄窗口下退成上下两行，而不是让每行挤成两三个字。 */
+.onboarding__lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+}
+
+.onboarding__list h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
+
+.onboarding__list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.onboarding__item {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: var(--text-sm);
+}
+
+.onboarding__item p {
+  margin: 2px 0 0;
+  font-size: var(--text-xs);
+}
+
+/* 标记色是**冗余**编码：文字本身已经分在两张有标题的清单里，
+ * 色觉障碍用户不依赖这个 ✓/✗ 的颜色也能读懂（06 文档 §13）。 */
+.onboarding__item--yes .onboarding__mark { color: var(--status-ok-text); }
+.onboarding__item--no  .onboarding__mark { color: var(--text-tertiary); }
+
+.onboarding__mark {
+  flex: none;
+  font-weight: var(--weight-semibold);
+}
+
+.onboarding__notice {
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--status-warn);
+  border-radius: var(--radius-xs);
+  background: var(--surface-sunken);
+}
+
+.onboarding__notice strong {
+  display: block;
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-1);
+}
+
+.onboarding__notice p {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.onboarding__section h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
+
+.onboarding__section p {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+}
+
+.onboarding__path {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: var(--text-xs);
+  padding: 2px 0;
+}
+
+.onboarding__path-label {
+  flex: none;
+  width: 5.5em;
+  color: var(--text-tertiary);
+}
+
+.onboarding__path code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  /* 路径可能比对话框宽：允许在任意字符处折行，别把对话框撑出横向滚动。 */
+  overflow-wrap: anywhere;
+}
+
+.onboarding__foot {
+  display: flex;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+@keyframes onboarding-in {
+  from { transform: translate(-50%, calc(-50% + 8px)); opacity: 0; }
+  to   { transform: translate(-50%, -50%); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding { animation: none; }
+}

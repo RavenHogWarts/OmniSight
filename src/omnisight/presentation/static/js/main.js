@@ -16,6 +16,7 @@ import { connect as connectStream, startPolling } from './core/stream.js';
 import { restore as restoreTheme, cycle as cycleTheme, watchSystem } from './core/theme.js';
 import { mountBanners } from './components/degraded.js';
 import { mountImportBanner, openImportWizard } from './components/import-wizard.js';
+import { maybeShowOnboarding, openAbout } from './components/onboarding.js';
 import { mountPeriodNav, step as stepPeriod, goToday } from './components/period-nav.js';
 import { mountStatus } from './components/status-dot.js';
 import { hide as hideTooltip, show as showTooltip } from './components/tooltip.js';
@@ -81,6 +82,7 @@ const ACTIONS = {
   'theme:cycle': () => cycleTheme(),
   'settings:open': () => openSettingsDrawer(),
   'import:open': () => openImportWizard(),
+  'about:open': () => openAbout(),
   'period:prev': () => stepPeriod(-1),
   'period:next': () => stepPeriod(1),
   'period:today': () => goToday(),
@@ -291,6 +293,10 @@ async function main() {
 
   // 顺序是刻意的：先读状态与配置，再让路由填 store，最后才装 route 订阅并挂载视图。
   // 这时 active 还是 null，所以中间几次 setState 触发的 refresh() 都是空转。
+  //
+  // `#about` 必须在 startRouter() 之前读走：路由不认识它，会把 hash 改写成
+  // `#/overview?range=day`，之后就再也看不出用户是从托盘的「关于与隐私说明」进来的。
+  const wantsAbout = window.location.hash.replace(/^#\/?/, '') === 'about';
   await Promise.all([loadStatus(), loadPrefs()]);
   startRouter();
   // 首次进入且 URL 没带 range 时，用配置里的默认周期（ui.default_view）。
@@ -305,6 +311,11 @@ async function main() {
   } else {
     connectStream();
   }
+
+  // 首启说明放在最后：仪表盘已经画完，说明浮在它上面。它自己判断要不要出现
+  // （后端的 `required`），不在这里猜（08 文档 §6.1）。
+  if (wantsAbout) openAbout();
+  else maybeShowOnboarding();
 }
 
 main();

@@ -19,13 +19,17 @@ jobs:
       # 平台泄漏静态检查：01 文档「平台无关性」那条非功能需求的执行机制
       - run: python tools/check_platform_leaks.py
       - run: pytest -q --cov=omnisight --cov-report=term-missing
-      - run: python tools/build.py
+      # --release 才组装发布物（默认只出 EXE，见 tools/build.py 的说明）。
+      # 发布物只有便携 zip 一件：裸 EXE 带不走 LICENSE、许可清单与 README.txt。
+      - run: python tools/build.py --release
       - run: python tools/smoke.py dist/OmniSight.exe
       - run: pip-licenses --fail-on="GPL"
       - uses: actions/upload-artifact@v4
         with:
           name: OmniSight-windows
-          path: dist/
+          path: |
+            dist/OmniSight-portable.zip
+            dist/OmniSight-portable.zip.sha256
 
   # 二级平台：只跑与平台无关的测试。
   #

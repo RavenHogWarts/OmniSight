@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from .. import adapters
+from .. import __version__, adapters
 from ..adapters.ports import AdapterOptions, AdapterSet, Capabilities, CaptureUnavailable
 from ..capture.coordinator import CaptureCoordinator
 from ..capture.foreground import ForegroundMonitor
@@ -45,6 +45,7 @@ from .bus import EventBus
 from .clock import SystemClock, resolve_timezone, timezone_label
 from .config import Config, ConfigError
 from .config import load as load_config
+from .crash import install as install_crash_handler
 
 logger = logging.getLogger(__name__)
 
@@ -135,18 +136,35 @@ class Lifecycle:
         self.autostart_invocation = autostart_invocation
         self.runtime: Runtime | None = None
         self.clock = SystemClock()
+        # 崩溃报告里那行"在什么系统上崩的"的来源。探测完成后填上；在那之前崩溃
+        # 报告如实写"平台未探测"，而不是让核心层自己去读 sys.platform（core/ 不许
+        # 判断平台——tools/check_platform_leaks.py 会拦）。
+        self._environment: Capabilities | None = None
         self._shutdown_lock = threading.Lock()
         self._shutdown_done = False
+
+    def _environment_label(self) -> str:
+        """给崩溃报告的一行平台描述。惰性求值，见 :mod:`omnisight.core.crash`。"""
+        environment = self._environment
+        if environment is None:
+            return ""
+        return f"{environment.platform_id} {environment.os_version or '版本未知'}"
 
     # ── 启动 ────────────────────────────────────────────────────────────
     def start(self) -> int:
         app_root = paths.app_root()
         log_setup.configure(paths.ensure_dir(paths.logs_dir(app_root)))
-        logger.info("OmniSight 启动，数据根目录 %s", app_root)
+        # 崩溃钩子紧跟日志装配：在这之前抛出的异常还有 Python 默认的 stderr 兜底，
+        # 在这之后的（``--noconsole`` 下 stderr 可能是 None）会静默消失（10 文档 §8）。
+        install_crash_handler(
+            paths.logs_dir(app_root), version=__version__, environment=self._environment_label
+        )
+        logger.info("OmniSight %s 启动，数据根目录 %s", __version__, app_root)
         for key, value in paths.describe().items():
             logger.info("  path.%s = %s", key, value)
 
         environment = adapters.detect()
+        self._environment = environment
         logger.info(
             "探测到平台 %s（支持级别 %s，%s）",
             environment.platform_id,
@@ -409,6 +427,14 @@ class Lifecycle:
             runtime.config = new_config
             context.config = new_config
             context.paused = new_config.capture.paused
+            # 从设置页暂停时托盘图标也要跟着变灰：两个入口改的是同一件事，
+            # 状态却分别显示在两处，不同步就等于其中一处在撒谎（08 文档 §5）。
+            tray = runtime.tray
+            if tray is not None:
+                try:
+                    tray.set_paused(new_config.capture.paused)
+                except Exception:  # pragma: no cover - 托盘已被系统回收
+                    logger.debug("同步托盘暂停状态失败", exc_info=True)
 
         services = Services.build(
             database=runtime.database,
@@ -476,7 +502,18 @@ class Lifecycle:
             on_quit=self.shutdown,
             autostart_state=(autostart.is_enabled if autostart else None),
             on_toggle_autostart=(autostart.set_enabled if autostart else None),
+            # 暂停走的是**设置服务**，不是直接去掐采集组件：只有走服务才会一并
+            # 写回 config.json（重启后仍是暂停的）并清查询缓存。托盘与设置页
+            # 因此是同一条路径的两个入口，不可能出现两处状态不一致。
+            paused_state=lambda: runtime.config.capture.paused,
+            on_toggle_pause=lambda paused: self._set_paused(runtime, paused),
             open_data_dir=lambda: webbrowser.open(runtime.data_dir.as_uri()),
+            open_logs_dir=lambda: webbrowser.open(
+                paths.ensure_dir(paths.logs_dir(runtime.app_root)).as_uri()
+            ),
+            on_about=lambda: webbrowser.open(
+                f"{runtime.config.dashboard_url(runtime.token)}#about"
+            ),
             asset=asset,
             available=runtime.capabilities.tray,
         )
@@ -485,6 +522,21 @@ class Lifecycle:
             # 没有托盘时这是用户唯一能看到访问地址的地方（10 文档 §5.1）。
             print(f"OmniSight 正在运行：{runtime.config.dashboard_url(runtime.token)}")
         tray.run()
+
+    def _set_paused(self, runtime: Runtime, paused: bool) -> None:
+        """托盘的暂停开关。服务层不可用时退回直接掐采集组件——用户点了暂停，
+        绝不能因为服务装配出了问题就"看起来暂停了但还在记录"。
+        """
+        services = runtime.services
+        if services is None:  # pragma: no cover - 托盘运行时服务必已装配
+            capture = runtime.capture
+            if capture is not None:
+                for component in (capture.keyboard, capture.foreground):
+                    if component is not None:
+                        component.pause() if paused else component.resume()
+            return
+        services.settings.patch({"capture.paused": paused})
+        logger.info("托盘%s采集", "暂停" if paused else "恢复")
 
     def _install_signal_handlers(self) -> None:
         """把平台各异的关闭信号统一收敛到 :meth:`shutdown`（02 文档 §5.2）。"""

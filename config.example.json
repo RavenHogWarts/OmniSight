@@ -14,7 +14,7 @@
   },
   "storage": {
     "data_dir": null,
-    "raw_event_retention_days": 0,
+    "raw_event_retention_days": 90,
     "checkpoint_interval_seconds": 300
   },
   "ui": {

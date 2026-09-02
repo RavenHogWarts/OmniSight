@@ -303,6 +303,12 @@ function dataSection(status) {
         class: 'button', type: 'button', text: '从旧版导入数据…',
         attrs: { 'data-action': 'import:open' },
       }),
+      // 首启说明不该是"只在第一次能看到"的东西：数据位置与隐私边界是用户随时
+      // 会想再确认一次的事实（08 文档 §6.1）。托盘里那一项与这里是同一个入口。
+      h('button', {
+        class: 'button', type: 'button', text: '关于与隐私说明…',
+        attrs: { 'data-action': 'about:open' },
+      }),
     ),
     h('div', { class: 'field__note', text: '备份、重算聚合与删除数据排在后续版本。' }),
   );

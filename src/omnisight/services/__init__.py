@@ -25,6 +25,7 @@ from .export import ExportService
 from .insights import InsightService
 from .keyboard import KeyboardService
 from .legacy import LegacyService
+from .onboarding import OnboardingService
 from .period import Period
 from .settings import SettingsService
 from .usage import UsageService
@@ -51,6 +52,7 @@ class Services:
     settings: SettingsService
     export: ExportService
     legacy: LegacyService
+    onboarding: OnboardingService
 
     @classmethod
     def build(
@@ -103,6 +105,7 @@ class Services:
             settings=settings,
             export=export,
             legacy=legacy,
+            onboarding=OnboardingService(context),
         )
 
     # ── 概览：首屏唯一的数据请求 ────────────────────────────────────────
@@ -191,6 +194,7 @@ __all__ = [
     "InsightService",
     "KeyboardService",
     "LegacyService",
+    "OnboardingService",
     "ServiceContext",
     "Services",
     "SettingsService",

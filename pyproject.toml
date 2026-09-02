@@ -4,7 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "omnisight"
-version = "0.1.0.dev0"
+# 打包元数据用 PEP 440 的**规范形式**；面向用户的版本串是 src/omnisight/__init__.py
+# 的 __version__（"0.1.0-alpha.1"）。两者按 PEP 440 规范化后是同一个版本，
+# tests/unit/test_version.py 断言这一点，因此这两处字面量不会漂移。
+version = "0.1.0a1"
 description = "本地运行的应用使用时长与键盘统计工具（TimeLens + KeyTrace 合并）"
 readme = "README.md"
 requires-python = ">=3.12"

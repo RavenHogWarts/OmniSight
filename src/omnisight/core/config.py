@@ -55,7 +55,15 @@ class CaptureConfig:
 @dataclass(frozen=True, slots=True)
 class StorageConfig:
     data_dir: str | None = None
-    raw_event_retention_days: int = 0
+    #: 原始按键事件的保留天数。``0`` = 永久保留。
+    #:
+    #: 默认 90 天来自 12 文档的决策表（"默认开但保留期 90 天"）：原始事件是本项目
+    #: 唯一能还原输入内容的数据（08 文档 §1.2），永久保留它不该是**默认**姿态。
+    #:
+    #: **当前版本只把这个值记下来，不执行清理**——按期归档是 10 文档 §9 的自维护任务，
+    #: 排在 M7。首启说明与 docs/privacy.md 都如实写明这一点：写"保留 90 天"而实际
+    #: 永不删除，比默认永久保留更糟。
+    raw_event_retention_days: int = 90
     checkpoint_interval_seconds: int = 300
 
 
