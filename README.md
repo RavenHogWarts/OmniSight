@@ -23,7 +23,7 @@
 
 | 级别 | 平台 | 承诺 | 现状 |
 | --- | --- | --- | --- |
-| 一级 | Windows 10 1809+ / 11 | 全功能，CI 全量测试，性能基准在此度量 | **已交付** |
+| 一级 | Windows 10 1809+ / 11 | 全功能，发版流水线全量测试，性能基准在此度量 | **已交付** |
 | 二级 | macOS 12+、Linux X11 | 全功能，已知差异逐条记录 | 未实现（M9 / M8） |
 | 三级 | Linux Wayland | 仅键盘统计；应用归因受 Wayland 协议限制不可用 | 未实现（M8） |
 
@@ -133,12 +133,18 @@ uv pip install -r requirements-dev.txt -r requirements-optional.txt
 .venv/Scripts/python tools/check_platform_leaks.py   # 平台泄漏检查
 .venv/Scripts/python tools/check_frontend.py         # 前端静态检查
 .venv/Scripts/python tools/build.py        # 只构建 EXE（日常开发用这个）
-.venv/Scripts/python tools/build.py --release   # 构建 + 组装发布物（便携 zip）
+.venv/Scripts/python tools/build.py --release   # 构建 + 组装发布物（便携 zip + 安装包）
 .venv/Scripts/python tools/smoke.py dist/OmniSight.exe   # 对产物冒烟
 .venv/Scripts/python tools/scan_record.py  # 扫描留证（写 docs/scan-record.md）
+.venv/Scripts/python tools/release_prepare.py --dry-run     # 按提交记录建议下一个版本号
+.venv/Scripts/python tools/release_notes.py --no-artifacts   # 预览发版说明（变更日志）
 ```
 
-`tools/build.py` **默认只出 EXE**——本地一天构建好几次，而组装（重新生成许可清单、写 `README.txt`、打 zip、算摘要）只有发布那一次用得上。`--release` 组装发布物，`--assemble-only` 用现有 EXE 重新组装。发布物只有 `OmniSight-portable.zip` 一件，`dist/OmniSight.exe` 是构建产物而不是发布物。配置了 `OMNISIGHT_SIGN_THUMBPRINT` 或 `OMNISIGHT_SIGN_PFX` 时，签名发生在算校验值与打包之前（未配置就是不签名，构建照常）。
+`tools/build.py` **默认只出 EXE**——本地一天构建好几次，而组装（重新生成许可清单、写 `README.txt`、编译安装包、打 zip、算摘要）只有发布那一次用得上。`--release` 组装**两件**发布物（便携 zip + 安装包），`--assemble-only` 用现有 EXE 重新组装，`--no-installer` 跳过安装包（没装 Inno Setup 时用它）。`dist/OmniSight.exe` 是构建产物而不是发布物。配置了 `OMNISIGHT_SIGN_THUMBPRINT` 或 `OMNISIGHT_SIGN_PFX` 时，签名发生在算校验值与打包之前（未配置就是不签名，构建照常）。
+
+**发版**由**手工打 tag** 触发，格式 `v<版本号>`：`v0.1.0-alpha.1`、`v0.1.0-beta.1`、`v0.1.0`。带预发布标记的 tag 发成 GitHub 的 pre-release，`v0.1.0` 这样的发成正式版——判定用的就是 EXE 属性页上那个「（预发布）」标记同一个函数。变更日志由 `<基线 tag>..<这个 tag>` 之间的提交生成，而**基线是同类的上一个 tag**：预发布跟上一个预发布比，正式版跟上一个正式版比（否则 `v0.1.0` 会拿 `v0.1.0-rc.1` 当基线，说明里只剩 rc 之后那几条提交，而这个正式版真正交付的东西全在它前面）。发版说明里同时给出两件产物的完整 SHA-256。
+
+推 tag 之前先改版本号——`python tools/release_prepare.py` 按提交记录算出下一个（`feat:` → minor，`fix:` → patch，`feat!:` 在 0.x 期间仍走 minor；当前是预发布时默认只递增序号），把 `src/omnisight/__init__.py` 的 `__version__` 与 `pyproject.toml` 的 `version` 两处一起改掉，然后打印该跑的三条命令。它不提交、不打 tag、不推送。两处字面量对不上、或者 tag 与它们对不上，流水线会**在构建之前**就失败（发布页与它发出去的文件各说各话是最难被用户理解的一种不一致）。完整步骤见 [dev/10-packaging-and-ops.md](dev/10-packaging-and-ops.md) §11。
 
 ## 文档
 

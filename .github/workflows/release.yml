@@ -1,0 +1,95 @@
+name: Release
+
+# **只由版本 tag 触发**：v0.1.0-alpha.1 / v0.1.0-beta.1 / v0.1.0。push 与
+# pull_request 上不再有任何 job（移除常驻 CI 的决定与它的代价见 10 文档 §11），
+# 因此原先那些门禁全部挪进了这条流水线——发布前跑一次，是它们唯一的自动执行时机。
+#
+# 预发布还是正式版**不在这里判断**：tools/release_notes.py 按版本串自己算，用的
+# 就是 EXE 属性页那个"（预发布）"标记同一个函数（version_info.is_prerelease）。
+on:
+  push:
+    tags:
+      - "v*"
+
+# 默认令牌对整个仓库是读写全开的。这条流水线只需要建 Release。
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    # 冒烟测试要启动真实产物并等它探活。挂住时宁可红掉，也别静静烧掉 6 小时额度。
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 变更日志要 git log 一路走到上一个 tag。默认的浅克隆下它是**空的，而且
+          # 不报错**——tools/release_notes.py 因此显式挡了浅克隆，这里则给足深度。
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements-dev.txt -r requirements-optional.txt
+
+      # 放在最前面：tag 与代码里的 __version__ 对不上时，等构建完再发现等于白跑十几
+      # 分钟；而"发布页写 0.2.0、EXE 属性页写 0.1.0-alpha.1"这种产物一旦发出去，
+      # 用户唯一合理的解释是"文件被人换过"。
+      - name: 核对 tag 与版本号
+        env:
+          TAG: ${{ github.ref_name }}
+        run: python tools/release_notes.py --tag "$env:TAG" --check-only
+
+      - run: ruff check .
+
+      # 平台泄漏静态检查：01 文档「平台无关性」那条非功能需求的执行机制。
+      - run: python tools/check_platform_leaks.py
+
+      # 前端静态检查与布局断言由 tests/unit/ 里的包装用例带起来，不必单列一步。
+      - run: pytest -q
+
+      # 安装包要 Inno Setup 的 ISCC.exe。runner 镜像不保证带它，所以自己装一次；
+      # 找不到编译器时 --release 直接失败（那是有意的，见 10 文档 §10.1）。
+      - name: 安装 Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      # --release 才组装发布物（默认只出 EXE，见 tools/build.py 的说明）：便携 zip
+      # 与安装包各一件。裸 EXE 不发布——它带不走 LICENSE、许可清单与 README.txt，
+      # 而那几份是分发义务。
+      - run: python tools/build.py --release
+      - run: python tools/smoke.py dist/OmniSight.exe
+      - run: pip-licenses --fail-on="GPL"
+
+      # 变更日志取自 git 提交记录；校验值取自刚构建出来的那两件产物，并与 --release
+      # 写下的 .sha256 逐一比对。assets / prerelease / title 由脚本给出（产物名字
+      # 只有 tools/build.py 一处真源，改名不会让这里静默少挂一件）。
+      - name: 生成发版说明
+        id: notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: python tools/release_notes.py --tag "$env:TAG" --out release-notes.md
+
+      - name: 建 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          TITLE: ${{ steps.notes.outputs.title }}
+          PRERELEASE: ${{ steps.notes.outputs.prerelease }}
+          ASSETS: ${{ steps.notes.outputs.assets }}
+        # tag 名与标题一律经 env 传进来，不做 ${{ }} 内联展开：内联会把它们直接拼进
+        # 脚本文本，而 tag 名是外部输入。
+        run: |
+          $assets = $env:ASSETS.Split(' ')
+          $meta = @('--title', $env:TITLE, '--notes-file', 'release-notes.md')
+          $meta += "--prerelease=$($env:PRERELEASE)"   # 出参就是 true / false
+          gh release view $env:TAG --json id 2>&1 | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            # 重跑（上一次卡在上传或超时）时不该停在"Release 已存在"上：改说明、覆盖资产。
+            gh release edit $env:TAG $meta
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            gh release upload $env:TAG $assets --clobber
+          } else {
+            # --verify-tag：tag 必须已经在远端存在，否则 gh 会顺手从默认分支建一个。
+            gh release create $env:TAG --verify-tag $meta $assets
+          }
