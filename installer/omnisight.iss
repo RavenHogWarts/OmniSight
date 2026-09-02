@@ -61,7 +61,14 @@ OutputBaseFilename={#AppName}-Setup
 [Languages]
 ; 只提供简体中文：界面与全部文档目前都只有中文（M6 已知限制 4），
 ; 装一个英文向导再进一个中文程序只会更奇怪。
-Name: "zh"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+;
+; **消息文件随仓库走，不指向 compiler:Languages\**（M7 修正）：那个目录里有哪些语言，
+; 取决于构建机上的 Inno 是怎么装的。CI 的 runner 上就没有这一份（Inno 6.7.1，choco 静默安装），
+; 于是第一次发版时 ISCC 报「Couldn't open include file ...ChineseSimplified.isl」并中止。
+; 而「向导语言取决于谁的机器在构建」是不可接受的：退回英文向导会静默发出一个语言与程序
+; 不一致的安装包（10 文档 §10.1）。这一份是 Inno Setup 7 自带的原件（行尾按仓库统一为 LF，
+; 已实测 ISCC 照样编译），保留译者署名；头部声明适用 6.5.0+（涵盖 CI 的 6.7.1 与本机 7.x）。
+Name: "zh"; MessagesFile: "Languages\ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; Flags: unchecked

@@ -394,6 +394,17 @@ def _iss_text() -> str:
     return build.INSTALLER_SCRIPT.read_text(encoding="utf-8-sig")
 
 
+def _iss_directives() -> str:
+    """.iss 的**有效内容**：注释行（``;`` 开头）剔掉。
+
+    不剔的话，断言会命中注释里提到的东西——"不指向 compiler:Languages"这句解释本身
+    就会让"没有指向 compiler:Languages"那条用例失败。
+    """
+    return "\n".join(
+        line for line in _iss_text().splitlines() if not line.strip().startswith(";")
+    )
+
+
 def test_the_installer_script_is_saved_with_a_bom():
     """Inno 只在见到 BOM 时才按 UTF-8 解析 .iss。没有它，向导上的中文全是乱码——
     而这件事在编译时**不报错**，只有真的运行一次安装包才看得出来。
@@ -475,3 +486,52 @@ def test_the_windows_build_carries_the_com_modules_for_de_elevation():
     assert "--hidden-import=pythoncom" in windows_args
     assert "--hidden-import=win32com.client.dynamic" in windows_args
     assert "--hidden-import=win32security" in windows_args
+
+
+# ── 向导语言（M7：第一次发版栽在这里）─────────────────────────────────
+
+LANGUAGE_FILE = ROOT / "installer" / "Languages" / "ChineseSimplified.isl"
+
+
+def test_the_wizard_language_file_travels_with_the_repository():
+    """"向导是什么语言"不该取决于构建机上的 Inno 是怎么装的。
+
+    第一次发版时 ISCC 在 runner 上报「Couldn't open include file ...ChineseSimplified.isl」
+    并中止：那台机器的 Inno 是 choco 静默装的 6.7.1，它的 Languages 目录里没有这一份。
+    **退回英文向导更糟**——那会静默发出一个向导英文、程序中文的安装包，而"只提供简体
+    中文"是 .iss 里写明的决定。
+    """
+    directives = _iss_directives()
+    assert "compiler:Languages" not in directives, "又指回构建机的 Inno 安装目录了"
+    assert 'MessagesFile: "Languages' in directives
+    assert LANGUAGE_FILE.exists(), f"{LANGUAGE_FILE} 不见了，安装包会编译不过"
+
+
+def test_the_vendored_language_file_is_a_real_messages_file():
+    """半份文件同样让 ISCC 失败，而"复制的时候被转码了"是最容易出的那种。"""
+    raw = LANGUAGE_FILE.read_bytes()
+    text = raw.decode("utf-8")  # 解不开就说明复制时被转过码
+    assert len(raw) > 10_000
+    assert "[LangOptions]" in text and "[Messages]" in text
+    # 头一行声明它适用于哪些 Inno 版本（实测 6.5.0+，涵盖 CI 的 6.7.1 与本机的 7.x）。
+    assert "Inno Setup version" in text.splitlines()[0]
+    # 别人翻译的文件：署名与出处原样保留。
+    assert "Maintainer" in text
+    assert "jrsoftware.org/files/istrans" in text
+
+
+def test_the_language_file_is_committed_not_just_present_locally():
+    """CI 拿到的是仓库里的内容。这份文件躺在工作区里不算数——那正是第一次发版失败的
+    形态：构建依赖一个不在仓库里的东西。
+    """
+    import shutil
+    import subprocess
+
+    if shutil.which("git") is None or not (ROOT / ".git").exists():
+        pytest.skip("不在 git 检出里")
+    tracked = subprocess.run(
+        ["git", "ls-files", "--", str(LANGUAGE_FILE.relative_to(ROOT).as_posix())],
+        cwd=ROOT,
+        capture_output=True,
+    )
+    assert tracked.stdout.strip(), "把 installer/Languages/ChineseSimplified.isl 加进版本库"

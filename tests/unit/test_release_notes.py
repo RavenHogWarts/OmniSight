@@ -573,16 +573,18 @@ def test_the_checkout_is_deep_enough_for_the_changelog():
     assert "fetch-depth: 0" in _workflow()
 
 
-def test_it_still_runs_every_gate_the_removed_ci_had():
+def test_the_pipeline_runs_the_gates_it_claims_to_run():
+    """流水线里现在有哪几道门禁。这条用例的作用是让"少了一道"不能悄悄发生。
+
+    **第一次发版之后，pytest / 平台泄漏 / 冒烟 / pip-licenses 四步被去掉了**（每次
+    重跑十几分钟，而它们在本地跑得到）。代价逐条记在 10 文档 §11.1，其中一条要在这里
+    点明：**冒烟是唯一碰过"真正发出去的那份字节"的东西**（产物由 runner 构建，本地那
+    份不是同一批字节），去掉之后没有任何自动化验证过产物能不能启动——它挪进了 §11.5
+    的人工步骤。GPL 门禁不受影响：`build.py --release` 自己就会因 GPL 系依赖失败
+    （`_regenerate_licenses`），`pip-licenses` 原本只是第二意见。
+    """
     text = _workflow()
-    for gate in (
-        "ruff check .",
-        "tools/check_platform_leaks.py",
-        "pytest -q",
-        "tools/build.py --release",
-        "tools/smoke.py",
-        "pip-licenses --fail-on",
-    ):
+    for gate in ("--check-only", "ruff check .", "tools/build.py --release"):
         assert gate in text, f"{gate} 从流水线里消失了"
 
 

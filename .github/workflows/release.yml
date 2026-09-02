@@ -58,8 +58,6 @@ jobs:
       # 与安装包各一件。裸 EXE 不发布——它带不走 LICENSE、许可清单与 README.txt，
       # 而那几份是分发义务。
       - run: python tools/build.py --release
-      - run: python tools/smoke.py dist/OmniSight.exe
-      - run: pip-licenses --fail-on="GPL"
 
       # 变更日志取自 git 提交记录；校验值取自刚构建出来的那两件产物，并与 --release
       # 写下的 .sha256 逐一比对。assets / prerelease / title 由脚本给出（产物名字
