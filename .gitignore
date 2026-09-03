@@ -54,3 +54,6 @@ desktop.ini
 
 # M3：键盘渲染器测试用的布局 fixture，由 tests/unit/test_frontend_js.py 现场导出
 tests/frontend/layouts.json
+
+# ── Node（只在开发期用于 tsc 类型检查，产物里没有任何 npm 包）──
+node_modules/

@@ -84,7 +84,11 @@ function syncHash() {
 export function start() {
   window.addEventListener('hashchange', applyFromHash);
   window.addEventListener('popstate', applyFromHash);
-  for (const slice of ['period', 'metric', 'timelineView', 'scopeAppId', 'selectedAppId']) {
+  // 数组字面量的元素类型要收窄成切片名，否则 subscribe 收到的是 string。
+  const slices = /** @type {const} */ ([
+    'period', 'metric', 'timelineView', 'scopeAppId', 'selectedAppId',
+  ]);
+  for (const slice of slices) {
     subscribe(slice, syncHash);
   }
   subscribe('route', syncHash);

@@ -7,11 +7,11 @@
 // 管理元数据（excluded / merged_into / category_source）来自 `/apps`，按 app_id 合并。
 // 这是旧版完全没有的能力：分类规则原先硬编码在 web_app.py 与 app-categories.js 两处，
 // 用户改不了。
-import { del, patch, post } from '../core/api.js';
-import { h, mount, setText } from '../core/dom.js';
+import { del, messageOf, patch, post } from '../core/api.js';
+import { closestFrom, h, mount, setText } from '../core/dom.js';
 import { getState, setState } from '../core/store.js';
 import { fetchInto } from '../core/loader.js';
-import { formatCount } from '../domain/format.js';
+import { formatCount, formatPercent } from '../domain/format.js';
 import { renderAppRows } from '../components/app-list.js';
 import { chip, checkbox, searchBox, segmented, switchControl } from '../components/controls.js';
 import { capabilityNotice, emptyState, errorState, skeletonRows } from '../components/states.js';
@@ -139,14 +139,14 @@ export function create(root) {
 
   // 事件委托：动态生成的行不必逐行绑定，重建 DOM 后也不必重新绑（07 文档 §7）。
   listHost.addEventListener('click', (event) => {
-    const row = event.target.closest('.app-row');
+    const row = closestFrom(event, '.app-row');
     if (!row) return;
-    const appId = Number.parseInt(row.dataset.appId, 10);
+    const appId = Number.parseInt(row.dataset.appId || '', 10);
     setState('selectedAppId', getState().selectedAppId === appId ? null : appId);
   });
   listHost.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
-    const row = event.target.closest('.app-row');
+    const row = closestFrom(event, '.app-row');
     if (!row) return;
     event.preventDefault();
     row.click();
@@ -452,7 +452,7 @@ export function create(root) {
       ok('已合并，两边的统计从此算作一个应用');
       reload();
     } catch (error) {
-      fail(error.field ? `${error.field}：${error.message}` : error.message);
+      fail(messageOf(error));
     }
   }
 
@@ -465,7 +465,7 @@ export function create(root) {
       reload();
     } catch (error) {
       // field 由后端给（05 文档 §9），直接显示比"操作失败"有用得多。
-      fail(error.field ? `${error.field}：${error.message}` : error.message);
+      fail(messageOf(error));
     }
   }
 
@@ -475,7 +475,7 @@ export function create(root) {
       ok('已取消合并');
       reload();
     } catch (error) {
-      fail(error.message);
+      fail(messageOf(error));
     }
   }
 
@@ -500,6 +500,7 @@ export function create(root) {
   return {
     needs(state) {
       const period = periodParams(state.period);
+      /** @type {import('../types/api.js').DataRequest[]} */
       const requests = [
         { key: 'appsPeriod', path: '/usage/period', params: { ...period, limit: 500, q: query } },
         { key: 'appsMeta', path: '/apps', params: { limit: 500, include_excluded: includeExcluded } },

@@ -5,7 +5,10 @@
 import { h } from '../core/dom.js';
 import { getState, setState } from '../core/store.js';
 
-export function appPicker({ onChange } = {}) {
+/**
+ * @param {{ onChange?: ((appId: number | null) => void) | null }} [options]
+ */
+export function appPicker({ onChange = null } = {}) {
   const select = h('select', { class: 'control', attrs: { 'aria-label': '应用范围' } });
   select.addEventListener('change', () => {
     const id = Number.parseInt(select.value, 10);

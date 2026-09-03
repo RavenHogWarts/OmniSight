@@ -11,7 +11,7 @@
 //   1. 字段的中文标签（UI 文案，后端不提供）。未知键仍会渲染，只是显示原始键名——
 //      于是后端新增一项设置时前端不必同步改，只是名字不好看。
 //   2. 热力色（--heat 备选主题）是纯前端偏好，没有对应的配置键，存 localStorage。
-import { patch, post, tokenParam } from '../core/api.js';
+import { messageOf, patch, post, tokenParam } from '../core/api.js';
 import { h, mount } from '../core/dom.js';
 import { getState, setState } from '../core/store.js';
 import { drawer } from '../components/drawer.js';
@@ -176,7 +176,7 @@ export function openSettings(payload, status, onReload) {
       if (key === 'ui.keyboard_layout') setState('prefs', { keyboardLayout: String(value) });
       if (onReload) onReload();
     } catch (error) {
-      fail(error.field ? `${error.field}：${error.message}` : error.message);
+      fail(messageOf(error));
     }
   };
 
@@ -229,7 +229,7 @@ function pauseField(spec) {
         const result = await post('/capture/pause', { paused: value });
         ok(result.paused ? '采集已暂停' : '采集已恢复');
       } catch (error) {
-        fail(error.message);
+        fail(messageOf(error));
       }
     },
   });
@@ -254,7 +254,7 @@ function autostartField(spec, onReload) {
         ok([result.enabled ? '已设置开机自启' : '已取消开机自启', result.note].filter(Boolean).join('；'));
         if (onReload) onReload();
       } catch (error) {
-        fail(error.message);
+        fail(messageOf(error));
         // 失败后必须重读：开关已经被点着了，而真实状态没变（例如"要先关掉登录任务"
         // 那个 422），留着一个反的开关就是谎报。
         if (onReload) onReload();
@@ -287,7 +287,7 @@ function autostartElevatedField(spec, onReload) {
         ok([result.enabled ? `已开启${label}` : `已关闭${label}`, result.note].filter(Boolean).join('；'));
         if (onReload) onReload();
       } catch (error) {
-        fail(error.message);
+        fail(messageOf(error));
         if (onReload) onReload();
       }
     },

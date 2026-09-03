@@ -24,11 +24,19 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
+# **必须是递归通配**：setuptools 的 `*` 不跨目录分隔符，而前端有五层子目录
+# （css/components、css/views、js/core、js/domain、js/charts、js/components、
+# js/views、js/types）。写成 `static/js/*.js` 时 wheel 里只有 main.js 与 theme.js，
+# 装出来的仪表盘是一片空白——app.css 的 @import 与 main.js 的 import 全部 404，
+# 而首页本身仍然 200，所以这种坏法完全静默。
+#
+# 一直没暴露是因为实际分发走 PyInstaller（OmniSight.spec 拷整个 static 目录），
+# `pip install` 只在开发时用。tests/unit/test_package_data.py 现在盯着这一条。
+#
+# 递归 `**` 需要 setuptools >= 62.3，build-system 里要求的是 >= 68。
 omnisight = [
-    "presentation/templates/*.html",
-    "presentation/static/css/*.css",
-    "presentation/static/js/*.js",
-    "presentation/static/assets/*",
+    "presentation/templates/**/*.html",
+    "presentation/static/**/*",
 ]
 
 [tool.pytest.ini_options]

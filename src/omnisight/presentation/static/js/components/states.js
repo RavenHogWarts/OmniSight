@@ -10,6 +10,10 @@
 // 然后去排查自己的使用习惯。
 import { h } from '../core/dom.js';
 
+/**
+ * @param {string} [kind]
+ * @param {number} [count]
+ */
 export function skeleton(kind = 'text', count = 1) {
   const nodes = [];
   for (let index = 0; index < count; index += 1) {
@@ -18,10 +22,15 @@ export function skeleton(kind = 'text', count = 1) {
   return nodes.length === 1 ? nodes[0] : h('div', null, ...nodes);
 }
 
+/** @param {number} [count] */
 export function skeletonRows(count = 5) {
   return h('div', null, ...Array.from({ length: count }, () => h('div', { class: 'skeleton skeleton--row' })));
 }
 
+/**
+ * @param {{ title: string, detail?: string, mark?: string,
+ *           action?: import('../types/dom.js').Child }} options
+ */
 export function emptyState({ title, detail = '', mark = '\u25cb', action = null }) {
   return h(
     'div',
@@ -33,6 +42,9 @@ export function emptyState({ title, detail = '', mark = '\u25cb', action = null 
   );
 }
 
+/**
+ * @param {{ message?: string, onRetry?: (() => void) | null }} options
+ */
 export function errorState({ message, onRetry = null }) {
   return h(
     'div',
@@ -53,6 +65,9 @@ export function errorState({ message, onRetry = null }) {
  * degraded[].title / .detail / .hint。前端不编文案，也不判断平台——
  * 否则每加一个平台都要改前端（07 文档 §10 第 4 行）。
  */
+/**
+ * @param {{ title: string, detail?: string, hint?: string }} options
+ */
 export function capabilityNotice({ title, detail = '', hint = '' }) {
   return h(
     'div',
@@ -69,6 +84,7 @@ export function capabilityNotice({ title, detail = '', hint = '' }) {
 }
 
 /** 数据缺口的图例注记。图表里画斜纹，图例里说明斜纹是什么意思。 */
+/** @param {number} count */
 export function gapLegend(count) {
   if (!count) return null;
   return h(

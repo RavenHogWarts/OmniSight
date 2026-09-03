@@ -152,3 +152,132 @@ def test_modules_are_served_with_a_javascript_mime_type(api_client):
     assert css.headers["Content-Type"].startswith("text/css")
     icon = api_client.get("/favicon.svg")
     assert icon.headers["Content-Type"].startswith("image/svg+xml")
+
+
+# ── 字段级契约：types/api.d.ts 对着真实响应核对 ──────────────────────────
+#
+# 07 文档 §10 列了三处前后端必须一致的内容并各自给了执行机制，**字段级形状原先不在
+# 其中**：后端改一个字段名，前端只是静默显示空值，而"这段时间没有记录"恰好也是合法
+# 状态。tools/check_types.py 让前端在类型上必须按 api.d.ts 取值；这一组测试保证
+# api.d.ts 说的就是后端真的给的那些字段——两头一起钉住，中间才没有缝。
+#
+# 声明多一个必填字段、少一个后端会给的字段、把 number 写成 string 都会红。
+
+import dts  # noqa: E402
+
+API_TYPES = JS / "types" / "api.d.ts"
+
+#: 端点 -> 声明的响应类型。seeded_client 的数据集见 tests/seeded.py（NOW = 2026-09-02）。
+DAY = "range=day&date=2026-09-02"
+ENDPOINT_TYPES: tuple[tuple[str, str], ...] = (
+    (f"/api/v1/overview?{DAY}", "OverviewResponse"),
+    # include=highlights 时只回结论段：验证那些"按参数出现"的字段真的是可选的。
+    (f"/api/v1/overview?{DAY}&include=highlights", "OverviewResponse"),
+    # range=total 会带出 coverage.gaps 与更长的趋势桶。
+    ("/api/v1/overview?range=total", "OverviewResponse"),
+    (f"/api/v1/usage/period?{DAY}&limit=500", "UsagePeriodResponse"),
+    (f"/api/v1/usage/period?{DAY}&q=code", "UsagePeriodResponse"),
+    (f"/api/v1/usage/timeline?{DAY}&top=5", "UsageTimelineResponse"),
+    ("/api/v1/usage/timeline?range=total&top=5", "UsageTimelineResponse"),
+    (f"/api/v1/usage/sessions?{DAY}&limit=50", "SessionsResponse"),
+    ("/api/v1/apps?limit=500&include_excluded=true", "AppsResponse"),
+    ("/api/v1/apps/1", "AppDetailResponse"),
+    ("/api/v1/keyboard/layout", "LayoutResponse"),
+    # ISO 布局才有 shape=iso_enter 与跨行的 h——那两个字段只在这里出现。
+    ("/api/v1/keyboard/layout?family=iso105", "LayoutResponse"),
+    (f"/api/v1/keyboard/heatmap?{DAY}", "HeatmapResponse"),
+    ("/api/v1/keyboard/heatmap?range=total", "HeatmapResponse"),
+    (f"/api/v1/keyboard/heatmap?{DAY}&app_id=1", "HeatmapResponse"),
+    (
+        f"/api/v1/keyboard/timeline?{DAY}&view=hours,days,months,years",
+        "KeyboardTimelineResponse",
+    ),
+    (f"/api/v1/keyboard/ergonomics?{DAY}", "ErgonomicsResponse"),
+    (f"/api/v1/insights/app-keyboard?{DAY}&limit=20", "AppKeyboardResponse"),
+    (f"/api/v1/insights/rhythm?{DAY}", "RhythmResponse"),
+    ("/api/v1/status", "StatusResponse"),
+    ("/api/v1/settings", "SettingsResponse"),
+    ("/api/v1/onboarding", "OnboardingResponse"),
+    ("/api/v1/import/detect", "DetectResponse"),
+    ("/api/v1/import/progress", "ImportProgressResponse"),
+)
+
+
+@pytest.fixture(scope="module")
+def declarations():
+    return dts.parse(API_TYPES)
+
+
+@pytest.mark.parametrize(("url", "interface"), ENDPOINT_TYPES)
+def test_response_matches_the_declared_shape(seeded_client, declarations, url, interface):
+    response = seeded_client.get(url)
+    assert response.status_code == 200, f"{url} 返回 {response.status_code}"
+    problems = dts.mismatches(declarations, interface, response.get_json(), interface)
+    assert not problems, f"{url} 与 {interface} 不一致：\n" + "\n".join(
+        f"  {problem}" for problem in problems
+    )
+
+
+def test_key_detail_matches_the_declared_shape(seeded_client, declarations):
+    """键位明细的 URL 里有一个真实 key_id，因此从 heatmap 现取一个最热的。"""
+    keys = seeded_client.get("/api/v1/keyboard/heatmap?range=total").get_json()["keys"]
+    hottest = max(keys, key=lambda item: item["press_count"])
+    assert hottest["press_count"] > 0, "数据集里没有任何按键，这条测试会空跑"
+    response = seeded_client.get(f"/api/v1/keyboard/keys/{hottest['id']}?range=total")
+    assert response.status_code == 200
+    problems = dts.mismatches(
+        declarations, "KeyDetailResponse", response.get_json(), "KeyDetailResponse"
+    )
+    assert not problems, "KeyDetailResponse 不一致：\n" + "\n".join(problems)
+
+
+def test_error_body_matches_the_declared_shape(seeded_client, declarations):
+    """错误响应也是契约的一部分：core/api.js 的 ApiError 从这三个字段取值。"""
+    response = seeded_client.get("/api/v1/keyboard/keys/not-a-real-key")
+    assert response.status_code == 400
+    problems = dts.mismatches(
+        declarations, "ErrorResponse", response.get_json(), "ErrorResponse"
+    )
+    assert not problems, "ErrorResponse 不一致：\n" + "\n".join(problems)
+
+
+def test_every_data_map_entry_is_actually_requested_by_a_view(declarations):
+    """DataMap 里躺着一个没人再用的 key，说明它随某次改动一起过期了。
+
+    反方向（视图请求了 DataMap 里没有的 key）由 tsc 保证——`fetchInto` 的第一个参数
+    是 `keyof DataMap`，写错的名字连类型检查都过不去。
+    """
+    used: set[str] = set()
+    pattern = re.compile(r"(?:fetchInto\(\s*'(?P<a>\w+)'|key:\s*'(?P<b>\w+)')")
+    for path in sorted(JS.rglob("*.js")):
+        for match in pattern.finditer(path.read_text(encoding="utf-8")):
+            used.add(match.group("a") or match.group("b"))
+    declared = set(declarations.fields_of("DataMap"))
+    assert declared <= used, f"DataMap 里没人请求的 key：{sorted(declared - used)}"
+
+
+def test_every_declared_response_type_is_covered_by_an_endpoint(declarations):
+    """探针：新增一个响应类型却忘了给它配端点时，上面那组测试不会变红。"""
+    checked = {interface for _url, interface in ENDPOINT_TYPES}
+    checked |= {"KeyDetailResponse", "ErrorResponse"}
+    # DataMap 的每个值类型都必须有人核对过——那些正是视图直接读的响应。
+    data_map_types = {item.type for item in declarations.fields_of("DataMap").values()}
+    assert data_map_types <= checked, (
+        f"DataMap 用到但没有端点核对的类型：{sorted(data_map_types - checked)}"
+    )
+
+
+def test_the_walker_understands_every_type_it_is_asked_about(declarations):
+    """探针：api.d.ts 里出现解析器读不懂的写法时，比对会静默少查一层。"""
+    unknown: set[str] = set()
+    for _url, interface in ENDPOINT_TYPES:
+        unknown |= dts.unchecked_types(declarations, interface)
+    assert not unknown, f"tests/dts.py 认不出这些类型：{sorted(unknown)}"
+
+
+def test_the_declarations_file_actually_parsed():
+    """探针：正则写坏或文件改名时，上面全部会空跑通过。"""
+    parsed = dts.parse(API_TYPES)
+    assert len(parsed.interfaces) >= 50, f"只解析到 {len(parsed.interfaces)} 个 interface"
+    assert "DataMap" in parsed.interfaces
+    assert parsed.fields_of("PeriodMeta")["start"].type == "string"

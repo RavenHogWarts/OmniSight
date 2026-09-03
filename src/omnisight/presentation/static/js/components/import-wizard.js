@@ -3,8 +3,28 @@
 // 不进路由：它是一次性流程，由横幅、设置抽屉或 data-action 打开。四步全部在
 // 同一个抽屉里切换内容，关闭即取消轮询（导入本身在后台线程继续，关掉页面
 // 也能续传——断点在服务端）。
-import { get as apiGet, post as apiPost } from '../core/api.js';
+import { get as apiGet, messageOf, post as apiPost } from '../core/api.js';
 import { h, mount } from '../core/dom.js';
+
+/**
+ * @typedef {import('../types/api.js').LegacySource} LegacySource
+ * @typedef {import('../types/api.js').LegacySelection} LegacySelection
+ * @typedef {import('../types/api.js').ImportPreviewResponse} ImportPreviewResponse
+ * @typedef {import('../types/api.js').ImportProgressResponse} ImportProgressResponse
+ * @typedef {import('../types/api.js').ImportReportResponse} ImportReportResponse
+ */
+
+/**
+ * 向导的四步共享这一份状态。它**不进 store**：一次性流程，关掉抽屉就结束，
+ * 放进全局状态只会多一份要清理的东西（07 文档 §4.1 第 1 条的同一条道理）。
+ * @typedef {object} WizardState
+ * @property {number} step
+ * @property {LegacySource[]} detected
+ * @property {LegacySelection} selected
+ * @property {ImportPreviewResponse | null} preview
+ * @property {ImportProgressResponse | null} status
+ * @property {ImportReportResponse | null} report
+ */
 import { drawer } from './drawer.js';
 import { fail } from './toast.js';
 
@@ -46,11 +66,22 @@ export async function mountImportBanner(container) {
   container.append(banner);
 }
 
+/**
+ * 事件源是个输入框。`event.target` 的静态类型是 `EventTarget`，取 `value` / `checked`
+ * 都要先落到 `HTMLInputElement` 上——两处 change/input 处理器共用这一处断言。
+ * @param {Event} event
+ * @returns {HTMLInputElement}
+ */
+function inputOf(event) {
+  return /** @type {HTMLInputElement} */ (event.target);
+}
+
 let wizardOpen = false;
 
 export function openImportWizard() {
   if (wizardOpen) return;
   wizardOpen = true;
+  /** @type {WizardState} */
   const state = {
     step: 1,
     detected: [],
@@ -60,7 +91,6 @@ export function openImportWizard() {
     report: null,
   };
   let pollTimer = 0;
-  let instance = null;
 
   const closeWizard = () => {
     if (pollTimer) window.clearInterval(pollTimer);
@@ -69,7 +99,7 @@ export function openImportWizard() {
 
   const body = h('div', { class: 'import-wizard' });
   const footer = h('div', { class: 'import-wizard__foot' });
-  instance = drawer({
+  const instance = drawer({
     title: '导入旧版数据',
     body,
     footer,
@@ -110,7 +140,7 @@ export function openImportWizard() {
         state.preview = await apiPost('/import/preview', { sources: state.selected });
         state.step = 2;
       } catch (error) {
-        fail(error.message || '扫描旧数据库失败');
+        fail(messageOf(error, '扫描旧数据库失败'));
         return;
       }
       rerender();
@@ -127,7 +157,7 @@ export function openImportWizard() {
         });
         state.step = 3;
       } catch (error) {
-        fail(error.message || '启动导入失败');
+        fail(messageOf(error, '启动导入失败'));
         return;
       }
       rerender();
@@ -139,6 +169,7 @@ export function openImportWizard() {
       } catch (error) {
         return;
       }
+      if (!state.status) return;
       if (!state.status.busy && state.status.state === 'done') {
         window.clearInterval(pollTimer);
         pollTimer = 0;
@@ -159,7 +190,7 @@ export function openImportWizard() {
       try {
         state.status = await apiPost('/import/cancel');
       } catch (error) {
-        fail(error.message || '暂停失败');
+        fail(messageOf(error, '暂停失败'));
       }
       rerender();
     },
@@ -171,7 +202,7 @@ export function openImportWizard() {
         await apiPost('/import/undo');
         fail('撤销已开始，历史数据将在后台清除');
       } catch (error) {
-        fail(error.message || '撤销失败');
+        fail(messageOf(error, '撤销失败'));
         return;
       }
       instance.close();
@@ -212,7 +243,7 @@ function sourceRow(state, actions, kind, item) {
   return h('li', { class: 'import-source' },
     h('label', { class: 'import-source__main' },
       h('input', { type: 'checkbox', checked,
-        on: { change: (event) => actions.toggle(kind, item.path, event.target.checked) } }),
+        on: { change: (event) => actions.toggle(kind, item.path, inputOf(event).checked) } }),
       h('span', {}, [
         h('strong', { text: kind === 'timelens' ? 'TimeLens' : 'KeyTrace' }),
         h('span', { class: 'import-source__path', text: item.path }),
@@ -225,7 +256,7 @@ function manualField(state, actions, kind, placeholder) {
   const input = h('input', {
     class: 'input', type: 'text', value: state.selected[kind] || '',
     attrs: { placeholder, spellcheck: 'false' },
-    on: { input: (event) => actions.setManual(kind, event.target.value) },
+    on: { input: (event) => actions.setManual(kind, inputOf(event).value) },
   });
   return h('label', { class: 'field' },
     h('span', { class: 'field__label', text: kind === 'timelens' ? 'TimeLens 数据库' : 'KeyTrace 数据库' }),

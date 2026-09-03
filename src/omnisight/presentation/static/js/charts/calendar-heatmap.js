@@ -1,7 +1,7 @@
 // 365 天日历热图。**DOM 而非 canvas**：一次 DocumentFragment 构建 + CSS 变量着色，
 // 于是主题切换零成本、悬停命中由浏览器负责、屏幕阅读器能逐格读到 aria-label
 // （06 文档 §14 的"365 天日历渲染 < 50ms"）。
-import { h, renderKeyed } from '../core/dom.js';
+import { closestFrom, h, renderKeyed } from '../core/dom.js';
 import { formatCount } from '../domain/format.js';
 import { fromISO } from '../domain/period.js';
 import { heatLevel, heatRatio } from '../domain/metrics.js';
@@ -11,6 +11,10 @@ const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日'];
 /**
  * buckets: [{bucket: 'YYYY-MM-DD', press_count, ...}]，gaps 是 Set。
  * weekStartsOn 与后端 ui.week_starts_on 同义（0 = 周一）。
+ */
+/**
+ * @param {Element} container
+ * @param {{ weekStartsOn?: number, metric?: string, onSelect?: ((bucket: string) => void) | null }} [options]
  */
 export function calendarHeatmap(container, { weekStartsOn = 0, metric = 'press_count', onSelect = null } = {}) {
   const axis = h('div', { class: 'weekday-axis' });
@@ -28,7 +32,7 @@ export function calendarHeatmap(container, { weekStartsOn = 0, metric = 'press_c
 
   if (onSelect) {
     grid.addEventListener('click', (event) => {
-      const cell = event.target.closest('.heat-cell');
+      const cell = closestFrom(event, '.heat-cell');
       if (cell?.dataset.bucket) onSelect(cell.dataset.bucket);
     });
   }

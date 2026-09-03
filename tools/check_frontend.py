@@ -3,6 +3,10 @@
 没有构建工具，就没有打包器替我们发现"导入了一个不存在的导出"。这个脚本补上那一层，
 外加四条**架构约束的执行机制**——写在文档里不由工具强制的规则，三个月内必然失效：
 
+与 ``tools/check_types.py`` 的分工：那一条查**类型**（字段名、null、接口契约），需要
+Node 才能跑，缺了就跳过；这一条查**结构与禁令**，纯 Python、永远会跑。因此下面第 1
+到第 4 条不迁到 tsc 上去——它们必须在任何机器上都拦得住。
+
 1. **分层单向依赖**。`core/` 不认识上层；`domain/` 不 fetch、不读 store；
    `charts/` 不知道 store 存在；`components/` 不 import `views/`。
 2. **前端不判断平台**。`navigator.platform` / `navigator.userAgent` / 与 `platform.id`
@@ -30,6 +34,9 @@ TEMPLATES = ROOT / "src" / "omnisight" / "presentation" / "templates"
 
 #: 每层允许 import 的目标。键是目录，值是允许的路径前缀（相对 js/）。
 LAYER_RULES: dict[str, tuple[str, ...]] = {
+    # 只有 .d.ts，没有运行时代码。JSDoc 里的 `import('../types/api.js')` 是**类型
+    # 引用**，编译期就被擦掉，不产生任何 import 语句，因此不受分层约束。
+    "types": (),
     "core": ("core/",),
     # domain 的实质约束是"不取数、不读状态"。07 文档写的是"无 DOM"，但同一份文档的
     # §6.4 把键盘渲染器放在 domain/keyboard-layout.js 并直接构造 DOM——两句话冲突。
@@ -62,7 +69,8 @@ _IMPORT = re.compile(
 )
 _DYNAMIC_IMPORT = re.compile(r"import\(\s*['\"](?P<path>[^'\"]+)['\"]\s*\)")
 _EXPORT_NAMED = re.compile(
-    r"^\s*export\s+(?:async\s+)?(?:function|const|let|var|class)\s+(?P<name>\w+)", re.MULTILINE
+    r"^\s*export\s+(?:async\s+)?(?:function|const|let|var|class|interface|type)\s+(?P<name>\w+)",
+    re.MULTILINE,
 )
 _EXPORT_LIST = re.compile(r"^\s*export\s*\{(?P<names>[^}]*)\}", re.MULTILINE)
 
@@ -83,6 +91,20 @@ def _relative(path: Path) -> str:
 
 def _line_of(text: str, index: int) -> int:
     return text.count("\n", 0, index) + 1
+
+
+def _resolve(source: Path, target: str) -> Path:
+    """相对路径解析。``.js`` 找不到时退到同名 ``.d.ts``——JSDoc 的类型引用写的是
+    ``import('../types/api.js')``（浏览器里那才是合法路径），落地文件是 ``api.d.ts``，
+    tsc 自己也走这条回退。"""
+    resolved = (source.parent / target).resolve()
+    if resolved.is_file():
+        return resolved
+    if target.endswith(".js"):
+        candidate = (source.parent / (target[:-3] + ".d.ts")).resolve()
+        if candidate.is_file():
+            return candidate
+    return resolved
 
 
 def exports_of(path: Path) -> set[str]:
@@ -109,7 +131,7 @@ def check_imports() -> list[Problem]:
                 problems.append(Problem(_relative(path), _line_of(text, match.start()),
                                         f"禁止裸模块名 {target!r}：本项目零依赖、零构建"))
                 continue
-            resolved = (path.parent / target).resolve()
+            resolved = _resolve(path, target)
             if not resolved.is_file():
                 problems.append(Problem(_relative(path), _line_of(text, match.start()),
                                         f"导入的文件不存在：{target}"))
@@ -128,7 +150,7 @@ def check_imports() -> list[Problem]:
                                             f"{resolved.name} 没有导出 {wanted!r}"))
         for match in _DYNAMIC_IMPORT.finditer(text):
             target = match.group("path")
-            if target.startswith(".") and not (path.parent / target).resolve().is_file():
+            if target.startswith(".") and not _resolve(path, target).is_file():
                 problems.append(Problem(_relative(path), _line_of(text, match.start()),
                                         f"动态导入的文件不存在：{target}"))
     return problems
@@ -148,7 +170,7 @@ def check_layers() -> list[Problem]:
             target = match.group("path")
             if not target.startswith("."):
                 continue
-            resolved = (path.parent / target).resolve()
+            resolved = _resolve(path, target)
             try:
                 target_relative = resolved.relative_to(JS).as_posix()
             except ValueError:

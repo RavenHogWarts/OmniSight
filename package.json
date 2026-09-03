@@ -1,0 +1,17 @@
+{
+  "name": "omnisight-frontend-tooling",
+  "private": true,
+  "type": "module",
+  "description": "OmniSight 前端的开发期工具链。产物里没有任何 npm 包——这里只有 tsc，用来在提交前检查前后端的接口契约（07 文档 §2.1）。",
+  "packageManager": "pnpm@11.13.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \"tests/frontend/*.test.js\""
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

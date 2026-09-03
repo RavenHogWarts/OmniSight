@@ -10,6 +10,11 @@ import { formatCount, formatDuration, initialOf } from '../domain/format.js';
  * 只负责"一行长什么样"。展开详情、行菜单由调用方通过 data-action 委托处理，
  * 因此动态生成的行不需要逐行 addEventListener（07 文档 §7）。
  */
+/**
+ * @param {Element} container
+ * @param {readonly any[]} apps 周期行与 /apps 元数据合并后的结果（见 views/apps.js 的 joinApps）
+ * @param {{ maxSeconds?: number, maxKpm?: number, expandedId?: number | null }} [options]
+ */
 export function renderAppRows(container, apps, { maxSeconds = 0, maxKpm = 0, expandedId = null } = {}) {
   renderKeyed(
     container,

@@ -18,19 +18,28 @@ import { hide as hideTooltip, show as showTooltip } from './tooltip.js';
 
 const PRESS_CLEAR_MS = 220;
 
+/**
+ * @param {Element} container
+ * @param {{ onSelectKey?: ((keyId: string) => void) | null }} [options]
+ */
 export function keyboardView(container, { onSelectKey = null } = {}) {
   const board = h('div', { class: 'keyboard-wrap' });
   const legend = h('div', { class: 'heat-legend' });
   const orphans = h('div', { class: 'orphans', hidden: true });
   mount(container, board, legend, orphans);
 
+  /** @type {Map<string, HTMLElement>} */
   let nodes = new Map();
+  /** @type {string[][]} */
   let rows = [];
+  /** @type {Map<string, import('../types/api.js').HeatmapKey>} */
   let values = new Map();
+  /** @type {import('../types/api.js').HeatScale | null} */
   let scale = null;
   let metric = 'press_count';
   let total = 0;
   let cursor = { row: 0, col: 0 };
+  /** @type {HTMLElement | null} */
   let root = null;
 
   const reduced = prefersReducedMotion();
@@ -45,6 +54,7 @@ export function keyboardView(container, { onSelectKey = null } = {}) {
     }
   });
 
+  /** @param {import('../types/api.js').LayoutResponse | null | undefined} layout */
   function rebuild(layout) {
     const built = buildKeyboard(layout, {
       onKeyEnter: (keyId, cap, event) => {
@@ -58,8 +68,8 @@ export function keyboardView(container, { onSelectKey = null } = {}) {
                 ['均时长', formatMetric('duration_avg_ms', entry.duration_avg_ms)],
               ]
             : [['次数', '0']],
-          x: event.clientX,
-          y: event.clientY,
+          x: /** @type {PointerEvent} */ (event).clientX,
+          y: /** @type {PointerEvent} */ (event).clientY,
         });
       },
       onKeyLeave: () => hideTooltip(),
@@ -73,7 +83,9 @@ export function keyboardView(container, { onSelectKey = null } = {}) {
     mount(board, root);
   }
 
+  /** @param {KeyboardEvent} event */
   function handleKeydown(event) {
+    /** @type {Record<string, [number, number]>} */
     const moves = {
       ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0],
     };
@@ -117,10 +129,11 @@ export function keyboardView(container, { onSelectKey = null } = {}) {
       if (isSaturated(value, scale)) cap.dataset.saturated = 'true';
       else delete cap.dataset.saturated;
       // 键面上除填色外还印数值：色盲用户与打印场景都要可读（06 文档 §7 改进 2）。
-      const valueNode = cap.querySelector('.key-cap__value');
+      // 两个子节点由 domain/keyboard-layout.js 的 keyCap() 一起建出来，必然存在。
+      const valueNode = /** @type {HTMLElement} */ (cap.querySelector('.key-cap__value'));
       const text = value ? definition.format(value) : '';
       if (valueNode.textContent !== text) valueNode.textContent = text;
-      const label = cap.querySelector('.key-cap__label').textContent;
+      const label = /** @type {HTMLElement} */ (cap.querySelector('.key-cap__label')).textContent;
       const share = total && metric === 'press_count' ? `，占比 ${formatPercent((value / total) * 100)}` : '';
       cap.setAttribute('aria-label', `${label}，${definition.name} ${definition.format(value)}${share}`);
     }

@@ -334,9 +334,14 @@ export function create(root) {
     }
   }
 
+  /**
+   * @param {Readonly<import('../core/store.js').State>} state
+   * @returns {import('../types/api.js').DataRequest[]}
+   */
   function requestsFor(state) {
     const period = periodParams(state.period);
     const scope = state.scopeAppId ? { app_id: state.scopeAppId } : {};
+    /** @type {import('../types/api.js').DataRequest[]} */
     const requests = [
       { key: 'layout', path: '/keyboard/layout', params: familyParam(state) },
       { key: 'heatmap', path: '/keyboard/heatmap', params: { ...period, metric: state.metric, ...scope } },

@@ -507,6 +507,10 @@ export function create(root) {
     return 'space';
   }
 
+  /**
+   * @param {Readonly<import('../core/store.js').State>} state
+   * @returns {import('../types/api.js').DataRequest[]}
+   */
   function requestsFor(state) {
     const period = periodParams(state.period);
     return [

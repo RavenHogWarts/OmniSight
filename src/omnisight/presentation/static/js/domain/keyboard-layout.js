@@ -9,7 +9,13 @@
 //   2. 未知 shape 退化为矩形键并 console.warn，绝不抛异常——后端加了新形状时
 //      旧前端应该还能用，只是那个键画成方的。
 //   3. orphan_keys 由调用方渲染在键盘下方（见 components/keyboard-view.js）。
-import { h } from '../core/dom.js';
+import { closestFrom, h } from '../core/dom.js';
+
+/**
+ * @typedef {import('../types/api.js').LayoutResponse} LayoutResponse
+ * @typedef {import('../types/api.js').LayoutKey} LayoutKey
+ * @typedef {(keyId: string, cap: HTMLElement, event: Event) => void} KeyHandler
+ */
 
 /** 已知的特殊形状。只有一个，且这就是重点。 */
 const KNOWN_SHAPES = new Set(['iso_enter']);
@@ -18,8 +24,12 @@ const GAP = 'gap';
 /**
  * 布局数据 -> DOM。返回 `{ root, nodes }`，`nodes` 是 key_id -> 键面元素，
  * 供着色与按压动画按 id 直接命中，不必每次查询 DOM。
+ * @param {LayoutResponse | null | undefined} layout
+ * @param {{ onKeyEnter?: KeyHandler | null, onKeyLeave?: KeyHandler | null,
+ *           onKeyActivate?: KeyHandler | null }} [handlers]
  */
-export function buildKeyboard(layout, { onKeyEnter, onKeyLeave, onKeyActivate } = {}) {
+export function buildKeyboard(layout, { onKeyEnter = null, onKeyLeave = null, onKeyActivate = null } = {}) {
+  /** @type {Map<string, HTMLElement>} */
   const nodes = new Map();
   const root = h('div', {
     class: 'keyboard',
@@ -47,19 +57,19 @@ export function buildKeyboard(layout, { onKeyEnter, onKeyLeave, onKeyActivate } 
 
   if (onKeyEnter) {
     root.addEventListener('pointerover', (event) => {
-      const cap = event.target.closest('.key-cap');
+      const cap = closestFrom(event, '.key-cap');
       if (cap?.dataset.keyId) onKeyEnter(cap.dataset.keyId, cap, event);
     });
   }
   if (onKeyLeave) {
     root.addEventListener('pointerout', (event) => {
-      const cap = event.target.closest('.key-cap');
+      const cap = closestFrom(event, '.key-cap');
       if (cap?.dataset.keyId) onKeyLeave(cap.dataset.keyId, cap, event);
     });
   }
   if (onKeyActivate) {
     root.addEventListener('click', (event) => {
-      const cap = event.target.closest('.key-cap');
+      const cap = closestFrom(event, '.key-cap');
       if (cap?.dataset.keyId) onKeyActivate(cap.dataset.keyId, cap, event);
     });
   }
@@ -67,12 +77,17 @@ export function buildKeyboard(layout, { onKeyEnter, onKeyLeave, onKeyActivate } 
   return { root, nodes };
 }
 
+/** @param {number | undefined} width */
 function spacer(width) {
   const node = h('span', { class: 'key-spacer', attrs: { 'aria-hidden': 'true' } });
   node.style.setProperty('--w', String(width ?? 1));
   return node;
 }
 
+/**
+ * @param {LayoutKey} slot
+ * @returns {HTMLElement}
+ */
 function keyCap(slot) {
   const shape = slot.shape && KNOWN_SHAPES.has(slot.shape) ? slot.shape : null;
   if (slot.shape && !shape) {
@@ -96,8 +111,13 @@ function keyCap(slot) {
   return cap;
 }
 
-/** 布局里所有真实键的 id（不含 gap），顺序即视觉顺序——方向键导航用它。 */
+/**
+ * 布局里所有真实键的 id（不含 gap），顺序即视觉顺序——方向键导航用它。
+ * @param {LayoutResponse | null | undefined} layout
+ * @returns {string[]}
+ */
 export function keyOrder(layout) {
+  /** @type {string[]} */
   const ids = [];
   for (const row of layout?.rows || []) {
     for (const slot of row) {
@@ -107,7 +127,11 @@ export function keyOrder(layout) {
   return ids;
 }
 
-/** 按行分组的 id，供上下方向键在行间移动。 */
+/**
+ * 按行分组的 id，供上下方向键在行间移动。
+ * @param {LayoutResponse | null | undefined} layout
+ * @returns {string[][]}
+ */
 export function keyRows(layout) {
   return (layout?.rows || []).map((row) => row.filter((slot) => slot && slot.id !== GAP).map((slot) => slot.id));
 }

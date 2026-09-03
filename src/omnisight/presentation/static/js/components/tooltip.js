@@ -2,6 +2,7 @@
 // 这里只负责定位与内容——现状柱状图完全没有 tooltip，只能看轮廓。
 import { h, mount } from '../core/dom.js';
 
+/** @type {HTMLElement | null} */
 let node = null;
 
 function ensure() {
@@ -11,7 +12,11 @@ function ensure() {
   return node;
 }
 
-/** rows: [[label, value]]；note 用于"该日无应用归因"这类说明（06 文档 §4.2 第三级）。 */
+/**
+ * rows: [[label, value]]；note 用于"该日无应用归因"这类说明（06 文档 §4.2 第三级）。
+ * @param {{ title?: string, rows?: readonly (readonly [string, string | number])[],
+ *           note?: string, x?: number, y?: number }} options
+ */
 export function show({ title, rows = [], note = '', x = 0, y = 0 }) {
   const tip = ensure();
   mount(

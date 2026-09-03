@@ -1,0 +1,36 @@
+{
+  // 前端类型检查（07 文档 §2.1）。**只检查，不产出**：static/js 下的 .js 就是浏览器
+  // 加载的那份文件，tsc 从不改写它，因此"零构建"这条性质仍然成立。
+  //
+  // 类型从 JSDoc 与 js/types/api.d.ts 来。挑这条路而不是改写成 .ts，是因为 .ts 必须
+  // 编译才能运行，而那会让 PyInstaller 打包前多一步 npm build——07 文档 §2 拒绝过。
+  "compilerOptions": {
+    // 浏览器基线是 Safari 15.4（07 文档 §2，pywebview 下的 WebKitGTK 最旧）。
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    // 源码里的相对导入都带 .js 后缀（浏览器要求），bundler 解析能把它映射到 .d.ts。
+    "moduleResolution": "bundler",
+
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+
+    // 不自动引入任何 @types 包：产物零依赖，开发期也只装 typescript 一个。
+    "types": [],
+    "skipLibCheck": true,
+
+    // strictNullChecks 是这套检查的主力：接口字段拼错、可能为 null 的响应直接取值，
+    // 都在这一条下暴露。noImplicitAny 刻意关掉——为它给 5900 行既有 JS 的每个局部
+    // 函数补参数类型，收益远小于工作量，而契约那一半收益不依赖它（PROGRESS 偏离 141）。
+    "strict": true,
+    "noImplicitAny": false,
+    "noImplicitThis": false,
+
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "src/omnisight/presentation/static/js/**/*.js",
+    "src/omnisight/presentation/static/js/types/*.d.ts"
+  ]
+}

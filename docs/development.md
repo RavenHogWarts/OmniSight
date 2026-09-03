@@ -16,6 +16,27 @@ uv venv --python 3.12 .venv
 uv pip install -r requirements-dev.txt -r requirements-optional.txt
 ```
 
+### 前端类型检查（可选）
+
+前端仍是**零构建**的原生 ESM：`static/js` 下的 `.js` 就是浏览器加载的那份文件，
+没有任何编译步骤。但类型是有的——JSDoc 加上 `static/js/types/api.d.ts`，由 tsc 以
+`noEmit` 模式检查（`dev/07-frontend-architecture.md` §2.1）。
+
+它拦的是这一类：后端把 `/usage/period` 的某个字段改了名，前端只是静默显示空值，而
+"这段时间没有记录"恰好也是合法状态。`tools/check_frontend.py` 查不到（它只做导入解析
+与文本模式），`tests/frontend/dom-shim.js` 也测不到（它断言渲染结构）。
+
+装了 Node 的话：
+
+```bash
+pnpm install                                   # 只装 typescript 一个开发依赖
+pnpm typecheck                                 # 等价于下面那条
+.venv/Scripts/python tools/check_types.py      # pytest 与发布流水线走这条
+```
+
+**没装 Node 也能开发**：`tools/check_types.py` 与相关测试都会跳过而不是失败，与
+`tests/frontend/` 的 Node 测试同一条原则。产物里没有任何 npm 包。
+
 ## 常用命令
 
 ```bash
@@ -23,7 +44,8 @@ uv pip install -r requirements-dev.txt -r requirements-optional.txt
 .venv/Scripts/python -m pytest                               # 测试
 .venv/Scripts/python -m ruff check .                         # 静态检查
 .venv/Scripts/python tools/check_platform_leaks.py           # 平台泄漏检查
-.venv/Scripts/python tools/check_frontend.py                 # 前端静态检查
+.venv/Scripts/python tools/check_frontend.py                 # 前端静态检查（结构与禁令）
+.venv/Scripts/python tools/check_types.py                    # 前端类型检查（需 Node，缺则跳过）
 .venv/Scripts/python tools/build.py                          # 只构建 EXE（日常开发用这个）
 .venv/Scripts/python tools/build.py --release                # 构建 + 组装两件发布物
 .venv/Scripts/python tools/smoke.py dist/OmniSight.exe       # 对产物冒烟

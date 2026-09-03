@@ -44,7 +44,10 @@ export function statCard({ label, hint = '' }) {
   };
 }
 
-/** 一行"名称 + 条 + 数值"，类别列表与强度分布共用。 */
+/**
+ * 一行"名称 + 条 + 数值"，类别列表与强度分布共用。
+ * @param {{ name: string, category?: string | null, profile?: string | null }} options
+ */
 export function meterRow({ name, category = null, profile = null }) {
   const bar = h('div', { class: 'bar' }, h('i'));
   const value = h('span', { class: 'intensity__value numeric' });

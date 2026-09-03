@@ -2,16 +2,22 @@
 //
 // 焦点陷阱不是装饰：抽屉打开后 Tab 键若能走到底下的页面，键盘用户会"掉出"抽屉且
 // 看不到自己在哪。归还焦点同理——关掉抽屉后焦点必须回到打开它的那个按钮。
-import { h } from '../core/dom.js';
+import { focusables, h, mountPoint } from '../core/dom.js';
+
+/** @typedef {import('../types/dom.js').Child} Child */
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea, [tabindex]:not([tabindex="-1"])';
 
+/** @type {{ close: () => void, panel: HTMLElement } | null} */
 let openDrawer = null;
 
+/**
+ * @param {{ title: string, body: Child, footer?: Child, onClose?: (() => void) | null }} options
+ */
 export function drawer({ title, body, footer = null, onClose = null }) {
   if (openDrawer) openDrawer.close();
-  const opener = document.activeElement;
-  const host = document.getElementById('overlays');
+  const opener = /** @type {HTMLElement | null} */ (document.activeElement);
+  const host = mountPoint('overlays');
 
   const closeButton = h('button', {
     class: 'icon-button', type: 'button', text: '\u2715',
@@ -35,6 +41,7 @@ export function drawer({ title, body, footer = null, onClose = null }) {
     if (opener && typeof opener.focus === 'function') opener.focus();
   };
 
+  /** @param {KeyboardEvent} event */
   function onKeydown(event) {
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -42,7 +49,7 @@ export function drawer({ title, body, footer = null, onClose = null }) {
       return;
     }
     if (event.key !== 'Tab') return;
-    const items = [...panel.querySelectorAll(FOCUSABLE)].filter((node) => node.offsetParent !== null);
+    const items = focusables(panel, FOCUSABLE);
     if (!items.length) return;
     const first = items[0];
     const last = items[items.length - 1];

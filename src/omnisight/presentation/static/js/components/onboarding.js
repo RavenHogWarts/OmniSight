@@ -8,7 +8,7 @@
 //   3. **之后仍然找得到**。托盘「关于与隐私说明」与 URL 的 `#about` 都会重新打开它，
 //      此时它是普通对话框，Esc 与遮罩点击都能关。
 import { get as apiGet, post as apiPost } from '../core/api.js';
-import { h, mount } from '../core/dom.js';
+import { focusables, h, mount, mountPoint } from '../core/dom.js';
 import { fail } from './toast.js';
 
 let openInstance = null;
@@ -38,8 +38,8 @@ export async function openAbout() {
 
 export function showOnboarding(payload, { mandatory = false } = {}) {
   if (openInstance) openInstance.close();
-  const host = document.getElementById('overlays');
-  const opener = document.activeElement;
+  const host = mountPoint('overlays');
+  const opener = /** @type {HTMLElement | null} */ (document.activeElement);
 
   const dialog = h('div', {
     class: 'onboarding',
@@ -60,6 +60,7 @@ export function showOnboarding(payload, { mandatory = false } = {}) {
     if (opener && typeof opener.focus === 'function') opener.focus();
   };
 
+  /** @param {KeyboardEvent} event */
   function onKeydown(event) {
     if (event.key === 'Escape' && !mandatory) {
       event.preventDefault();
@@ -67,7 +68,7 @@ export function showOnboarding(payload, { mandatory = false } = {}) {
       return;
     }
     if (event.key !== 'Tab') return;
-    const items = [...dialog.querySelectorAll('button, a[href]')].filter((n) => n.offsetParent !== null);
+    const items = focusables(dialog, 'button, a[href]');
     if (!items.length) return;
     const first = items[0];
     const last = items[items.length - 1];

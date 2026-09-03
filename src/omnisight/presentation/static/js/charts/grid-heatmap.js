@@ -1,9 +1,13 @@
 // 通用格子热力图：时 / 月 / 年 桶。与日历同一套着色（--heat + data-level），
 // 只是排布是流式的而不是按周分列。
-import { h, renderKeyed } from '../core/dom.js';
+import { closestFrom, h, renderKeyed } from '../core/dom.js';
 import { heatLevel, heatRatio } from '../domain/metrics.js';
 import { formatMetric } from '../domain/metrics.js';
 
+/**
+ * @param {Element} container
+ * @param {{ metric?: string, onSelect?: ((bucket: string) => void) | null, label?: string }} [options]
+ */
 export function gridHeatmap(container, { metric = 'press_count', onSelect = null, label = '时间分布' } = {}) {
   const grid = h('div', {
     class: 'heatgrid heatgrid--flow',
@@ -14,7 +18,7 @@ export function gridHeatmap(container, { metric = 'press_count', onSelect = null
 
   if (onSelect) {
     grid.addEventListener('click', (event) => {
-      const cell = event.target.closest('.heat-cell');
+      const cell = closestFrom(event, '.heat-cell');
       if (cell?.dataset.bucket) onSelect(cell.dataset.bucket);
     });
   }

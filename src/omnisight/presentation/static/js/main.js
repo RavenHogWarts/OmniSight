@@ -6,9 +6,9 @@
 //   5. SSE 连接与失效重取。
 //
 // 视图模块的契约只有三样：`needs(state)` 声明要哪些数据、`render()` 画、`destroy()` 拆。
-import { adoptToken, get as apiGet } from './core/api.js';
+import { adoptToken, get as apiGet, messageOf } from './core/api.js';
 import { on as busOn } from './core/bus.js';
-import { h, mount } from './core/dom.js';
+import { closestFrom, h, mount, mountPoint } from './core/dom.js';
 import { abortPending, fetchInto } from './core/loader.js';
 import { ROUTES, go, start as startRouter } from './core/router.js';
 import { getState, setState, subscribe } from './core/store.js';
@@ -31,7 +31,7 @@ const VIEW_MODULES = {
   insights: () => import('./views/insights.js'),
 };
 
-const viewRoot = document.getElementById('view-root');
+const viewRoot = mountPoint('view-root');
 let active = null;
 let activeRoute = null;
 
@@ -53,7 +53,7 @@ async function mountRoute(route) {
   refresh();
   active.render();
   // 焦点移到新视图的标题（07 文档 §9）：否则键盘用户切完视图仍停在标签栏上。
-  const heading = viewRoot.querySelector('#view-title');
+  const heading = /** @type {HTMLElement | null} */ (viewRoot.querySelector('#view-title'));
   if (heading) heading.focus();
   document.title = `${module.title} · OmniSight`;
 }
@@ -90,7 +90,7 @@ const ACTIONS = {
 
 function installDelegation() {
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-action]');
+    const target = closestFrom(event, '[data-action]');
     if (!target) return;
     const handler = ACTIONS[target.dataset.action];
     if (handler) handler(target.dataset, event);
@@ -101,7 +101,7 @@ function installDelegation() {
 function installShortcuts() {
   document.addEventListener('keydown', (event) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
-    const tag = (event.target.tagName || '').toLowerCase();
+    const tag = (/** @type {Element | null} */ (event.target)?.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
     const index = ['1', '2', '3', '4'].indexOf(event.key);
     if (index >= 0) {
@@ -112,7 +112,7 @@ function installShortcuts() {
     else if (event.key === 'ArrowRight') stepPeriod(1);
     else if (event.key === 't' || event.key === 'T') goToday();
     else if (event.key === '/') {
-      const search = document.querySelector('.search input');
+      const search = /** @type {HTMLElement | null} */ (document.querySelector('.search input'));
       if (search) {
         event.preventDefault();
         search.focus();
@@ -122,6 +122,7 @@ function installShortcuts() {
 }
 
 function showShortcutHelp() {
+  /** @type {[string, string][]} */
   const rows = [
     ['1 - 4', '切换视图'],
     ['左 / 右', '上一个 / 下一个周期'],
@@ -141,8 +142,9 @@ function showShortcutHelp() {
 /** 图表 tooltip：命中检测在图表里，内容与定位在这里统一（单例，见 06 文档 §10）。 */
 function installChartTooltips() {
   document.addEventListener('chart:hover', (event) => {
-    const { payload, x, y } = event.detail;
+    const { payload, x, y } = /** @type {CustomEvent} */ (event).detail;
     if (!payload) return;
+    /** @type {[string, string | number][]} */
     const rows = [];
     if (payload.seconds !== undefined) rows.push(['时长', formatDurationShort(payload.seconds)]);
     if (payload.total !== undefined) rows.push(['时长', formatDurationShort(payload.total)]);
@@ -174,7 +176,7 @@ async function openSettingsDrawer() {
       refresh({ abort: false });
     });
   } catch (error) {
-    fail(error.message || '打开设置失败');
+    fail(messageOf(error, '打开设置失败'));
   }
 }
 
@@ -194,6 +196,9 @@ async function loadStatus() {
         title: '无法读取运行状态',
         detail: '采集进程可能已退出，或访问令牌已失效。图表显示的可能是缓存数据。',
         hint: '从托盘菜单重新打开仪表盘',
+        // 后端的 DegradedNotice 一定带 docs（可为 null）。这条是前端造的，也得对齐——
+        // 否则 components/degraded.js 里读 `notice.docs` 时它是 undefined 而不是 null。
+        docs: null,
       },
     ]);
     return null;
@@ -222,6 +227,13 @@ async function loadPrefs() {
   }
 }
 
+/**
+ * 读一条设置的当前值。
+ * @param {Record<string, import('./types/api.js').SettingField>} settings
+ * @param {string} key
+ * @param {import('./types/api.js').SettingValue} fallback
+ * @returns {import('./types/api.js').SettingValue}
+ */
 function valueOf(settings, key, fallback) {
   const spec = settings[key];
   return spec && spec.value !== null && spec.value !== undefined ? spec.value : fallback;
@@ -260,16 +272,16 @@ function installSubscriptions() {
 }
 
 async function main() {
-  const script = document.querySelector('script[data-token]');
+  const script = /** @type {HTMLScriptElement | null} */ (document.querySelector('script[data-token]'));
   const token = adoptToken(script ? script.dataset.token : '');
   restoreTheme();
   watchSystem();
 
-  mountBanners(document.getElementById('banners'));
+  mountBanners(mountPoint('banners'));
   // 检测旧数据不阻塞启动（09 文档 §2.1）：结果晚一点到也没关系。
-  mountImportBanner(document.getElementById('banners'));
-  mountStatus(document.getElementById('status-host'));
-  mountPeriodNav(document.getElementById('periodbar'));
+  mountImportBanner(mountPoint('banners'));
+  mountStatus(mountPoint('status-host'));
+  mountPeriodNav(mountPoint('periodbar'));
   installDelegation();
   installShortcuts();
   installChartTooltips();
@@ -305,7 +317,8 @@ async function main() {
   }
   subscribe('route', (route) => mountRoute(route));
   await mountRoute(getState().route);
-  if (getState().settings && !valueOf(getState().settings.settings || {}, 'privacy.realtime_stream', true)) {
+  const settings = getState().settings;
+  if (settings && !valueOf(settings.settings || {}, 'privacy.realtime_stream', true)) {
     // 用户关掉了实时流：直接进轮询，不去敲一个必然 404 的端点。
     startPolling();
   } else {

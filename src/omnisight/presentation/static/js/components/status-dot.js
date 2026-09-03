@@ -30,7 +30,7 @@ export function mountStatus(container) {
     if (open) renderPanel(panel);
   });
   document.addEventListener('click', (event) => {
-    if (!wrap.contains(event.target) && !panel.hidden) {
+    if (!wrap.contains(/** @type {Node | null} */ (event.target)) && !panel.hidden) {
       panel.hidden = true;
       button.setAttribute('aria-expanded', 'false');
     }
@@ -65,20 +65,21 @@ const LABELS = {
   error: '采集异常',
 };
 
+/** @param {HTMLElement} panel */
 function renderPanel(panel) {
   const { status, live } = getState();
-  const capture = status?.capture || {};
+  const capture = status?.capture;
   const counters = live.counters;
   mount(
     panel,
     h(
       'dl',
       null,
-      row('键盘采集', describeBackend(capture.keyboard)),
-      row('前台归因', describeBackend(capture.foreground)),
-      row('写入线程', capture.writer?.running ? '运行中' : '未运行'),
-      row('队列深度', String(capture.queue_depth ?? 0)),
-      row('丢弃事件', String(capture.dropped_events ?? 0)),
+      row('键盘采集', describeBackend(capture?.keyboard)),
+      row('前台归因', describeBackend(capture?.foreground)),
+      row('写入线程', capture?.writer?.running ? '运行中' : '未运行'),
+      row('队列深度', String(capture?.queue_depth ?? 0)),
+      row('丢弃事件', String(capture?.dropped_events ?? 0)),
       row('实时通道', live.mode === 'stream' ? 'SSE 已连接' : live.mode === 'polling' ? '30 秒轮询' : '未连接'),
       counters ? row('今日按键', formatCount(counters.presses)) : null,
       counters ? row('今日时长', formatDuration(counters.seconds)) : null,
@@ -88,10 +89,15 @@ function renderPanel(panel) {
   );
 }
 
+/**
+ * @param {string} label
+ * @param {string} value
+ */
 function row(label, value) {
   return [h('dt', { text: label }), h('dd', { text: value })];
 }
 
+/** @param {import('../types/api.js').BackendState | null | undefined} part */
 function describeBackend(part) {
   if (!part) return '未知';
   const backend = part.backend && part.backend !== 'none' ? part.backend : null;
