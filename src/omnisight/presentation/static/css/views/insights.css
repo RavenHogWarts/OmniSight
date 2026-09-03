@@ -8,23 +8,13 @@
 }
 .profile-tag__bar { width: 48px; }
 
-[data-profile="input_heavy"] { --bar-color: var(--cat-productivity); }
-[data-profile="interactive"] { --bar-color: var(--cat-communication); }
-[data-profile="passive"]     { --bar-color: var(--cat-entertainment); }
-[data-profile="idle_open"]   { --bar-color: var(--cat-uncategorized); }
-
-.distribution { display: flex; flex-direction: column; gap: var(--space-3); }
-.distribution__row {
-  display: grid;
-  grid-template-columns: 6em minmax(0, 1fr) 9ch 5ch;
-  align-items: center;
-  gap: var(--space-3);
-  font-size: var(--text-sm);
-  font-variant-numeric: tabular-nums;
-}
-.distribution__name { color: var(--text-secondary); }
-.distribution__value { text-align: right; }
-.distribution__percent { text-align: right; color: var(--text-secondary); }
+/* 应用画像是**有序的**（主动输入 → 交互 → 被动 → 开着未用），不是四个身份。
+   所以它用同一个度量色的四个明度，而不是借四个类别色——后者会让"画像"看起来
+   像"类别"，而这两件事在同一屏里同时出现（14 文档 §3.2 的四职分离）。 */
+[data-profile="input_heavy"] { --bar-color: var(--heat-5); }
+[data-profile="interactive"] { --bar-color: var(--heat-4); }
+[data-profile="passive"]     { --bar-color: var(--heat-3); }
+[data-profile="idle_open"]   { --bar-color: var(--heat-2); }
 
 .focus-blocks { display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-sm); }
 .focus-block {

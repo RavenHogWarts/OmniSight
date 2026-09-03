@@ -5,7 +5,7 @@
 }
 .chart canvas { width: 100%; display: block; }
 
-.chart--tall canvas   { height: 200px; }
+.chart--tall canvas   { height: 220px; }
 .chart--medium canvas { height: 150px; }
 .chart--short canvas  { height: 96px; }
 
@@ -13,10 +13,31 @@
   display: flex;
   justify-content: space-between;
   font-size: var(--text-2xs);
+  font-family: var(--font-small);
   color: var(--text-tertiary);
   margin-top: var(--space-1);
   font-variant-numeric: tabular-nums;
 }
+
+/* 图例。两个系列的图必须有图例，且常驻（14 文档 §4.3）。系列用一小段线色标识。 */
+.chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-top: var(--space-2);
+  font-size: var(--text-2xs);
+  font-family: var(--font-small);
+  color: var(--text-secondary);
+}
+.chart__legend-item { display: inline-flex; align-items: center; gap: var(--space-2); }
+.chart__legend-item > i {
+  width: 14px;
+  height: 3px;
+  border-radius: var(--radius-full);
+  background: var(--text-tertiary);
+}
+.chart__legend-item[data-series="time"] > i { background: var(--data-time); }
+.chart__legend-item[data-series="keys"] > i { background: var(--data-keys); }
 
 .chart__empty {
   position: absolute;

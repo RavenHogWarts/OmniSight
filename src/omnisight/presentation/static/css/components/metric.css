@@ -1,22 +1,40 @@
-/* 指标卡（06 文档 §5.1）。delta 不做价值判断——只有方向，没有颜色。 */
+/* 指标卡（06 文档 §5.1、14 文档 §3.4）。delta 不做价值判断——只有方向，没有颜色。
+ *
+ * 解剖来自键帽：标签左上、数值右下、1px 描边、无独立卡头。整张卡就是一枚放大的键帽。 */
+.card--keycap {
+  border: 1px solid var(--border-default);
+  box-shadow: 0 2px 0 var(--key-wall), inset 0 1px 0 var(--key-gloss);
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
 .metric__label {
   display: flex;
   align-items: center;
   gap: var(--space-1);
   font-size: var(--text-sm);
+  font-family: var(--font-text);
   color: var(--text-secondary);
 }
+/* delta 推到标签行的右端：数值在右下，涨跌在右上，同一条右对齐轴。 */
+.metric__delta { margin-left: auto; }
 
 .metric__value {
-  margin-top: var(--space-2);
-  font-size: var(--text-4xl);
+  /* 数值右下对齐（键帽的"塞值"位）。比例数字而不是等宽：44px 上的 tabular-nums
+     会让 121 这类数字看起来松散（14 文档 §3.3）。 */
+  align-self: flex-end;
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
   font-weight: var(--weight-semibold);
   line-height: 1.1;
-  font-variant-numeric: tabular-nums;
   letter-spacing: var(--tracking-tight);
 }
-
-.metric__row { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; }
+/* 一屏只能有一个英雄数字：两个一样大等于没有（dataviz 的 hero figure 规则）。 */
+.metric[data-hero="true"] .metric__value { font-size: var(--text-4xl); }
 
 .metric__delta {
   font-size: var(--text-sm);
@@ -24,28 +42,13 @@
   font-variant-numeric: tabular-nums;
 }
 
-.metric__bar {
-  margin-top: var(--space-3);
-  height: 6px;
-  border-radius: var(--radius-full);
-  background: var(--surface-sunken);
-  overflow: hidden;
-}
-.metric__bar > i {
-  display: block;
-  height: 100%;
-  width: calc(var(--fill, 0) * 100%);
-  border-radius: var(--radius-full);
-  background: var(--accent);
-  transition: width var(--duration-normal) var(--ease-out);
-}
-
 .metric__foot {
-  margin-top: var(--space-2);
   font-size: var(--text-xs);
+  font-family: var(--font-small);
   color: var(--text-tertiary);
 }
 
 @media (max-width: 767px) {
-  .metric__value { font-size: var(--text-3xl); }
+  .metric__value,
+  .metric[data-hero="true"] .metric__value { font-size: var(--text-2xl); }
 }

@@ -3,6 +3,48 @@
 
 .timeline-toggle { display: flex; align-items: center; gap: var(--space-2); }
 
+/* 单条 100% 构成条（14 文档 §2.10）。段间 2px 表面色间隙，**不给记号描边**：
+   描边会给每一段加一圈与数据无关的边界色（14 文档 §5.1）。 */
+.stackbar {
+  display: flex;
+  gap: 2px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-sunken);
+}
+.stackbar__seg {
+  flex-basis: 0;
+  min-width: 2px;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  overflow: hidden;
+  background: var(--cat-uncategorized);
+  transition: filter var(--duration-fast) var(--ease-out);
+}
+.stackbar--clickable .stackbar__seg { cursor: pointer; }
+.stackbar--clickable .stackbar__seg:hover { filter: brightness(1.08); }
+.stackbar__label {
+  font-size: var(--text-2xs);
+  font-family: var(--font-small);
+  font-weight: var(--weight-medium);
+  color: var(--text-inverse);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.stackbar__seg[data-category="development"]   { background: var(--cat-development); }
+.stackbar__seg[data-category="productivity"]  { background: var(--cat-productivity); }
+.stackbar__seg[data-category="communication"] { background: var(--cat-communication); }
+.stackbar__seg[data-category="entertainment"] { background: var(--cat-entertainment); }
+.stackbar__seg[data-category="system"]        { background: var(--cat-system); }
+.stackbar__seg[data-category="uncategorized"] { background: var(--cat-uncategorized); }
+/* 强度分布的四档：同一个度量色的四个明度，不是四个身份色。 */
+.stackbar__seg[data-category="input_heavy"] { background: var(--heat-5); }
+.stackbar__seg[data-category="interactive"] { background: var(--heat-4); }
+.stackbar__seg[data-category="passive"]     { background: var(--heat-3); }
+.stackbar__seg[data-category="idle_open"]   { background: var(--heat-2); }
+
 .highlights { display: flex; flex-direction: column; gap: var(--space-2); }
 /* 每条结论是一个 <details>：点开就是它的计算口径（M4 判据 4）。 */
 .highlight {
@@ -37,17 +79,6 @@
   line-height: var(--leading-relaxed);
 }
 
-.intensity { display: flex; flex-direction: column; gap: var(--space-3); }
-.intensity__row {
-  display: grid;
-  grid-template-columns: 5.5em minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-3);
-  font-size: var(--text-sm);
-}
-.intensity__name { color: var(--text-secondary); }
-.intensity__value { font-variant-numeric: tabular-nums; text-align: right; min-width: 9ch; }
-
 .category-list { display: flex; flex-direction: column; gap: var(--space-3); }
 .category-row {
   display: grid;
@@ -59,6 +90,22 @@
 .category-row__percent { color: var(--text-secondary); font-variant-numeric: tabular-nums; min-width: 5ch; text-align: right; }
 .category-row__value { font-variant-numeric: tabular-nums; min-width: 8ch; text-align: right; }
 .category-row__bar { grid-column: 2 / -1; }
+
+/* 两条构成条上下对齐、共用同一条 100% 宽度基准（14 文档 §4.3）。 */
+.overview__stacks { display: flex; flex-direction: column; gap: var(--space-5); }
+.overview__stack-label {
+  font-size: var(--text-xs);
+  font-family: var(--font-small);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+.overview__stacks .category-list { margin-top: var(--space-3); }
+
+/* 强度四档的图例色块：同一度量色的四个明度，与构成条同源。 */
+.category-row[data-profile="input_heavy"] .swatch { background: var(--heat-5); }
+.category-row[data-profile="interactive"] .swatch { background: var(--heat-4); }
+.category-row[data-profile="passive"] .swatch     { background: var(--heat-3); }
+.category-row[data-profile="idle_open"] .swatch   { background: var(--heat-2); }
 
 @media (max-width: 1023px) {
   .overview__pair { grid-template-columns: minmax(0, 1fr); }

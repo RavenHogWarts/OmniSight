@@ -28,14 +28,18 @@ export function skeletonRows(count = 5) {
 }
 
 /**
- * @param {{ title: string, detail?: string, mark?: string,
+ * `mark` \u65e2\u63a5\u53d7\u4e00\u4e2a\u5b57\u7b26\uff08\u9ed8\u8ba4\u7684 \u25cb\uff09\uff0c\u4e5f\u63a5\u53d7\u4e00\u4e2a\u8282\u70b9\u2014\u2014\u7a7a\u6001\u56fe\u6807\u73b0\u5728\u662f\u5185\u8054 SVG\uff0c
+ * \u4e0e\u5168\u7ad9\u4e00\u81f4\uff0814 \u6587\u6863 \u00a73.5\uff09\u3002
+ * @param {{ title: string, detail?: string, mark?: import('../types/dom.js').Child,
  *           action?: import('../types/dom.js').Child }} options
  */
 export function emptyState({ title, detail = '', mark = '\u25cb', action = null }) {
   return h(
     'div',
     { class: 'empty' },
-    h('div', { class: 'empty__mark', attrs: { 'aria-hidden': 'true' }, text: mark }),
+    typeof mark === 'string'
+      ? h('div', { class: 'empty__mark', attrs: { 'aria-hidden': 'true' }, text: mark })
+      : h('div', { class: 'empty__mark', attrs: { 'aria-hidden': 'true' } }, mark),
     h('div', { class: 'empty__title', text: title }),
     detail ? h('div', { class: 'empty__detail', text: detail }) : null,
     action,

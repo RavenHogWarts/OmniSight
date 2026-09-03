@@ -73,6 +73,16 @@
 
 .periodbar__nav { display: flex; align-items: center; gap: var(--space-1); }
 
+/* 视图级筛选（14 文档 §4.1）。用一条竖线与周期部分分开：它们回答的是不同的问题
+   ——左边是"哪一段时间"，右边是"这一屏里的哪一批"。 */
+.periodbar__filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--border-subtle);
+}
+
 .period-label {
   min-width: 12ch;
   text-align: center;

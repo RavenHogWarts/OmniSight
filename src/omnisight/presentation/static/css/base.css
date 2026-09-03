@@ -13,10 +13,15 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, h3, h4 { margin: 0; font-weight: var(--weight-semibold); line-height: var(--leading-tight); }
+h1, h2, h3, h4 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
 h1 { font-size: var(--text-xl); }
-h2 { font-size: var(--text-md); }
-h3 { font-size: var(--text-base); }
+h2 { font-size: var(--text-md); font-family: var(--font-text); }
+h3 { font-size: var(--text-base); font-family: var(--font-text); }
 p  { margin: 0; }
 ul, ol { margin: 0; padding: 0; list-style: none; }
 
@@ -58,6 +63,35 @@ canvas { display: block; max-width: 100%; }
   white-space: nowrap;
   border: 0;
 }
+
+/* 跳转链接：键盘用户的第一个停靠点，聚焦时才可见（14 文档 §6）。 */
+.skip-link {
+  position: absolute;
+  left: var(--space-4);
+  top: calc(-1 * var(--space-12));
+  z-index: 100;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-md);
+  transition: top var(--duration-fast) var(--ease-out);
+}
+.skip-link:focus-visible { top: var(--space-3); text-decoration: none; }
+
+/* 内联 SVG 图标（14 文档 §3.5）。笔重与颜色跟随文字，因此深浅色不需要两套。 */
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: -0.15em;
+}
+.icon-sprite { display: none; }
 
 .numeric, .tabular {
   font-variant-numeric: tabular-nums;

@@ -17,12 +17,13 @@ const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日'];
  * @param {{ weekStartsOn?: number, metric?: string, onSelect?: ((bucket: string) => void) | null }} [options]
  */
 export function calendarHeatmap(container, { weekStartsOn = 0, metric = 'press_count', onSelect = null } = {}) {
+  const months = h('div', { class: 'heatgrid__months', attrs: { 'aria-hidden': 'true' } });
   const axis = h('div', { class: 'weekday-axis' });
   const grid = h('div', {
     class: 'heatgrid',
     attrs: { role: 'group', 'aria-label': '每日活跃度' },
   });
-  const wrap = h('div', { class: 'calendar' }, axis, grid);
+  const wrap = h('div', { class: 'calendar' }, axis, h('div', { class: 'calendar__body' }, months, grid));
   container.replaceChildren(wrap);
 
   for (let index = 0; index < 7; index += 1) {
@@ -47,11 +48,40 @@ export function calendarHeatmap(container, { weekStartsOn = 0, metric = 'press_c
         () => h('div', { class: 'heat-cell' }),
         (node, item) => paint(node, item, scale, gaps, metric),
       );
+      renderMonths(months, items);
     },
     destroy() {
       container.replaceChildren();
     },
   };
+}
+
+/**
+ * 月份轴。365 个格子没有刻度就看不出六月在哪（14 文档 §5.2）。
+ *
+ * 格子是按列填的（`grid-auto-flow: column`，每列 7 天），所以第 n 个格子在第
+ * `floor(n / 7) + 1` 列——每个月的第一天落在哪一列，标签就放在哪一列。
+ */
+function renderMonths(host, items) {
+  /** @type {{ column: number, label: string }[]} */
+  const marks = [];
+  let previous = '';
+  items.forEach((item, index) => {
+    if (item.empty || !item.bucket) return;
+    const month = item.bucket.slice(0, 7);
+    if (month === previous) return;
+    previous = month;
+    marks.push({ column: Math.floor(index / 7) + 1, label: `${Number(month.slice(5, 7))} 月` });
+  });
+  // 相邻标签挨得太近会叠在一起（一个月约 4.3 列，标签约 3 列宽）。
+  const spaced = marks.filter((mark, index) => index === 0 || mark.column - marks[index - 1].column >= 4);
+  host.replaceChildren(
+    ...spaced.map((mark) =>
+      // style 走的是 setProperty（core/dom.js），它只认 dash-case——写 gridColumn
+      // 会被静默丢弃，月份标签就会全部挤在第一列。
+      h('span', { class: 'heatgrid__month', text: mark.label, style: { 'grid-column': String(mark.column) } }),
+    ),
+  );
 }
 
 /** 首尾补空格子，让第一列从"周起始日"开始，否则整张图会错位一天。 */
@@ -84,7 +114,6 @@ function paint(node, item, scale, gaps, metric) {
   else delete node.dataset.gap;
   const value = Number(item[metric]) || 0;
   const ratio = isGap ? 0 : heatRatio(value, scale);
-  node.style.setProperty('--heat', ratio.toFixed(4));
   node.dataset.level = String(heatLevel(ratio));
   node.setAttribute(
     'aria-label',

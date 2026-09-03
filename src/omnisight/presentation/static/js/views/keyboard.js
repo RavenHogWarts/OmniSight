@@ -9,13 +9,14 @@
 import { h, mount } from '../core/dom.js';
 import { getState, setState } from '../core/store.js';
 import { fetchInto } from '../core/loader.js';
-import { barChart } from '../charts/bar-chart.js';
+import { panelPair } from '../charts/panel-pair.js';
 import { calendarHeatmap } from '../charts/calendar-heatmap.js';
 import { markGaps } from '../domain/buckets.js';
 import { formatCount, formatPercent } from '../domain/format.js';
 import { METRICS, TIMELINE_VIEWS, formatMetric } from '../domain/metrics.js';
 import { appPicker } from '../components/app-picker.js';
 import { keyboardView } from '../components/keyboard-view.js';
+import { icon } from '../components/icon.js';
 import { segmented } from '../components/controls.js';
 import { capabilityNotice, emptyState, errorState, gapLegend, skeletonRows } from '../components/states.js';
 import { capabilityOf, noticeFor } from '../components/degraded.js';
@@ -34,6 +35,20 @@ export function create(root) {
     setState('metric', id);
     metricTabs.setActive(id);
   }, { small: true, label: '指标' });
+
+  // 密度是真实的取舍：标准优先保证键面数值 ≥11px，紧凑优先让整块键盘不横向滚动
+  // （14 文档 §4.4）。交给用户比替他猜好。它只改渲染，所以留在卡头。
+  let density = 'standard';
+  const densityTabs = segmented(
+    [{ id: 'standard', name: '标准' }, { id: 'compact', name: '紧凑' }],
+    density,
+    (id) => {
+      density = id;
+      densityTabs.setActive(id);
+      board.setDensity(id);
+    },
+    { small: true, label: '键盘密度' },
+  );
 
   const totalsHost = h('div', { class: 'keyboard-totals' });
   const boardHost = h('div');
@@ -55,7 +70,7 @@ export function create(root) {
       loadKeyDetail(keyId);
     },
   });
-  const timeline = barChart(timelineHost, { height: 150, label: '按键时间分布' });
+  const timeline = panelPair(timelineHost, { height: 150, label: '按键时间分布' });
   const calendar = calendarHeatmap(calendarHost, {
     weekStartsOn: getState().prefs.weekStartsOn,
     metric: 'press_count',
@@ -66,7 +81,9 @@ export function create(root) {
   mount(
     root,
     h('h1', { class: 'view__title sr-only', text: '键盘', attrs: { tabindex: '-1', id: 'view-title' } }),
-    card('键盘热力图', h('div', null, boardNotice, boardHost), [picker.root, metricTabs.root], totalsHost),
+    // 卡头上只剩密度开关：它改的是这张图怎么画，不改取哪一批数。范围与指标改的是
+    // 请求参数、作用域是整屏，因此它们在筛选行里（14 文档 §2.8、§4.1）。
+    card('键盘热力图', h('div', null, boardNotice, boardHost), [densityTabs.root], totalsHost),
     keyDetailHost,
     card('时间分布', h('div', null, timelineHost, timelineNote), [grainTabs.root]),
     h(
@@ -146,7 +163,7 @@ export function create(root) {
       .sort((left, right) => (Number(right[metric]) || 0) - (Number(left[metric]) || 0))
       .slice(0, TOP_KEYS);
     if (!keys.length) {
-      mount(topKeysHost, emptyState({ title: '这段时间没有按键记录', mark: '⌨' }));
+      mount(topKeysHost, emptyState({ title: '这段时间没有按键记录', mark: icon('keyboard', { size: 28 }) }));
       return;
     }
     const top = Number(keys[0][metric]) || 1;
@@ -288,6 +305,7 @@ export function create(root) {
     const key = payload.key;
     const totals = payload.totals || {};
     const byApp = payload.by_app || [];
+    const scope = payload.scope || {};
     const top = Math.max(1, ...byApp.map((item) => Number(item.press_count) || 0));
     mount(
       keyDetailHost,
@@ -296,6 +314,11 @@ export function create(root) {
         h(
           'div',
           { class: 'stack' },
+          // 范围必须写在详情里：读者要能一眼确认这些数字和上面那张热图同源。
+          h('div', {
+            class: 'card__hint',
+            text: scope.type === 'app' ? `范围：${scope.display_name || ''}` : '范围：全部应用',
+          }),
           h('dl', { class: 'kv-list' },
             h('dt', { text: '按下次数' }), h('dd', { text: formatCount(totals.press_count || 0) }),
             h('dt', { text: '平均时长' }), h('dd', { text: formatMetric('duration_avg_ms', totals.duration_avg_ms || 0) }),
@@ -324,7 +347,12 @@ export function create(root) {
   }
 
   function loadKeyDetail(keyId) {
-    fetchInto('keyDetail', `/keyboard/keys/${keyId}`, periodParams(getState().period));
+    // 带上 scope：范围切到某个应用时，热图是那个应用的，单键详情也必须是——现状
+    // 这个请求不带 app_id，于是热图与详情来自两个不同的口径，界面上没有任何提示
+    // （14 文档 §2.8）。
+    const state = getState();
+    const scope = state.scopeAppId ? { app_id: state.scopeAppId } : {};
+    fetchInto('keyDetail', `/keyboard/keys/${keyId}`, { ...periodParams(state.period), ...scope });
   }
 
   function reload() {
@@ -355,13 +383,20 @@ export function create(root) {
       { key: 'appsMeta', path: '/apps', params: { limit: 300 } },
     ];
     if (state.selectedKeyId) {
-      requests.push({ key: 'keyDetail', path: `/keyboard/keys/${state.selectedKeyId}`, params: period });
+      // 与 loadKeyDetail 同一个口径：详情必须跟着热图的范围走。
+      requests.push({
+        key: 'keyDetail',
+        path: `/keyboard/keys/${state.selectedKeyId}`,
+        params: { ...period, ...scope },
+      });
     }
     return requests;
   }
 
   return {
     needs: requestsFor,
+    /** 视图级筛选：范围与指标改的是请求参数，作用域是整屏（14 文档 §4.1）。 */
+    filters: () => [picker.root, metricTabs.root],
     render,
     destroy() {
       board.destroy();

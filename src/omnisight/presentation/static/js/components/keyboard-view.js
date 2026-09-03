@@ -1,8 +1,8 @@
-// 键盘热力图组件（06 文档 §7、07 文档 §6.4）。
+// 键盘热力图组件（06 文档 §7、07 文档 §6.4、14 文档 §2.4/§2.5/§4.4）。
 //
-// 着色写的是 CSS 变量 --heat，不是 style.background：深色模式换基色由 CSS 的 color-mix
-// 负责，JS 因此完全不需要知道当前主题（现状 KeyTrace 的 blendHex() 在 JS 里硬算颜色，
-// 无法适配主题）。
+// 着色写的是 `data-level`，颜色由 CSS 按档位选（现状 KeyTrace 的 blendHex() 在 JS 里
+// 硬算颜色，无法适配主题）。**离散五档而不是连续插值**：图例的色块与键面渲染的因此是
+// 同一组值，读者能把一个键的颜色对回一个值区间。
 //
 // 可访问性（07 文档 §9）：104 个键**不**全部进 Tab 序（会淹没导航），整块键盘是一个
 // tabstop，方向键在键位间移动，当前键由 aria-activedescendant 指出。按键动画区
@@ -12,11 +12,16 @@ import { on as busOn } from '../core/bus.js';
 import { h, mount } from '../core/dom.js';
 import { buildKeyboard, keyRows } from '../domain/keyboard-layout.js';
 import { formatCount, formatPercent } from '../domain/format.js';
-import { formatMetric, heatLevel, heatRatio, isSaturated, metricOf } from '../domain/metrics.js';
+import { HEAT_BOUNDS, formatMetric, heatLevel, heatRatio, isSaturated, metricOf } from '../domain/metrics.js';
 import { prefersReducedMotion } from '../core/theme.js';
+import { icon } from './icon.js';
 import { hide as hideTooltip, show as showTooltip } from './tooltip.js';
 
 const PRESS_CLEAR_MS = 220;
+/** 键面数值的字号地板。低于它宁可不印，也不印成 8px（14 文档 §2.5）。 */
+const VALUE_MIN_PX = 11;
+/** .key-cap__value 的字号系数，与 key-cap.css 里的 calc() 保持一致。 */
+const VALUE_RATIO = 0.21;
 
 /**
  * @param {Element} container
@@ -26,7 +31,29 @@ export function keyboardView(container, { onSelectKey = null } = {}) {
   const board = h('div', { class: 'keyboard-wrap' });
   const legend = h('div', { class: 'heat-legend' });
   const orphans = h('div', { class: 'orphans', hidden: true });
-  mount(container, board, legend, orphans);
+  // 键盘是 DOM 而不是 canvas，所以它没有走 canvas.js 的 sr-only 表格孪生路径。
+  // 这张折叠表补上，同时兜住"键面数值印不下"的场景（14 文档 §4.4）。
+  const tableBody = h('tbody');
+  const table = h(
+    'details',
+    { class: 'keyboard-table' },
+    h('summary', { text: '表格视图' }),
+    h(
+      'div',
+      { class: 'keyboard-table__scroll' },
+      h(
+        'table',
+        { class: 'table' },
+        h(
+          'thead',
+          null,
+          h('tr', null, h('th', { text: '键位' }), h('th', { text: '次数' }), h('th', { text: '占比' }), h('th', { text: '均时长' })),
+        ),
+        tableBody,
+      ),
+    ),
+  );
+  mount(container, board, legend, orphans, table);
 
   /** @type {Map<string, HTMLElement>} */
   let nodes = new Map();
@@ -53,6 +80,10 @@ export function keyboardView(container, { onSelectKey = null } = {}) {
       window.setTimeout(() => cap.classList.remove('is-pressed'), reduced ? 60 : PRESS_CLEAR_MS);
     }
   });
+
+  // --u 由 clamp(…, 3.0vw, …) 决定，窗口变化会改字号，因此值可见性要跟着重算。
+  const resize = new ResizeObserver(() => syncValueVisibility());
+  resize.observe(board);
 
   /** @param {import('../types/api.js').LayoutResponse | null | undefined} layout */
   function rebuild(layout) {
@@ -124,7 +155,8 @@ export function keyboardView(container, { onSelectKey = null } = {}) {
       const entry = values.get(keyId);
       const value = entry ? Number(entry[metric]) || 0 : 0;
       const ratio = heatRatio(value, scale);
-      cap.style.setProperty('--heat', ratio.toFixed(4));
+      // 档位直接决定颜色（CSS 按 data-level 选色）。0 是零态：键面不填色，
+      // 于是"按过一次"与"从没按过"差 2.4:1 而不是 1.07:1（14 文档 §2.4）。
       cap.dataset.level = String(heatLevel(ratio));
       if (isSaturated(value, scale)) cap.dataset.saturated = 'true';
       else delete cap.dataset.saturated;
@@ -137,6 +169,22 @@ export function keyboardView(container, { onSelectKey = null } = {}) {
       const share = total && metric === 'press_count' ? `，占比 ${formatPercent((value / total) * 100)}` : '';
       cap.setAttribute('aria-label', `${label}，${definition.name} ${definition.format(value)}${share}`);
     }
+    syncValueVisibility();
+  }
+
+  /**
+   * 键面装不下 11px 的数值就整体藏起来（14 文档 §2.5）。
+   *
+   * 现状的判据是"窗口 < 1024px"，但真正决定字号的是 --u：1280px 窗口下键面数值只有
+   * 8.6px、1100px 下 7.4px，都低于全站 11px 的下限，而窗口宽度那条规则一个都拦不住。
+   * 这里改成按实际 --u 算，同一条规则管所有宽度。值印不下时，表格视图仍然给得出。
+   */
+  function syncValueVisibility() {
+    if (!root) return;
+    const unit = Number.parseFloat(getComputedStyle(root).getPropertyValue('--u')) || 0;
+    // CSS 的 max() 会把字号托到 11px，但托上去就装不下——所以这里判断的是
+    // "自然字号够不够 11px"，不够就不印。
+    root.dataset.values = unit * VALUE_RATIO >= VALUE_MIN_PX ? 'on' : 'off';
   }
 
   function renderLegend() {
@@ -145,22 +193,56 @@ export function keyboardView(container, { onSelectKey = null } = {}) {
     const max = Number(scale?.max) || 0;
     mount(
       legend,
-      h('span', { text: '0' }),
+      h('span', { text: '未按过' }),
       h(
         'span',
         { class: 'heat-legend__scale', attrs: { 'aria-hidden': 'true' } },
-        ...[0, 1, 2, 3, 4, 5].map((level) => h('span', { class: 'heat-legend__step', dataset: { level: String(level) } })),
+        ...[0, 1, 2, 3, 4, 5].map((level) =>
+          h('span', {
+            class: 'heat-legend__step',
+            dataset: { level: String(level) },
+            // 标出每一档的值区间上界：色块与键面是同一组变量，读者由此能把一个键的
+            // 颜色对回一个值区间——这是离散五档相对连续插值的全部意义（14 文档 §2.4）。
+            attrs: { title: level ? `≤ ${definition.format(top * HEAT_BOUNDS[level])}` : '未按过' },
+          }),
+        ),
       ),
       h('span', { text: definition.format(top) }),
       // p95 归一而不是最大值归一：空格键通常是第二名的 3 倍，用最大值会把其余键
       // 压成一片浅色，热力图读不出差异（06 文档 §7 改进 1）。
-      h('span', {
-        class: 'card__hint',
-        text: `p95 归一 \u24d8`,
-        attrs: {
-          title: `色阶按 p95（${definition.format(top)}）归一，超出的键饱和到最深并加描边。最大值 ${definition.format(max)}。`,
+      h(
+        'span',
+        {
+          class: 'card__hint',
+          attrs: {
+            title: `色阶按 p95（${definition.format(top)}）归一，超出的键饱和到最深并在右上角切一个缺口。最大值 ${definition.format(max)}。`,
+            'aria-label': `色阶按 p95 归一，最大值 ${definition.format(max)}`,
+          },
         },
-      }),
+        h('span', { text: 'p95 归一 ' }),
+        icon('info', { size: 13 }),
+      ),
+    );
+  }
+
+  /** 表格孪生：每个键的完整读数，可复制（14 文档 §4.4）。 */
+  function renderTable() {
+    const definition = metricOf(metric);
+    const list = [...values.values()]
+      .filter((entry) => Number(entry[metric]) > 0)
+      .sort((left, right) => Number(right[metric]) - Number(left[metric]));
+    mount(
+      tableBody,
+      ...list.map((entry) =>
+        h(
+          'tr',
+          null,
+          h('td', { text: entry.label || entry.id }),
+          h('td', { class: 'numeric', text: definition.format(Number(entry[metric]) || 0) }),
+          h('td', { class: 'numeric', text: formatPercent(entry.percent) }),
+          h('td', { class: 'numeric', text: formatMetric('duration_avg_ms', entry.duration_avg_ms) }),
+        ),
+      ),
     );
   }
 
@@ -196,6 +278,13 @@ export function keyboardView(container, { onSelectKey = null } = {}) {
       paint();
       focusCursor();
     },
+    /** 键盘密度（标准 / 紧凑）。标准优先保证 11px 数值，紧凑优先不横向滚动。 */
+    setDensity(density) {
+      if (!root) return;
+      if (density === 'compact') root.dataset.density = 'compact';
+      else delete root.dataset.density;
+      syncValueVisibility();
+    },
     /** payload 是 /keyboard/heatmap 的响应。 */
     update(payload, activeMetric) {
       metric = activeMetric || payload.metric || 'press_count';
@@ -204,10 +293,12 @@ export function keyboardView(container, { onSelectKey = null } = {}) {
       values = new Map((payload.keys || []).map((key) => [key.id, key]));
       paint();
       renderLegend();
+      renderTable();
       renderOrphans(payload.orphan_keys);
     },
     destroy() {
       unsubscribePress();
+      resize.disconnect();
       hideTooltip();
       container.replaceChildren();
     },

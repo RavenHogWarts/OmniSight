@@ -1,4 +1,6 @@
-/* 格子热力图：日历（365 天）与时/日/月/年网格共用。着色靠 --heat，与键位同一套。 */
+/* 格子热力图：日历（365 天）与时/日/月/年网格共用。着色与键位同一套色阶，但**零态
+ * 不同**：格子直接坐在卡片上，没有键帽那层托盘，所以它的零态是 --heat-0（下沉一档的
+ * 灰），不是卡片色——否则 365 个零格会在卡上消失（14 文档 §2.4）。 */
 .heatgrid {
   display: grid;
   gap: 3px;
@@ -18,9 +20,15 @@
   width: 12px; height: 12px;
   border-radius: 3px;
   background: var(--heat-0);
-  background: color-mix(in srgb, var(--heat-5) calc(var(--heat, 0) * 100%), var(--heat-0));
   border: 1px solid var(--border-subtle);
 }
+
+/* 五个离散档，与键面同源。 */
+.heat-cell[data-level="1"] { background: var(--heat-1); }
+.heat-cell[data-level="2"] { background: var(--heat-2); }
+.heat-cell[data-level="3"] { background: var(--heat-3); }
+.heat-cell[data-level="4"] { background: var(--heat-4); }
+.heat-cell[data-level="5"] { background: var(--heat-5); }
 
 /* 无数据不等于零。缺口用斜纹，而不是最浅的热力档（06 文档 §4.2 规则 1）。 */
 .heat-cell[data-gap="true"] {
@@ -32,12 +40,28 @@
 
 .heat-cell[data-empty="true"] { background: transparent; border-color: transparent; }
 
+/* 月份轴（14 文档 §5.2）。365 个格子没有刻度就看不出六月在哪；标签的 grid-column
+   由 calendar-heatmap.js 按每个月第一列的位置下发。 */
 .heatgrid__months {
-  display: flex;
-  gap: var(--space-4);
+  display: grid;
+  grid-auto-flow: column;
   font-size: var(--text-2xs);
+  font-family: var(--font-small);
   color: var(--text-tertiary);
   margin-bottom: var(--space-1);
+}
+.heatgrid__month { grid-row: 1; }
+
+@media (forced-colors: active) {
+  .heat-cell[data-level] {
+    background-image: repeating-linear-gradient(135deg, currentColor 0 1px, transparent 1px var(--hatch, 8px));
+  }
+  .heat-cell[data-level="1"] { --hatch: 6px; }
+  .heat-cell[data-level="2"] { --hatch: 5px; }
+  .heat-cell[data-level="3"] { --hatch: 4px; }
+  .heat-cell[data-level="4"] { --hatch: 3px; }
+  .heat-cell[data-level="5"] { --hatch: 2px; }
+  .heat-cell[data-level="0"] { background-image: none; }
 }
 
 .weekday-axis {

@@ -34,6 +34,8 @@ const VIEW_MODULES = {
 const viewRoot = mountPoint('view-root');
 let active = null;
 let activeRoute = null;
+/** @type {ReturnType<typeof mountPeriodNav> | null} */
+let periodNav = null;
 
 /** 切换视图。上一个视图先 destroy——图表持有 ResizeObserver 与总线订阅，不拆会泄漏。 */
 async function mountRoute(route) {
@@ -50,6 +52,9 @@ async function mountRoute(route) {
   activeRoute = route;
   active = module.create(viewRoot);
   syncTabs(route);
+  // 视图级筛选进周期栏的右段，切视图时整体替换（14 文档 §4.1）。视图没有
+  // 视图级筛选就传空——总览就是这一类。
+  if (periodNav) periodNav.setFilters(active.filters ? active.filters() : []);
   refresh();
   active.render();
   // 焦点移到新视图的标题（07 文档 §9）：否则键盘用户切完视图仍停在标签栏上。
@@ -149,6 +154,7 @@ function installChartTooltips() {
     if (payload.seconds !== undefined) rows.push(['时长', formatDurationShort(payload.seconds)]);
     if (payload.total !== undefined) rows.push(['时长', formatDurationShort(payload.total)]);
     if (payload.presses !== undefined) rows.push(['按键', formatCount(payload.presses)]);
+    if (payload.kpm !== undefined) rows.push(['输入强度', `${(Number(payload.kpm) || 0).toFixed(1)} KPM`]);
     if (payload.value !== undefined && payload.percent !== undefined) {
       rows.push(['时长', formatDurationShort(payload.value)]);
       rows.push(['占比', `${(payload.percent || 0).toFixed(1)}%`]);
@@ -281,7 +287,7 @@ async function main() {
   // 检测旧数据不阻塞启动（09 文档 §2.1）：结果晚一点到也没关系。
   mountImportBanner(mountPoint('banners'));
   mountStatus(mountPoint('status-host'));
-  mountPeriodNav(mountPoint('periodbar'));
+  periodNav = mountPeriodNav(mountPoint('periodbar'));
   installDelegation();
   installShortcuts();
   installChartTooltips();

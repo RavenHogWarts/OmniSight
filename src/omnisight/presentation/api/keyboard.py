@@ -59,7 +59,11 @@ def register(app: Flask, context: Any) -> None:
     @app.get("/api/v1/keyboard/keys/<key_id>")
     def keyboard_key(key_id: str):
         period = resolved_period(context, request.args)
-        payload = context.services.keyboard.key_detail(parse_key_id(key_id), period)
+        # app_id 与热力图同参：范围切到某个应用时，单键详情必须跟着走，否则热图与
+        # 详情来自两个不同的口径而界面上没有提示（14 文档 §2.8）。
+        payload = context.services.keyboard.key_detail(
+            parse_key_id(key_id), period, parse_app_id(request.args)
+        )
         return jsonify({**envelope(context, period), **payload})
 
     @app.get("/api/v1/keyboard/ergonomics")

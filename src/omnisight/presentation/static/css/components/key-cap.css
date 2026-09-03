@@ -1,4 +1,4 @@
-/* 键盘与键位（06 文档 §7.1）。
+/* 键盘与键位（06 文档 §7.1、14 文档 §2.4/§2.5/§2.16/§3.4）。
  *
  * 几何的三条规则，全部由 CSS 承担，JS 只下发倍数：
  *
@@ -11,21 +11,36 @@
  * 3. ISO 回车是唯一的非矩形键：用 clip-path 在左下角挖掉 0.25 单位的缺口。
  *    代价是缺口那两条短边没有描边（clip-path 会把 border 一起裁掉）；换来的是
  *    几何完全精确、没有两块拼接的接缝。只此一例，不引入通用多边形机制。
+ *
+ * 着色是**离散五档**，不是连续插值（14 文档 §2.4）：
+ *
+ * - 档位由 `data-level` 直接选色，于是图例的色块与键面渲染的是同一组值；连续插值时
+ *   图例摆 6 个离散块、键面画连续量，读者无法把颜色对回一个值区间。
+ * - 零态**不填色**：键面就是托盘上的一枚空键帽。因此"按过一次"（--heat-1）与
+ *   "从没按过"（卡片色）差 2.43:1，而连续插值时两者只差 1.07:1，实际不可辨。
+ * - 键盘托盘用 --surface-sunken 下沉一档，键面才有落点；否则零态键面与卡片同色，
+ *   整块键盘会散成一堆浮空的描边（14 文档 §2.16）。
  */
-.keyboard-wrap { overflow-x: auto; padding-bottom: var(--space-2); }
+.keyboard-wrap {
+  overflow-x: auto;
+  padding: var(--space-3);
+  background: var(--key-tray);
+  border-radius: var(--radius-md);
+}
 
 .keyboard {
-  --u: clamp(26px, 3.2vw, 44px);
+  /* 下限 30px 而不是 26px：键面数值有 11px 的地板，--u 太小时它会被整个丢掉
+     （见 .key-cap__value 的 max()）。1440px 窗口下键盘一行是 23u + 22×0.14u。 */
+  --u: clamp(30px, 3.0vw, 46px);
   --key-gap: calc(var(--u) * 0.14);
   --pitch: calc(var(--u) + var(--key-gap));
   display: inline-flex;
   flex-direction: column;
   gap: var(--key-gap);
-  padding: var(--space-3);
-  background: var(--surface-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
 }
+
+/* 紧凑档：优先让整块键盘不横向滚动，代价是键面数值可能装不下（14 文档 §4.4）。 */
+.keyboard[data-density="compact"] { --u: clamp(24px, 2.4vw, 34px); }
 
 .keyboard__row {
   display: flex;
@@ -43,7 +58,6 @@
 .key-cap {
   --w: 1;
   --h: 1;
-  --heat: 0;
   position: relative;
   flex: none;
   align-self: flex-start;
@@ -51,11 +65,12 @@
   height: calc(var(--u) * var(--h) + var(--key-gap) * (var(--h) - 1));
   border-radius: calc(var(--u) * 0.14);
   border: 1px solid var(--border-default);
-  /* 先给一个纯色兜底：color-mix() 在 Safari 16.2 之前不支持，而整条声明无效时
-     键面会变成透明的（不是回落到 --heat-0）。13 文档记了这条基线越界。 */
-  background: var(--heat-0);
-  background: color-mix(in srgb, var(--heat-5) calc(var(--heat) * 100%), var(--heat-0));
+  /* 零态 = 卡片色。它不是色阶的一档，是"这枚键帽上什么都没有"。 */
+  background: var(--surface-card);
   color: var(--text-primary);
+  /* 键帽的物理感：硬底影是侧壁，顶棱是打在帽面上的光。两者都是中性色，
+     不参与数据编码，所以换色阶时它们不动（14 文档 §3.4）。 */
+  box-shadow: 0 2px 0 var(--key-wall), inset 0 1px 0 var(--key-gloss);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -63,14 +78,32 @@
   overflow: hidden;
   text-align: left;
   transition: transform var(--duration-instant) var(--ease-out),
+              box-shadow var(--duration-instant) var(--ease-out),
               background var(--duration-normal) var(--ease-out);
 }
 
-/* 深热档上的文字改用对比色，否则蓝底黑字读不出（06 文档 §13）。 */
-.key-cap[data-level="4"], .key-cap[data-level="5"] { color: var(--heat-ink); }
+/* 五个离散档。图例用的是同一组变量，两边永远一致。 */
+.key-cap[data-level="1"] { background: var(--heat-1); }
+.key-cap[data-level="2"] { background: var(--heat-2); }
+.key-cap[data-level="3"] { background: var(--heat-3); }
+.key-cap[data-level="4"] { background: var(--heat-4); }
+.key-cap[data-level="5"] { background: var(--heat-5); }
+
+/* 墨色翻转点在第 3 档。按真实渲染算，第 3 档起正文墨不足 4.5:1、反色墨够
+   （14 文档 §3.2 的色阶表）——现状是第 4 档才翻，第 3 档因此偏灰。 */
+.key-cap[data-level="3"],
+.key-cap[data-level="4"],
+.key-cap[data-level="5"] { color: var(--heat-ink); }
+
+.key-cap:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 0 var(--key-wall), inset 0 1px 0 var(--key-gloss);
+}
 
 .key-cap__label {
-  font-size: calc(var(--u) * 0.27);
+  /* 11px 地板：全站最小字号。装不下时宁可不印，也不印成 8px（14 文档 §2.5）。 */
+  font-size: max(var(--text-2xs), calc(var(--u) * 0.26));
+  font-family: var(--font-small);
   line-height: 1.15;
   font-weight: var(--weight-medium);
   white-space: nowrap;
@@ -81,21 +114,38 @@
 
 .key-cap__value {
   align-self: flex-end;
-  font-size: calc(var(--u) * 0.21);
+  font-size: max(var(--text-2xs), calc(var(--u) * 0.21));
+  font-family: var(--font-small);
   font-variant-numeric: tabular-nums;
   opacity: .8;
   white-space: nowrap;
 }
 
-/* 超过 p95 的键：饱和到最深并加描边标记（06 文档 §7 改进 1）。 */
-.key-cap[data-saturated="true"] { border-color: var(--accent-text); border-width: 2px; }
+/* 键面装不下 11px 的数值就藏起来（由 JS 按实际 --u 算，见 keyboard-view.js）。
+   兜底：折叠的「表格视图」里每个键都有完整读数。 */
+.keyboard[data-values="off"] .key-cap__value { display: none; }
 
-.key-cap.is-pressed { transform: translateY(1px) scale(.94); }
+/* 超过 p95 的键（06 文档 §7 改进 1）。这一档已经饱和到最深，再用颜色区分不可能，
+   所以标记是**形状**：右上角切掉一个小三角（14 文档 §4.4）。 */
+.key-cap[data-saturated="true"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  border-width: 0 calc(var(--u) * 0.22) calc(var(--u) * 0.22) 0;
+  border-style: solid;
+  border-color: transparent var(--surface-card) transparent transparent;
+}
+
+.key-cap.is-pressed {
+  transform: translateY(2px);
+  box-shadow: 0 0 0 var(--key-wall), inset 0 2px 5px rgba(0, 0, 0, .22);
+}
 @media (prefers-reduced-motion: reduce) {
   .key-cap.is-pressed { transform: none; box-shadow: inset 0 0 0 2px var(--accent); }
 }
 
-.key-cap.is-current { box-shadow: 0 0 0 2px var(--accent); }
+.key-cap.is-current { box-shadow: var(--shadow-focus); }
 
 /* ISO 回车。缺口宽度 = 0.25 步距，缺口顶边 = 第一行的底沿（含行间空隙）。 */
 .key-cap[data-shape="iso_enter"] {
@@ -119,6 +169,7 @@
   align-items: center;
   gap: var(--space-2);
   font-size: var(--text-xs);
+  font-family: var(--font-small);
   color: var(--text-secondary);
   margin-top: var(--space-3);
   flex-wrap: wrap;
@@ -129,17 +180,37 @@
   border-radius: 2px;
   border: 1px solid var(--border-subtle);
 }
-.heat-legend__step[data-level="0"] { background: var(--heat-0); }
+/* 第 0 档是零态：图例里画成空键帽（卡片色 + 描边），与键面一致。 */
+.heat-legend__step[data-level="0"] { background: var(--surface-card); }
 .heat-legend__step[data-level="1"] { background: var(--heat-1); }
 .heat-legend__step[data-level="2"] { background: var(--heat-2); }
 .heat-legend__step[data-level="3"] { background: var(--heat-3); }
 .heat-legend__step[data-level="4"] { background: var(--heat-4); }
 .heat-legend__step[data-level="5"] { background: var(--heat-5); }
 
-/* 窄窗口下键面放不下数字：藏起来而不是溢出（06 文档 §12 的 768-1024 档）。 */
-@media (max-width: 1023px) {
-  .key-cap__value { display: none; }
+/* 键盘的表格孪生（14 文档 §4.4）。canvas 图有 sr-only 表，键盘是 DOM 所以没有——
+   这里补一个人人可见、可复制的折叠表，同时兜住"数值印不下"的场景。 */
+.keyboard-table { margin-top: var(--space-3); }
+.keyboard-table > summary {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
 }
+.keyboard-table__scroll { max-height: 320px; overflow: auto; margin-top: var(--space-2); }
+
 @media (max-width: 767px) {
   .keyboard { --u: 26px; }
+}
+
+/* 强制颜色模式：色阶整个失效（系统只给有限几个颜色），改用斜纹密度分档。 */
+@media (forced-colors: active) {
+  .key-cap[data-level] {
+    background-image: repeating-linear-gradient(135deg, currentColor 0 1px, transparent 1px var(--hatch, 8px));
+  }
+  .key-cap[data-level="1"] { --hatch: 9px; }
+  .key-cap[data-level="2"] { --hatch: 7px; }
+  .key-cap[data-level="3"] { --hatch: 5px; }
+  .key-cap[data-level="4"] { --hatch: 3.5px; }
+  .key-cap[data-level="5"] { --hatch: 2.5px; }
+  .key-cap[data-level="0"] { background-image: none; }
 }

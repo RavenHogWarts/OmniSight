@@ -320,10 +320,20 @@ class KeyboardService:
         return self._range_view("year", start, min(end, today), app_id)
 
     # ── 单键详情 ────────────────────────────────────────────────────────
-    def key_detail(self, key_id: str, period: Period) -> dict[str, object]:
-        """★ 反向分析："这个键主要在哪些应用里被按"。两个旧项目都做不到。"""
+    def key_detail(
+        self, key_id: str, period: Period, app_id: int | None = None
+    ) -> dict[str, object]:
+        """★ 反向分析："这个键主要在哪些应用里被按"。两个旧项目都做不到。
+
+        ``app_id`` 让详情跟着热力图的范围走。**没有它就会出现一种无声的不一致**：
+        范围切到 VS Code 时热图是 VS Code 的，点开某个键看到的数字却是全部应用的，
+        而界面上没有任何提示（14 文档 §2.8）。
+
+        范围限定时 ``by_app`` 只剩这一个应用——"这个键主要被哪些应用按"这个问题在
+        范围限定后已经被范围本身回答了，再列全部应用会与 ``totals`` 对不上账。
+        """
         definition = keymap.KEY_BY_ID.get(key_id)
-        metrics = self.metrics(period).get(key_id) or dict(_ZERO_METRICS)
+        metrics = self.metrics(period, app_id).get(key_id) or dict(_ZERO_METRICS)
         lens = self._apps.lens()
         by_app_raw = self._ctx.key_repo.apps_for_key_range(
             key_id, period.start_day, period.end_day, limit=50
@@ -331,15 +341,22 @@ class KeyboardService:
         folded = lens.fold_counts(
             {row["app_id"]: row["press_count"] for row in by_app_raw}, keep_unknown=True
         )
+        if app_id is not None:
+            members = self._members(app_id)
+            folded = {
+                root: count
+                for root, count in folded.items()
+                if root == app_id or root in members
+            }
         total = sum(folded.values())
         by_app = [
             {
-                "app_id": app_id,
-                "display_name": lens.name(app_id),
+                "app_id": row_app_id,
+                "display_name": lens.name(row_app_id),
                 "press_count": count,
                 "percent": formatting.percent(count, total),
             }
-            for app_id, count in sorted(folded.items(), key=lambda item: item[1], reverse=True)
+            for row_app_id, count in sorted(folded.items(), key=lambda item: item[1], reverse=True)
         ]
         hourly = self._ctx.key_repo.hourly_metrics(
             period.start_day, period.end_day, key_id=key_id
@@ -357,6 +374,7 @@ class KeyboardService:
                 "hid_usage": definition.hid_usage if definition else None,
                 "in_layout": key_id in layouts.FAMILIES[self.resolve_family()[0]].key_ids,
             },
+            "scope": self._scope(app_id),
             "totals": {
                 "press_count": int(metrics.get("press_count") or 0),
                 "duration_total_ms": round(float(metrics.get("duration_total_ms") or 0.0), 1),

@@ -17,10 +17,61 @@
   <script src="/static/js/theme.js"></script>
 </head>
 <body>
+  {#
+    图标精灵（14 文档 §3.5）。为什么内联：无构建、无出站网络、CSP 只允许 'self'，
+    所以图标字体与 CDN 都不可用；而 Unicode 字形（⚙ ◐ ‹ ⓘ）在 Windows 上会落到
+    Segoe UI Symbol，笔重与度量都和正文字族不同源。内联 <symbol> 零请求、笔重统一、
+    颜色跟随 currentColor，因此深浅色自动跟随。
+    路径与 static/js/components/icon.js 的 PATHS 一致——JS 侧那份供动态创建的图标使用。
+  #}
+  <svg class="icon-sprite" aria-hidden="true" hidden>
+    <symbol id="i-gear" viewBox="0 0 24 24">
+      <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/>
+    </symbol>
+    <symbol id="i-theme" viewBox="0 0 24 24">
+      <path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"/>
+      <path d="M12 3v18a9 9 0 0 0 0-18Z"/>
+    </symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="m14.5 5-7 7 7 7"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="m9.5 5 7 7-7 7"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24">
+      <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z"/>
+      <path d="M12 11v5"/><path d="M12 7.6h.01"/>
+    </symbol>
+    <symbol id="i-keyboard" viewBox="0 0 24 24">
+      <path d="M3.5 6.5h17a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-17a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1Z"/>
+      <path d="M7 10h.01M10.5 10h.01M14 10h.01M17.5 10h.01M7.5 14h9"/>
+    </symbol>
+    <symbol id="i-apps" viewBox="0 0 24 24">
+      <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/>
+    </symbol>
+    <symbol id="i-insights" viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-6M22 19H2"/></symbol>
+    <symbol id="i-overview" viewBox="0 0 24 24">
+      <path d="M3.5 12.5 12 5l8.5 7.5"/><path d="M6 11v8h12v-8"/>
+    </symbol>
+    <symbol id="i-download" viewBox="0 0 24 24">
+      <path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M4.5 19.5h15"/>
+    </symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9.5 5v14M14.5 5v14"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><path d="M12 6.5h.01M12 12h.01M12 17.5h.01"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24">
+      <path d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z"/><path d="m16.2 16.2 4.3 4.3"/>
+    </symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-warning" viewBox="0 0 24 24">
+      <path d="M12 4.5 21 20H3l9-15.5Z"/><path d="M12 10v4"/><path d="M12 17h.01"/>
+    </symbol>
+  </svg>
+
   <div class="app" id="app">
+    {# 键盘用户的第一个停靠点：不必 Tab 过整条导航才能到内容（14 文档 §6）。 #}
+    <a class="skip-link" href="#view-root">跳到内容</a>
     <noscript>
       <div class="banner" data-severity="error">
-        <span class="banner__mark" aria-hidden="true">!</span>
+        <span class="banner__mark" aria-hidden="true">
+          <svg class="icon"><use href="#i-warning"/></svg>
+        </span>
         <div class="banner__body">
           <div class="banner__title">本仪表盘需要 JavaScript</div>
           <div class="banner__detail">
@@ -58,11 +109,11 @@
         <div id="status-host"></div>
         <button class="icon-button" type="button" id="theme-toggle"
                 data-action="theme:cycle" title="切换主题" aria-label="切换主题">
-          <span aria-hidden="true">◐</span>
+          <svg class="icon" aria-hidden="true"><use href="#i-theme"/></svg>
         </button>
         <button class="icon-button" type="button"
                 data-action="settings:open" title="设置" aria-label="打开设置">
-          <span aria-hidden="true">⚙</span>
+          <svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg>
         </button>
       </div>
     </header>

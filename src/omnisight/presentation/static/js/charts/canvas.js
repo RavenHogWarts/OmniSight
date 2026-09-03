@@ -14,6 +14,43 @@ export function cssColor(name, fallback = '#888') {
   return value || fallback;
 }
 
+/**
+ * canvas 的字体串。轴标签必须与全站同源：现状写死 `10px sans-serif`，字号低于 11px
+ * 下限、字族在 Windows 上落到 Arial，与 Segoe 不同源（14 文档 §2.7）。
+ *
+ * `--font-small` 是 ≤12px 的光学尺寸档（14 文档 §3.3），轴标签正属于这一档。
+ * @param {number} [size] 像素
+ * @param {number|string} [weight]
+ */
+export function cssFont(size = 11, weight = 400) {
+  return `${weight} ${size}px ${cssColor('--font-small', 'system-ui, sans-serif')}`;
+}
+
+/** 图表里柱子的统一宽度上限与圆角（14 文档 §5.1 的记号规格）。 */
+export const BAR_MAX_WIDTH = 24;
+export const BAR_RADIUS = 4;
+/** 相邻记号之间留 2px 表面色间隙，而不是给记号描边。 */
+export const MARK_GAP = 2;
+
+/**
+ * 只有数据端有圆角的柱子。基线端保持方角——柱子是从基线"长"出来的，
+ * 两端都圆会让它看起来是漂浮的胶囊（14 文档 §5.1）。
+ * @param {CanvasRenderingContext2D} ctx
+ */
+export function bar(ctx, x, y, w, h, radius = BAR_RADIUS) {
+  if (h <= 0) return;
+  const r = Math.min(radius, w / 2, h);
+  ctx.beginPath();
+  ctx.moveTo(x, y + h);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h);
+  ctx.closePath();
+  ctx.fill();
+}
+
 export function setupCanvas(canvas) {
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
@@ -231,21 +268,25 @@ export function palette() {
     strong: color('--border-strong', 'rgba(0,0,0,.28)'),
     surface: color('--surface-card', '#fff'),
     sunken: color('--surface-sunken', '#eee'),
+    // 度量色：时间是蓝，按键是色阶中段。--accent 只做交互，从不做图表填充
+    // ——键帽上"蓝填色 = 高频"与"蓝描边 = 选中"本来是同一种蓝（14 文档 §3.2）。
+    time: color('--data-time', '#2f7cf6'),
+    keys: color('--data-keys', '#7e438c'),
     heat: [
-      color('--heat-0', '#eee'),
-      color('--heat-1', '#dbe8fb'),
-      color('--heat-2', '#a8caf7'),
-      color('--heat-3', '#6ba6f2'),
-      color('--heat-4', '#2f7cf6'),
-      color('--heat-5', '#1a56b8'),
+      color('--heat-0', '#eeeef1'),
+      color('--heat-1', '#cf8fde'),
+      color('--heat-2', '#b375c2'),
+      color('--heat-3', '#995ba6'),
+      color('--heat-4', '#7e438c'),
+      color('--heat-5', '#652a72'),
     ],
     categories: {
+      development: color('--cat-development', '#be2038'),
       productivity: color('--cat-productivity', '#2f7cf6'),
       communication: color('--cat-communication', '#16a394'),
-      entertainment: color('--cat-entertainment', '#f2933c'),
-      development: color('--cat-development', '#7c62e0'),
-      system: color('--cat-system', '#8b8b91'),
-      uncategorized: color('--cat-uncategorized', '#b4b4bb'),
+      entertainment: color('--cat-entertainment', '#d37819'),
+      system: color('--cat-system', '#57575c'),
+      uncategorized: color('--cat-uncategorized', '#919197'),
     },
   };
 }

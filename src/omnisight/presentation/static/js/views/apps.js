@@ -129,10 +129,12 @@ export function create(root) {
   mount(
     root,
     h('h1', { class: 'view__title sr-only', text: '应用', attrs: { tabindex: '-1', id: 'view-title' } }),
+    // 搜索 / 排序 / 含已排除都改的是这一屏取哪一批数据，因此它们在筛选行里，不在
+    // 卡头上（14 文档 §2.8、§4.1）。类别 chip 留在卡内：它筛的是这张列表本身。
     card(
       '应用',
       h('div', null, listHost, detailHost, pager),
-      [search.root, sortTabs.root, excludedToggle],
+      [],
       h('div', { class: 'row row--wrap' }, chipHost, h('span', { class: 'spacer' }), count),
     ),
   );
@@ -515,6 +517,8 @@ export function create(root) {
       }
       return requests;
     },
+    /** 视图级筛选：三个控件都改请求参数，作用域是整屏（14 文档 §4.1）。 */
+    filters: () => [search.root, sortTabs.root, excludedToggle],
     render,
     onSelect(appId) {
       if (appId) loadDetail(appId);

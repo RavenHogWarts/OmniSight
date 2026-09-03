@@ -1,23 +1,24 @@
-// 洞察视图（06 文档 §8 + 12 文档 M4）。**合并才可能实现的分析**——这是"为什么要升级"的答案。
+// 洞察视图（06 文档 §8 + 12 文档 M4、14 文档 §2.9/§2.11/§4.5）。
+// **合并才可能实现的分析**——这是"为什么要升级"的答案。
 //
 // 面板与数据来源：
-//   结论          /overview?include=highlights —— 每条可点开看计算口径（M4 判据 4）
-//   输入强度排行  /insights/app-keyboard        —— 应用名可下钻到该应用的键盘热图
-//   时间去向      同上响应的 distribution
-//   每小时去向    /usage/timeline               —— stacked-bar（分类堆叠，M3 遗留图表的消费者）
-//   节奏对比      /insights/rhythm 的 hourly    —— 打字最密集时段 vs 屏幕最长时段（M4）
-//   专注与作息    /insights/rhythm
+//   输入强度排行  /insights/app-keyboard        —— 这一屏的头条；应用名可下钻到该应用的键盘热图
 //   键位 x 应用   /keyboard/keys/{id}          —— 键位选择器按当前周期高频键动态生成（M3-6）
+//   节奏对比      /insights/rhythm 的 hourly    —— 打字最密集时段 vs 屏幕最长时段（M4）
+//   每小时去向    /usage/timeline               —— stacked-bar（分类堆叠，M3 遗留图表的消费者）
+//   专注与作息    /insights/rhythm
+//
+// **"结论"与"时间去向"归总览**：两个视图各画一份同源数据，用户不知道该看哪一个
+// （14 文档 §2.9）。总览回答"这段时间发生了什么"，洞察只做交叉分析。
 import { h, mount } from '../core/dom.js';
 import { getState, setState } from '../core/store.js';
 import { fetchInto } from '../core/loader.js';
 import { formatCount, formatClock, formatDurationShort, formatPercent } from '../domain/format.js';
 import { capabilityNotice, emptyState, errorState, skeletonRows } from '../components/states.js';
 import { capabilityOf, noticeFor } from '../components/degraded.js';
-import { renderHighlights } from '../components/highlights.js';
 import { card } from '../components/card.js';
 import { stackedBar } from '../charts/stacked-bar.js';
-import { gridHeatmap } from '../charts/grid-heatmap.js';
+import { panelPair } from '../charts/panel-pair.js';
 import { gapSet, periodParams } from '../domain/period.js';
 
 export const title = '洞察';
@@ -31,22 +32,13 @@ function bar(ratio, profile) {
   return node;
 }
 
-/** `1.5, 2, 3` 的第 95 百分位——24 个数的小数组，不值得引一个通用分位函数。 */
-function p95Of(values) {
-  if (!values.length) return 0;
-  const sorted = [...values].sort((left, right) => left - right);
-  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))];
-}
-
 export function create(root) {
-  const highlightsHost = h('div', { class: 'highlights' });
   const rankHost = h('div', { class: 'data-table__scroll' });
   const rankNote = h('div', { class: 'card__hint' });
   const attributionNote = h('div');
-  const distributionHost = h('div', { class: 'distribution' });
   const hourlyHost = h('div', { class: 'chart chart--medium' });
   const hourlyNote = h('div');
-  const rhythmGridHost = h('div');
+  const rhythmChartHost = h('div', { class: 'chart chart--medium' });
   const rhythmKvHost = h('div', { class: 'stack' });
   const focusHost = h('div', { class: 'stack' });
   const rhythmHost = h('div', { class: 'stack' });
@@ -62,27 +54,23 @@ export function create(root) {
   });
 
   const hourlyChart = stackedBar(hourlyHost, { height: 170, label: '每小时时间去向' });
-  const rhythmGrid = gridHeatmap(rhythmGridHost, { metric: 'kpm', label: '每小时输入密度' });
+  // 24 小时的 KPM 是一维时间序列，默认形式是柱不是格子——格子热图适合"网格上比大小"
+  // （日历的 7×53），不适合一维序列（14 文档 §2.11）。
+  const rhythmChart = panelPair(rhythmChartHost, { height: 150, label: '每小时输入强度' });
 
   mount(
     root,
     h('h1', { class: 'view__title sr-only', text: '洞察', attrs: { tabindex: '-1', id: 'view-title' } }),
-    card('结论', highlightsHost),
     card('输入强度排行', h('div', null, attributionNote, rankHost), [], rankNote),
-    card('时间去向', distributionHost),
-    h(
-      'div',
-      { class: 'grid grid--2' },
-      card('每小时时间去向', h('div', null, hourlyHost, hourlyNote)),
-      card('节奏对比', h('div', null, rhythmGridHost, rhythmKvHost)),
-    ),
+    card('键位与应用', keySplitHost),
+    card('节奏对比', h('div', null, rhythmChartHost, rhythmKvHost)),
+    card('每小时时间去向', h('div', null, hourlyHost, hourlyNote)),
     h(
       'div',
       { class: 'grid grid--2' },
       card('专注度', focusHost),
       card('作息', rhythmHost),
     ),
-    card('键位与应用', keySplitHost, [keySelect]),
   );
 
   function render() {
@@ -99,9 +87,8 @@ export function create(root) {
         detail: (notice && notice.detail) || '交叉分析需要把按键归到应用上，键盘总量统计不受影响。',
         hint: (notice && notice.hint) || '',
       }));
-      mount(distributionHost);
       mount(hourlyHost);
-      mount(rhythmGridHost);
+      mount(rhythmChartHost);
       mount(focusHost);
       mount(rhythmHost);
       return;
@@ -111,14 +98,12 @@ export function create(root) {
       return;
     }
     renderAttributionNotice(state);
-    renderHighlights(highlightsHost, (state.data.insightHighlights || {}).highlights);
     if (!keyboard) {
       if (state.loading.insightKeyboard) mount(rankHost, skeletonRows(5));
       return;
     }
 
     renderRanking(keyboard);
-    renderDistribution(keyboard);
     renderHourly(state);
     renderRhythmContrast(rhythm, state);
     renderFocus(rhythm, state);
@@ -256,29 +241,6 @@ export function create(root) {
     );
   }
 
-  function renderDistribution(payload) {
-    const distribution = payload.distribution || {};
-    const buckets = distribution.buckets || [];
-    const total = Number(distribution.total_seconds) || 0;
-    if (!total) {
-      mount(distributionHost, emptyState({ title: '这段时间没有前台记录', mark: '·' }));
-      return;
-    }
-    mount(
-      distributionHost,
-      ...buckets.map((bucket) =>
-        h(
-          'div',
-          { class: 'distribution__row', dataset: { profile: bucket.id } },
-          h('span', { class: 'distribution__name', text: bucket.name }),
-          bar((bucket.seconds || 0) / total, bucket.id),
-          h('span', { class: 'distribution__value', text: bucket.seconds_formatted }),
-          h('span', { class: 'distribution__percent', text: formatPercent(bucket.percent) }),
-        ),
-      ),
-    );
-  }
-
   /** 每小时时间去向：按应用类别堆叠的 24 小时柱（stacked-bar 的第一个消费者，M3-5）。 */
   function renderHourly(state) {
     const payload = state.data.insightTimeline;
@@ -310,27 +272,26 @@ export function create(root) {
 
   /**
    * 节奏对比（M4）：一天中打字最密集的时段 vs 屏幕时间最长的时段。
-   * 左边 24 格热图给"密度长什么样"，右边两行结论给出两个峰值的答案。
+   * 上面一条 24 小时的 KPM 柱给"密度长什么样"，下面两行结论给出两个峰值的答案。
    */
   function renderRhythmContrast(rhythm, state) {
     if (!rhythm) {
-      if (state.loading.insightRhythm) mount(rhythmGridHost, skeletonRows(2));
+      if (state.loading.insightRhythm) mount(rhythmKvHost, skeletonRows(2));
       return;
     }
     const hourly = rhythm.hourly || [];
-    const values = hourly.map((item) => Number(item.kpm) || 0);
-    rhythmGrid.update(
-      hourly.map((item) => ({
+    // panelPair 的 kpm 模式自己按 presses/seconds 算，所以这里如实给两个原始量。
+    rhythmChart.update({
+      buckets: hourly.map((item) => ({
         bucket: String(item.hour).padStart(2, '0'),
         label: `${item.hour}:00`,
-        kpm: item.kpm,
-        press_count: item.presses,
         seconds: item.seconds,
+        presses: item.presses,
       })),
-      { min: 0, max: Math.max(1, ...values), p95: p95Of(values) },
-      null,
-      'kpm',
-    );
+      mode: 'kpm',
+      caption: '每小时输入强度',
+      summary: '一天 24 小时的输入强度（KPM）',
+    });
     const peaks = rhythm.hour_peaks || {};
     const typing = peaks.typing;
     const screen = peaks.screen;
@@ -513,9 +474,8 @@ export function create(root) {
    */
   function requestsFor(state) {
     const period = periodParams(state.period);
+    // "结论"归总览独占，因此这里不再取 /overview（14 文档 §2.9）——少一个请求。
     return [
-      // 只取结论段：概览的其他部分（趋势、分类、榜单）在这里没人看，不必重算。
-      { key: 'insightHighlights', path: '/overview', params: { ...period, include: 'highlights' } },
       { key: 'insightKeyboard', path: '/insights/app-keyboard', params: { ...period, limit: 20 } },
       { key: 'insightRhythm', path: '/insights/rhythm', params: period },
       { key: 'insightTimeline', path: '/usage/timeline', params: { ...period, top: 5 } },
@@ -527,11 +487,13 @@ export function create(root) {
 
   return {
     needs: requestsFor,
+    /** 视图级筛选：键位选择改的是请求参数（14 文档 §4.1）。 */
+    filters: () => [keySelect],
     render,
     destroy() {
       hourlyChart.destroy();
+      rhythmChart.destroy();
       root.replaceChildren();
     },
   };
 }
-

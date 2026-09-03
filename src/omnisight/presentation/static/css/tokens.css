@@ -50,22 +50,30 @@
   --accent-subtle: #e8f1fe;
   --accent-text:   #1257c4;
 
-  /* 数据分类色 —— 色相间隔 ≥ 40°，只用于色块与图表填充 */
+  /* 身份色 —— 只回答"这是哪一类"。四个带彩度的槽位两两都过 all-pairs 校验
+   * （CVD ΔE ≥ 6、正常视觉 ΔE ≥ 15），因为环形/列表里任意两类都可能并置。
+   * 后两个是**去强调灰**：刻意不带彩度，职责就是不承载身份（14 文档 §3.2）。 */
+  --cat-development:   #be2038;
   --cat-productivity:  #2f7cf6;
   --cat-communication: #16a394;
-  --cat-entertainment: #f2933c;
-  --cat-development:   #7c62e0;
-  --cat-system:        #8b8b91;
-  --cat-uncategorized: #b4b4bb;
+  --cat-entertainment: #d37819;
+  --cat-system:        #57575c;
+  --cat-uncategorized: #919197;
 
-  /* 热力标尺 —— 单色渐进 */
-  --heat-0: var(--gray-100);
-  --heat-1: #dbe8fb;
-  --heat-2: #a8caf7;
-  --heat-3: #6ba6f2;
-  --heat-4: #2f7cf6;
-  --heat-5: #1a56b8;
-  --heat-ink: #ffffff;         /* 高热档上的数字颜色 */
+  /* 度量色 —— "这是哪个量"。时间是蓝，按键是色阶的中段（14 文档 §3.2）。 */
+  --data-time: #2f7cf6;
+  --data-keys: #7e438c;
+
+  /* 量级色阶 —— 单色相 H320，**5 个离散档**。
+   * 零态不在这里：它是承载面本身（键面 = 卡片色，格子 = --heat-0）。
+   * --heat-0 只给格子用；键面的零态是不填色（14 文档 §2.4、§2.16）。 */
+  --heat-0: var(--surface-sunken);
+  --heat-1: #cf8fde;
+  --heat-2: #b375c2;
+  --heat-3: #995ba6;
+  --heat-4: #7e438c;
+  --heat-5: #652a72;
+  --heat-ink: #ffffff;         /* 第 3 档起的数字颜色（翻转点见 key-cap.css） */
 
   --status-ok:    #1a9d54;
   --status-warn:  #d98613;
@@ -80,10 +88,27 @@
   --shadow-lg: 0 12px 32px rgba(0,0,0,.08), 0 2px 8px rgba(0,0,0,.04);
   --shadow-focus: 0 0 0 3px var(--accent-subtle), 0 0 0 1px var(--accent);
 
-  /* 排版 */
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display",
+  /* 键帽（14 文档 §3.4）。硬底影是键帽的侧壁，顶棱是打在帽面上的光——
+   * 两者都是中性色，不参与任何数据编码，所以色阶换了它们也不动。 */
+  --key-wall:  #c9c9d1;
+  --key-gloss: rgba(255, 255, 255, .72);
+  --key-tray:  var(--surface-sunken);
+
+  /* 排版（14 文档 §3.3）。Segoe UI Variable 在 Windows 11 上分三个族发行，设计意图
+   * 就是分档使用：Small 给 ≤12px（字重更实、字腔更开），Text 给 13–20px，Display
+   * 给 ≥24px。用 Display 排 11px 会偏细偏挤。三条链的头尾一致，只换中间那一段族名，
+   * 因此 Windows 10 与 macOS/Linux 上完全不变。 */
+  --font-small: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Small",
+                "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+                "Helvetica Neue", Arial, sans-serif;
+  --font-text: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
                "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
                "Helvetica Neue", Arial, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display",
+                  "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+                  "Helvetica Neue", Arial, sans-serif;
+  /* 正文档的别名。旧代码引用它的地方不必一次改完。 */
+  --font-sans: var(--font-text);
   --font-mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas,
                "SF Mono", monospace;
 
@@ -103,7 +128,7 @@
   --space-12:48px; --space-16:64px;
 
   --radius-xs: 4px;  --radius-sm: 6px;  --radius-md: 10px;
-  --radius-lg: 14px; --radius-xl: 18px; --radius-full: 999px;
+  --radius-lg: 16px; --radius-xl: 18px; --radius-full: 999px;
 
   --duration-instant: 80ms;  --duration-fast: 140ms;
   --duration-normal: 220ms;  --duration-slow: 360ms;
@@ -111,7 +136,7 @@
   --ease-in-out: cubic-bezier(.4, 0, .2, 1);
   --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
 
-  --layout-max: 1240px;
+  --layout-max: 1440px;
   --layout-gutter: var(--space-6);
   --header-height: 56px;
   --periodbar-height: 48px;
@@ -142,20 +167,28 @@
     --accent-subtle: #1c2c4a;
     --accent-text:   #8fbaff;
 
-    --cat-productivity:  #5b9bff;
-    --cat-communication: #2bbfae;
-    --cat-entertainment: #f5a55c;
-    --cat-development:   #9b85f0;
-    --cat-system:        #9a9aa3;
-    --cat-uncategorized: #6e6e77;
+    /* 深色不是浅色的翻转：这六个值按深色明度带（OKLCH L 0.48–0.67）重新取，
+     * 不是"把浅色调亮"——后者会让小色块看起来发荧光（14 文档 §3.2）。 */
+    --cat-development:   #c82d40;
+    --cat-productivity:  #4c8df9;
+    --cat-communication: #1ea697;
+    --cat-entertainment: #d67918;
+    --cat-system:        #aaaab0;
+    --cat-uncategorized: #6e6e73;
 
-    --heat-0: #26262b;
-    --heat-1: #1e3358;
-    --heat-2: #24528f;
-    --heat-3: #3574c9;
-    --heat-4: #5b9bff;
-    --heat-5: #8fbaff;
-    --heat-ink: #0d1526;
+    --data-time: #4c8df9;
+    --data-keys: #a86ab6;
+
+    /* 深色的色阶是从暗爬到亮，所以零态必须坐在第 1 档**下面**——用 --surface-sunken
+     * （#2a2a2f，比卡片亮）会让零格反而比"按过一次"更亮，对比只有 1.87:1。
+     * 这里取一个比卡片更沉的灰：格子仍然看得见，而第 1 档从它里面浮起来。 */
+    --heat-0: #191920;
+    --heat-1: #773b84;
+    --heat-2: #8f539d;
+    --heat-3: #a86ab6;
+    --heat-4: #c282d0;
+    --heat-5: #dc9beb;
+    --heat-ink: #14141a;
 
     --status-ok:    #3ddc84;
     --status-warn:  #f5a55c;
@@ -168,6 +201,9 @@
     --shadow-md: 0 4px 12px rgba(0,0,0,.35);
     --shadow-lg: 0 12px 32px rgba(0,0,0,.45);
     --shadow-focus: 0 0 0 3px var(--accent-subtle), 0 0 0 1px var(--accent);
+
+    --key-wall:  #101014;
+    --key-gloss: rgba(255, 255, 255, .06);
   }
 }
 
@@ -194,20 +230,28 @@
   --accent-subtle: #1c2c4a;
   --accent-text:   #8fbaff;
 
-  --cat-productivity:  #5b9bff;
-  --cat-communication: #2bbfae;
-  --cat-entertainment: #f5a55c;
-  --cat-development:   #9b85f0;
-  --cat-system:        #9a9aa3;
-  --cat-uncategorized: #6e6e77;
+  /* 深色不是浅色的翻转：这六个值按深色明度带（OKLCH L 0.48–0.67）重新取，
+   * 不是"把浅色调亮"——后者会让小色块看起来发荧光（14 文档 §3.2）。 */
+  --cat-development:   #c82d40;
+  --cat-productivity:  #4c8df9;
+  --cat-communication: #1ea697;
+  --cat-entertainment: #d67918;
+  --cat-system:        #aaaab0;
+  --cat-uncategorized: #6e6e73;
 
-  --heat-0: #26262b;
-  --heat-1: #1e3358;
-  --heat-2: #24528f;
-  --heat-3: #3574c9;
-  --heat-4: #5b9bff;
-  --heat-5: #8fbaff;
-  --heat-ink: #0d1526;
+  --data-time: #4c8df9;
+  --data-keys: #a86ab6;
+
+  /* 深色的色阶是从暗爬到亮，所以零态必须坐在第 1 档**下面**——用 --surface-sunken
+   * （#2a2a2f，比卡片亮）会让零格反而比"按过一次"更亮，对比只有 1.87:1。
+   * 这里取一个比卡片更沉的灰：格子仍然看得见，而第 1 档从它里面浮起来。 */
+  --heat-0: #191920;
+  --heat-1: #773b84;
+  --heat-2: #8f539d;
+  --heat-3: #a86ab6;
+  --heat-4: #c282d0;
+  --heat-5: #dc9beb;
+  --heat-ink: #14141a;
 
   --status-ok:    #3ddc84;
   --status-warn:  #f5a55c;
@@ -220,9 +264,14 @@
   --shadow-md: 0 4px 12px rgba(0,0,0,.35);
   --shadow-lg: 0 12px 32px rgba(0,0,0,.45);
   --shadow-focus: 0 0 0 3px var(--accent-subtle), 0 0 0 1px var(--accent);
+
+  --key-wall:  #101014;
+  --key-gloss: rgba(255, 255, 255, .06);
 }
 
-/* 暖色热力备选（06 文档 §3.1 的"橙色备选主题"）。只换热力标尺，不换主色。 */
+/* 色阶备选主题（06 文档 §3.1、14 文档 §3.1）。默认是紫红 H320；这两档只换色阶，
+ * 不换主色。TODO(批 1 收尾)：两条备选的最浅档目前对表面不足 2:1，需按序数标尺重取
+ * ——与默认色阶同一套明度结构（14 文档 §8.2 的 --ordinal 校验）。 */
 :root[data-heat="warm"] {
   --heat-1: #fdeacc;
   --heat-2: #fbcf8d;
@@ -230,10 +279,6 @@
   --heat-4: #dd7f1b;
   --heat-5: #a75410;
   --heat-ink: #ffffff;
-}
-:root[data-theme="dark"][data-heat="warm"],
-:root[data-heat="warm"] {
-  --heat-0: var(--surface-sunken);
 }
 
 @media (prefers-reduced-motion: reduce) {

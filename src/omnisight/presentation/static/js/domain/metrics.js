@@ -70,7 +70,13 @@ export function isSaturated(value, scale) {
   return top > 0 && max > top && (Number(value) || 0) > top;
 }
 
-/** 离散档位，供图例、aria-label 与色盲场景使用（不只用颜色编码）。 */
+/**
+ * 离散档位。**这就是键面与格子实际渲染的那一档**（14 文档 §2.4）——不是"另外算一个
+ * 供图例用的近似"。现状是 `color-mix` 在 heat-0 与 heat-5 之间连续插值，图例摆 6 个
+ * 离散色块、键面画连续量，读者无法把一个键的颜色对回一个值区间。
+ *
+ * 0 是零态（没按过），不属于色阶的任何一档：它是承载面本身。
+ */
 export function heatLevel(ratio) {
   if (ratio <= 0) return 0;
   if (ratio < 0.2) return 1;
@@ -79,5 +85,8 @@ export function heatLevel(ratio) {
   if (ratio < 0.8) return 4;
   return 5;
 }
+
+/** 每一档对应的比例区间上界，供图例标出"这一档到多少"。 */
+export const HEAT_BOUNDS = [0, 0.2, 0.4, 0.6, 0.8, 1];
 
 export const CATEGORY_FALLBACK = 'uncategorized';
