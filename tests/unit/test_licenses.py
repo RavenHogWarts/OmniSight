@@ -328,10 +328,29 @@ def test_the_index_lists_every_package_once(three_packages):
 def test_each_package_gets_a_numbered_section_with_uniform_fields(three_packages):
     text = licenses.render_licenses(three_packages)
     body = text.split("每一节给出")[1]
-    assert body.count("许可标识：") == 3
-    assert body.count("项目地址：") == 3  # 字段齐整，缺地址也占位
+    # 嵌入素材（tools/licenses.py 的 EMBEDDED_ASSETS）也各占一节，字段与包一致——
+    # 写成加法而不是写死 4，加第二项素材时这条不该红。
+    expected = len(three_packages) + len(licenses.EMBEDDED_ASSETS)
+    assert body.count("许可标识：") == expected
+    assert body.count("项目地址：") == expected  # 字段齐整，缺地址也占位
     assert "项目地址：（元数据未提供）" in body
     assert "--- A/LICENSE ---\nMIT 正文" in body
+
+
+def test_embedded_assets_are_declared_in_both_manifests(three_packages):
+    """非 Python 素材的义务同样要出现在清单里，而不是只藏在生成文件的注释里。
+
+    lucide 的图标几何被搬进 `templates/_icon_sprite.html`（生成器 `tools/icons.py`），
+    因此它随产物分发。`importlib.metadata` 看不见 npm 的东西，所以这一节是手工声明的
+    ——这条用例是它唯一的执行机制。
+    """
+    assert licenses.EMBEDDED_ASSETS, "EMBEDDED_ASSETS 空了？lucide 的图标还在产物里"
+    notices = licenses.render_notices(three_packages)
+    texts = licenses.render_licenses(three_packages)
+    for asset in licenses.EMBEDDED_ASSETS:
+        assert asset["name"] in notices
+        assert asset["embedded"] in notices  # 说清搬了什么、搬进哪个文件
+        assert asset["license_text"] in texts  # 正文逐字进 LICENSES
 
 
 def _section(text: str, header: str) -> str:

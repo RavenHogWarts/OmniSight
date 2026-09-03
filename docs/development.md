@@ -37,6 +37,28 @@ pnpm typecheck                                 # 等价于下面那条
 **没装 Node 也能开发**：`tools/check_types.py` 与相关测试都会跳过而不是失败，与
 `tests/frontend/` 的 Node 测试同一条原则。产物里没有任何 npm 包。
 
+### 图标（生成物）
+
+`templates/_icon_sprite.html` 是**生成的**，不要手改。真源是 `tools/icons.py` 的
+`ICON_SOURCES`——一张"我们的 id → lucide 图标名"映射表；几何从开发期依赖
+`lucide-static` 里读，剥掉它自带的 `stroke-width` 等表现属性（笔重由 `base.css` 的
+`.icon` 统一控制，规格是 1.5）。
+
+加或换一个图标：
+
+```bash
+# 1. 改 tools/icons.py 的 ICON_SOURCES（加一行 "我们的 id": "lucide 名"）
+# 2. 改 static/js/components/icon.js 的 ICON_NAMES（加同一个 id）
+.venv/Scripts/python tools/icons.py            # 3. 重新生成精灵表
+```
+
+`tests/unit/test_icon_sprite.py` 盯着三处一致（映射表 / 生成物 / `ICON_NAMES`），
+另外查视框、表现属性、以及"引用到的 `#i-x` 都存在"——引用一个不存在的 id 时浏览器
+**不报错**，只是那个位置什么都不画。
+
+**运行时仍然零依赖**：`lucide-static` 是 devDependency，生成结果是内联的 `<symbol>`
+精灵表并提交进版本库，因此没装 Node 的机器照样能跑，产物里也没有 npm 包。
+
 ## 常用命令
 
 ```bash
@@ -46,6 +68,8 @@ pnpm typecheck                                 # 等价于下面那条
 .venv/Scripts/python tools/check_platform_leaks.py           # 平台泄漏检查
 .venv/Scripts/python tools/check_frontend.py                 # 前端静态检查（结构与禁令）
 .venv/Scripts/python tools/check_types.py                    # 前端类型检查（需 Node，缺则跳过）
+.venv/Scripts/python tools/icons.py                          # 重新生成图标精灵表（需 lucide-static）
+.venv/Scripts/python tools/licenses.py                       # 重新生成第三方许可清单
 .venv/Scripts/python tools/build.py                          # 只构建 EXE（日常开发用这个）
 .venv/Scripts/python tools/build.py --release                # 构建 + 组装两件发布物
 .venv/Scripts/python tools/smoke.py dist/OmniSight.exe       # 对产物冒烟

@@ -32,7 +32,13 @@ LICENSES = ROOT / "THIRD_PARTY_LICENSES.txt"
 
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
+# 自己所在目录：被 tools/build.py 以模块方式导入时，脚本目录不一定在路径上。
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# 同目录的生成器。lucide 的许可正文是它的常量——**这里不留第二个字面量**，
+# 与 check_types.py 对 package.json 的处理同一条原则。
+import icons  # noqa: E402
 from omnisight import APP_NAME, __version__  # noqa: E402
 
 #: 产物里会包含的依赖清单文件。开发依赖（requirements-dev.txt）刻意不在其中。
@@ -50,6 +56,28 @@ REQUIREMENT_FILES = ("requirements.txt", "requirements-optional.txt")
 #: 匹配用 ``(?<![A-Za-z])`` 而不是 ``\b``：``\bGPL\b`` 对 "GPLv3" 不命中（v 是
 #: 单词字符，边界不成立），写在那里的门禁实际拦不住它要拦的东西。
 FORBIDDEN_LICENSE_PATTERN = re.compile(r"(?<![A-Za-z])(?:AGPL|GPL)", re.IGNORECASE)
+
+#: **不是 Python 包、但确实随产物分发的第三方素材。**
+#:
+#: 上面那套采集走 ``importlib.metadata``，因此它只看得见 pip 装的东西。图标几何是
+#: 另一类：``templates/_icon_sprite.html`` 里的路径数据从 lucide 搬过来（生成器是
+#: ``tools/icons.py``），npm 侧的 lucide-static 只是开发期依赖、不进产物，**但被搬进
+#: 产物的那些几何是 lucide 的作品**，ISC 要求副本保留声明。
+#:
+#: 声明因此有两处，各有各的读者：生成文件里那段 HTML 注释是"副本自带声明"（ISC 的
+#: 字面要求），这里这张表是让它同时出现在清单四件套里——合规审查看的是清单，不会去
+#: 翻模板。``license_text`` 逐字取自 lucide 的 LICENSE，不重排。
+EMBEDDED_ASSETS: tuple[dict[str, str], ...] = (
+    {
+        "name": "lucide",
+        "version": "1.40.0",
+        "license": "ISC",
+        "homepage": "https://lucide.dev",
+        "embedded": "src/omnisight/presentation/templates/_icon_sprite.html 里 15 个图标的路径数据",
+        "source": "npm lucide-static@1.40.0（开发期依赖，不随产物分发）",
+        "license_text": icons.ISC_NOTICE.strip(),
+    },
+)
 
 #: 许可/版权类文件的名字。**按文件名匹配，不按路径**：新式 wheel 把正文放在
 #: ``dist-info/licenses/`` 下，老式直接放 ``dist-info/`` 根，pywin32 这类甚至放在包
@@ -401,8 +429,58 @@ OmniSight 自身以 MIT 许可发布。发布物里静态包含了下列开源 P
 {rows}
 
 共 {len(packages)} 个包。
-{lgpl_note}{bundled_note}{undeclared_note}"""
+{lgpl_note}{bundled_note}{undeclared_note}{render_embedded_assets_notice()}"""
 
+
+def render_embedded_assets_notice() -> str:
+    """NOTICES 里的"嵌入素材"一节。
+
+    与上面的包清单分开写，因为义务的形状不同：包是**整包**随产物分发，素材是**一部分
+    内容**被搬进我们自己的文件里。合规审查要看得出这个区别，所以这一节明说搬了什么、
+    搬进了哪个文件。
+    """
+    if not EMBEDDED_ASSETS:
+        return ""
+    rows = "\n".join(
+        f"| {asset['name']} | {asset['version']} | {asset['license']} | <{asset['homepage']}> |"
+        for asset in EMBEDDED_ASSETS
+    )
+    details = "".join(
+        f"- **{asset['name']}**：{asset['embedded']}\n  来源：{asset['source']}\n"
+        for asset in EMBEDDED_ASSETS
+    )
+    return f"""
+## 嵌入的第三方素材
+
+下列素材不是 Python 包，但它们的**一部分内容被搬进了本项目自己的文件**，因此同样
+随产物分发，许可义务照样成立。完整许可正文见 `THIRD_PARTY_LICENSES.txt` 末尾一节。
+
+| 素材 | 版本 | 许可 | 项目地址 |
+| --- | --- | --- | --- |
+{rows}
+
+{details}
+这一节由 `tools/licenses.py` 的 `EMBEDDED_ASSETS` 声明——它是**手工维护的**，因为
+`importlib.metadata` 看不见非 Python 的东西。搬进新素材时要在那里加一条。
+"""
+
+
+def render_embedded_assets_licenses(first_number: int) -> str:
+    """LICENSES 里嵌入素材的许可正文节，编号接在包清单之后。"""
+    sections = []
+    for offset, asset in enumerate(EMBEDDED_ASSETS):
+        sections.append(f"""
+{RULE}
+{first_number + offset}. {asset['name']} {asset['version']}（嵌入素材，非 Python 包）
+{RULE}
+许可标识：{asset['license']}
+项目地址：{asset['homepage']}
+嵌入内容：{asset['embedded']}
+来源：{asset['source']}
+
+{asset['license_text']}
+""")
+    return "".join(sections)
 
 def render_licenses(packages: list[Package]) -> str:
     """拼出 ``THIRD_PARTY_LICENSES.txt``：索引 + 每包一节的许可正文。
@@ -416,6 +494,13 @@ def render_licenses(packages: list[Package]) -> str:
         f"  {number:>3}. {pkg.name} {pkg.version} —— {pkg.license_label}"
         for number, pkg in enumerate(packages, start=1)
     )
+    # 嵌入素材接在包清单之后，编号连续——律师按编号跳节，断号就会以为漏了一段。
+    for offset, asset in enumerate(EMBEDDED_ASSETS):
+        number = len(packages) + 1 + offset
+        index += (
+            f"\n  {number:>3}. {asset['name']} {asset['version']}"
+            f" —— {asset['license']}（嵌入素材）"
+        )
     sections = [_render_license_section(number, pkg) for number, pkg in enumerate(packages, 1)]
     return f"""{RULE}
 {APP_NAME} {__version__} —— 第三方许可正文
@@ -430,7 +515,7 @@ requirements.txt + requirements-optional.txt 的传递闭包，按当前平台�
 {APP_NAME} 自身以 MIT 许可发布，见同目录的 LICENSE。
 包名、版本、许可标识与项目地址的表格见 THIRD_PARTY_NOTICES.md。
 
-共 {len(packages)} 个包：
+共 {len(packages)} 个包{f"，另有 {len(EMBEDDED_ASSETS)} 项嵌入素材" if EMBEDDED_ASSETS else ""}：
 
 {index}
 
@@ -438,7 +523,7 @@ requirements.txt + requirements-optional.txt 的传递闭包，按当前平台�
 （以 "--- 路径 ---" 标出来源）。少数包的 wheel 未随附正文文件，该节会明确
 说明并给出项目地址。
 
-{"".join(sections)}"""
+{"".join(sections)}{render_embedded_assets_licenses(len(packages) + 1)}"""
 
 
 def _render_license_section(number: int, pkg: Package) -> str:

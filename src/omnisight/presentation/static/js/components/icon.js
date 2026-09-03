@@ -5,11 +5,17 @@
 // 里其它一切都不像。为什么不是图标字体或 CDN：无构建、无出站网络、CSP 只允许 'self'
 // （07 文档 §2、08 文档 §3）。剩下的选项就是把 SVG 内联进来。
 //
-// **精灵表在 templates/dashboard.html 里**，不在这里：它是一份静态标记，模板里写一遍
-// 就够了，用 JS 建反而要处理命名空间（SVG 元素必须用 createElementNS，而 core/dom.js
-// 的 h() 走的是 createElement）。这个模块只负责引用精灵表里的 <symbol>。
+// **精灵表在 templates/_icon_sprite.html 里**，不在这里：它是一份静态标记，模板里写
+// 一遍就够了，用 JS 建反而要处理命名空间（SVG 元素必须用 createElementNS，而
+// core/dom.js 的 h() 走的是 createElement）。这个模块只负责引用精灵表里的 <symbol>。
+//
+// 那份精灵表是**生成的**——真源是 tools/icons.py 的 ICON_SOURCES，几何来自开发期依赖
+// lucide-static。所以图标的几何不再有第二份手抄稿，只剩下面这张名字清单。
 
-/** 精灵表里有哪些图标。改这里之前先改模板——两边的 id 必须对得上。 */
+/**
+ * 精灵表里有哪些图标。**这份清单与 tools/icons.py 的 ICON_SOURCES 必须一致**——
+ * tests/unit/test_icon_sprite.py 断言这一点，不再靠"记得两边一起改"。
+ */
 export const ICON_NAMES = Object.freeze([
   'gear', 'theme', 'left', 'right', 'info', 'keyboard', 'apps', 'insights',
   'overview', 'download', 'pause', 'more', 'search', 'close', 'warning',

@@ -49,3 +49,18 @@ LGPL 要求用户能够替换这些库；OmniSight 自身以 MIT 开源且构建
 
 有 1 个包的元数据未声明许可标识（clr_loader）。对应的许可正文随 wheel 分发，
 见 `THIRD_PARTY_LICENSES.txt` 里那一节——缺标识不等于缺许可。
+
+## 嵌入的第三方素材
+
+下列素材不是 Python 包，但它们的**一部分内容被搬进了本项目自己的文件**，因此同样
+随产物分发，许可义务照样成立。完整许可正文见 `THIRD_PARTY_LICENSES.txt` 末尾一节。
+
+| 素材 | 版本 | 许可 | 项目地址 |
+| --- | --- | --- | --- |
+| lucide | 1.40.0 | ISC | <https://lucide.dev> |
+
+- **lucide**：src/omnisight/presentation/templates/_icon_sprite.html 里 15 个图标的路径数据
+  来源：npm lucide-static@1.40.0（开发期依赖，不随产物分发）
+
+这一节由 `tools/licenses.py` 的 `EMBEDDED_ASSETS` 声明——它是**手工维护的**，因为
+`importlib.metadata` 看不见非 Python 的东西。搬进新素材时要在那里加一条。

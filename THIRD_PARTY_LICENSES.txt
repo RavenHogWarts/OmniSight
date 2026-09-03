@@ -11,7 +11,7 @@ requirements.txt + requirements-optional.txt 的传递闭包，按当前平台�
 OmniSight 自身以 MIT 许可发布，见同目录的 LICENSE。
 包名、版本、许可标识与项目地址的表格见 THIRD_PARTY_NOTICES.md。
 
-共 22 个包：
+共 22 个包，另有 1 项嵌入素材：
 
     1. blinker 1.9.0 —— MIT License
     2. bottle 0.13.4 —— MIT
@@ -35,6 +35,7 @@ OmniSight 自身以 MIT 许可发布，见同目录的 LICENSE。
    20. typing_extensions 4.16.0 —— PSF-2.0
    21. tzdata 2026.3 —— Apache-2.0
    22. Werkzeug 3.1.8 —— BSD-3-Clause
+   23. lucide 1.40.0 —— ISC（嵌入素材）
 
 每一节给出该包的许可标识、项目地址，以及**随 wheel 分发的许可文件原文**
 （以 "--- 路径 ---" 标出来源）。少数包的 wheel 未随附正文文件，该节会明确
@@ -4347,3 +4348,28 @@ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
 LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
 NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+================================================================================
+23. lucide 1.40.0（嵌入素材，非 Python 包）
+================================================================================
+许可标识：ISC
+项目地址：https://lucide.dev
+嵌入内容：src/omnisight/presentation/templates/_icon_sprite.html 里 15 个图标的路径数据
+来源：npm lucide-static@1.40.0（开发期依赖，不随产物分发）
+
+Icons derived from lucide (https://lucide.dev) — ISC License.
+
+Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of
+Feather (MIT). All other copyright (c) for Lucide are held by Lucide Contributors 2022.
+
+Permission to use, copy, modify, and/or distribute this software for any purpose
+with or without fee is hereby granted, provided that the above copyright notice
+and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+THIS SOFTWARE.
