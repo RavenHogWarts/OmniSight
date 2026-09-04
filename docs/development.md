@@ -59,6 +59,175 @@ pnpm typecheck                                 # 等价于下面那条
 **运行时仍然零依赖**：`lucide-static` 是 devDependency，生成结果是内联的 `<symbol>`
 精灵表并提交进版本库，因此没装 Node 的机器照样能跑，产物里也没有 npm 包。
 
+### 前端调试与页面读取
+
+零构建的代价之一是**没有 dev server**：改一个 `.js` 要看到效果，得先有一个在跑的
+OmniSight。而 `python -m omnisight` 会起托盘、会真采集、会写 `%LOCALAPPDATA%`——调版面
+不需要这三样，还各带一个副作用（要管理员权限、页面数字每秒都在动因此两张截图不可比、
+切设置会改到真实配置）。
+
+三条路补这个洞：
+
+| 工具                           | 干什么                                                       |
+| ------------------------------ | ------------------------------------------------------------ |
+| `tools/devserver.py`           | 只把仪表盘跑起来：合成数据、不采集、不起托盘、静态资源不缓存 |
+| `tools/page.py`                | **批量**读它：截图 + 可量化的版面报告（需要时自己起服务器）  |
+| `.mcp.json` 的 chrome-devtools | **交互**读它：一问一答地查一个具体现象（见下文）             |
+
+第一条是另外两条的地基——不管用哪种方式读页面，先得有一个页面在跑。
+
+#### 前置
+
+`devserver.py` 只要 Python，没有别的前置。`page.py` 另外要：
+
+```bash
+pnpm install     # 装 playwright-core：1 个包、0 个传递依赖，**不下载浏览器**
+```
+
+它驱动的是**机器上已装的 Edge**（`channel: 'msedge'`）。因此没装 Node 的机器仍然能用
+`devserver.py` 自己开浏览器调试，只是 `page.py` 不可用——与 `check_types.py` 同一条原则。
+`playwright-core` 是 devDependency，**产物里依然没有 npm 包**。
+
+> `dev/PROGRESS.md:1444` 曾以「Node 依赖树 + 数百 MB 浏览器下载」否掉 Playwright，
+> `dev/15-frontend-stack-migration.md` §5 要求「Node 依赖树进仓库后重新评估」。这就是那次
+> 评估的结果：两条反对理由在 `playwright-core` + 系统 Edge 这个组合下都不成立。
+
+#### 起服务器
+
+```bash
+.venv/Scripts/python tools/devserver.py                 # 打印带令牌的 URL
+.venv/Scripts/python tools/devserver.py --open          # 顺带用默认浏览器打开
+.venv/Scripts/python tools/devserver.py --days 400 --fresh   # 重播一年数据
+```
+
+默认监听 `127.0.0.1:6180`（刻意避开生产的 `6100`，两边可以同时开着），数据落在仓库内
+`.dev/`（已在 `.gitignore` 里）。首次启动会用 `tools/seed.py` 播 45 天合成数据，约几秒；
+之后直接复用那个库，`--fresh` 才重播。
+
+几条刻意的行为，看到时不必怀疑是 bug：
+
+- **令牌是固定的** `omnisight-dev-token`——URL 要能被贴进浏览器、被脚本拼出来。令牌校验
+  本身没关，Host 校验也没动（08 文档 §3 的威胁模型防的是任意网页，不是本机进程）。
+- **静态资源一律 `no-store`**。ES 模块的浏览器缓存比 HTTP 缓存黏，改完刷新看到旧代码是
+  这套架构最常见的一次「我明明改了」。
+- **SSE 关掉**，前端走 30 秒轮询。没有采集就没有事件可推，开着只会让页面敲一个必然 404
+  的端点，而那条 404 会变成 `page.py` 报告里每次都在的假警报。
+- **首启说明自动确认掉**，否则每张截图拍到的都是那张铺满全屏的模态。要看它本身用
+  `--onboarding`。
+- **采集状态是假的「正常」**。真实值是「没在跑」，那会让状态点永久停在最差的一档；
+  想看真实异常态用 `--capture-down`。
+
+#### 读页面
+
+```bash
+.venv/Scripts/python tools/page.py                                  # 总览 @1440 浅色
+.venv/Scripts/python tools/page.py --view keyboard --width 1024 --theme dark
+.venv/Scripts/python tools/page.py --all                            # 四视图 × 四宽度 × 深浅 = 32 张
+.venv/Scripts/python tools/page.py --view overview --forced-colors --reduced-motion
+.venv/Scripts/python tools/page.py --view apps --settings            # 打开设置抽屉再截
+```
+
+服务器已经在跑就直接用，没在跑就起一个临时的、退出时收掉（`--keep` 留着它，接着看好几轮
+时用这个）。截图与报告落在 `.dev/shots/`。
+
+stdout 上每次捕获一行结论，只讲能拿去改代码的：
+
+```
+── keyboard @ 1024px dark (page=system, dark=true)  →  .dev/shots/keyboard-1024-dark.png
+   无异常（5 张卡、1613 个可见元素）
+── overview @ 1920px light (page=system, dark=false)  →  .dev/shots/overview-1920-light.png
+   ! 超宽屏仍是单列（14 §4.1 要求 ≥1790px 分主列 + 副列）
+   ! 主列 1392px 超过 1240px
+```
+
+`.dev/shots/report.json` 是完整的那一份，每次捕获一条记录：
+
+| 字段                                             | 内容                                                                                          |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `outline`                                        | **版面骨架**：顶栏 / 周期栏 / 每张卡的选择器 + 位置 + 尺寸 + 标题。调布局时真正要看的那份结构 |
+| `tinyText`                                       | 计算字号小于 11px 的可见文字（14 §2.5 P1-2 的判据）                                           |
+| `clipped`                                        | `scrollWidth > clientWidth` 的元素；`ellipsis` 区分「刻意省略号」与「直接切字」               |
+| `offscreen`                                      | 右边缘越过视口的元素                                                                          |
+| `horizontalOverflow` / `layoutMax` / `ultrawide` | 横向溢出、`--layout-max` 令牌实测值、≥1790px 档的双列判据                                     |
+| `console` / `failedRequests`                     | 控制台 error/warning、pageerror、4xx 与网络失败                                               |
+| `banners` / `emptyStates`                        | 降级横幅与空态——降级预设下用它确认「该出现的提示出现了」                                      |
+
+判据**读令牌而不写死数字**（`--layout-max` 从页面的 computed style 里取），因此 14 文档
+§4.1 的三档宽度分级实现到哪一步，报告会如实反映，不会因为常量过期而误报。
+
+#### 交互式调试：chrome-devtools MCP
+
+上面那条是**批量**路径：一条命令扫完 32 种组合，产出可 diff 的 `report.json`，适合"改完
+回归一遍"与将来进 CI。它答不了的是"这个元素为什么跳一下"——那需要在页面还活着的时候
+连着问好几轮。
+
+`.mcp.json` 里配好了 Google 官方的 [chrome-devtools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp)，
+补的就是这一半。它进仓库（而不是各人机器上的全局配置），所以团队里每个人拿到的是同一份：
+
+```json
+{ "command": "npx", "args": ["-y", "chrome-devtools-mcp@1.8.0", "--isolated", "--viewport=1440x900"] }
+```
+
+三个选择的理由（JSON 放不下注释，写在这里）：
+
+- **版本钉死** `1.8.0`，与 `lucide-static` / `typescript` / `playwright-core` 一样。`@latest`
+  会让"昨天好的今天坏了"变成一种日常。
+- **`--isolated`**：用临时的 user-data-dir，关掉即清。它不碰你真实的 Chrome 配置——没有
+  你的 cookie、历史与登录态。对一个把隐私写进设计文档的项目，这条不是可选项。顺带解决
+  "新开的 Chrome 被已在运行的实例接管"那个老问题。
+- **`--viewport=1440x900`**：与 `page.mjs` 的默认宽度对齐。两条路从同一个几何出发，看到
+  的差异才是真差异。
+
+用它的时候**仍然要先起开发服务器**——MCP 只负责驱动浏览器，页面得有人提供：
+
+```bash
+.venv/Scripts/python tools/devserver.py        # 前台跑到 Ctrl+C，另开一个终端做别的
+# 然后让 agent 打开 http://127.0.0.1:6180/?token=omnisight-dev-token
+```
+
+两条路的分工：
+
+|      | 批量（`page.py`）                               | 交互（MCP）                                                                                           |
+| ---- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| 适合 | 回归、扫宽度/主题、进 CI                        | 追一个具体现象、看网络瀑布、性能 trace                                                                |
+| 产出 | 截图 + `report.json`（可 diff、可提交进 issue） | 一问一答，不留痕                                                                                      |
+| 判据 | 写在 `page.mjs` 里，版本化、会一直跑            | 每次现场用 `evaluate_script` 现推                                                                     |
+| 前置 | `pnpm install`（1 个包，不下载浏览器）          | `npx` 首次现拉 MCP 包；浏览器默认用系统已装的 stable Chrome（`--channel` / `--executable-path` 可改） |
+
+`--browser-url=http://127.0.0.1:9222` 可以让它接到一个已经在跑的、开了远程调试端口的
+浏览器上（VS Code 的集成浏览器若暴露了调试端口，走的就是这条）。默认不开：让它自己起一个
+干净实例，行为更可预期。
+
+#### 调降级态
+
+06 文档 §4.2 的三级降级表达在本机只看得到 tier 1 那一档，而降级态最容易画错、也最少被
+看见。`--preset` 伪造能力集（服务器启动时装配，改它要重启）：
+
+```bash
+.venv/Scripts/python tools/devserver.py --preset linux-wayland --open
+.venv/Scripts/python tools/page.py --preset no-keyboard --view keyboard   # 顺带起服务器
+```
+
+| 预设                                                       | 调出来的东西                                                   |
+| ---------------------------------------------------------- | -------------------------------------------------------------- |
+| `full`（默认）                                             | Windows 一级平台，全能力                                       |
+| `macos`                                                    | 二级平台：无按键时长、缺输入监控授权、带 `setup_hint`          |
+| `linux-wayland`                                            | 三级平台：**应用归因不可用**——合并的核心价值缺席时页面长什么样 |
+| `no-keyboard` / `no-foreground` / `no-icons` / `no-titles` | 单点能力缺失，比整平台降级更常见也更容易漏                     |
+
+#### 它替下了 14 §8.3 里的哪几条
+
+14 文档 §8.3 是「只能用眼睛确认的」清单。其中这几条现在是机器验的——`--all` 一次跑完：
+
+- 键盘 1024 / 1280 / 1440 / 1920 四档：键面数值 ≥11px 或不印；不横向溢出
+- 深浅两色逐屏看一遍（`--theme light --theme dark`）
+- 2560 宽窗口：副列铺开，主列不超过 1240px（`--width 2560`）
+- 强制颜色模式（`--forced-colors`）、`prefers-reduced-motion`（`--reduced-motion`）
+- 类别构成条装不下的段有没有被裁字（`clipped` 里 `ellipsis: false` 的那些）
+
+剩下的仍然要眼睛：键帽的按压动画像不像按了一个键、未按过的键与按过的键一眼能否分开、
+色阶在深浅两套下有没有残留。**截图解决不了「像不像」，但它把「有没有」交给了机器。**
+
 ## 常用命令
 
 ```bash
@@ -69,6 +238,8 @@ pnpm typecheck                                 # 等价于下面那条
 .venv/Scripts/python tools/check_frontend.py                 # 前端静态检查（结构与禁令）
 .venv/Scripts/python tools/check_types.py                    # 前端类型检查（需 Node，缺则跳过）
 .venv/Scripts/python tools/icons.py                          # 重新生成图标精灵表（需 lucide-static）
+.venv/Scripts/python tools/devserver.py --open               # 只跑仪表盘（合成数据，不采集不起托盘）
+.venv/Scripts/python tools/page.py --all                     # 无头浏览器读页面：截图 + 版面报告
 .venv/Scripts/python tools/licenses.py                       # 重新生成第三方许可清单
 .venv/Scripts/python tools/build.py                          # 只构建 EXE（日常开发用这个）
 .venv/Scripts/python tools/build.py --release                # 构建 + 组装两件发布物
@@ -94,12 +265,12 @@ pnpm typecheck                                 # 等价于下面那条
 `tools/build.py` **默认只出 EXE**：本地一天构建好几次，而组装（重新生成许可清单、写
 `README.txt`、编译安装包、打 zip、算摘要）只有发布那一次用得上。
 
-| 参数 | 作用 |
-| --- | --- |
-| （无） | 只出 `dist/OmniSight.exe` |
-| `--release` | 组装两件发布物：便携 zip + 安装包 |
+| 参数              | 作用                                  |
+| ----------------- | ------------------------------------- |
+| （无）            | 只出 `dist/OmniSight.exe`             |
+| `--release`       | 组装两件发布物：便携 zip + 安装包     |
 | `--assemble-only` | 用现有 EXE 重新组装，不跑 PyInstaller |
-| `--no-installer` | 跳过安装包（没装 Inno Setup 时用它） |
+| `--no-installer`  | 跳过安装包（没装 Inno Setup 时用它）  |
 
 安装包要 Inno Setup 的 `ISCC.exe`：自动找不到时用 `OMNISIGHT_ISCC` 指向它。向导的中文消息
 文件随仓库分发（`installer/Languages/`），不指向构建机上 Inno 的安装目录——否则"向导是什么

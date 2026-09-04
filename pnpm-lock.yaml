@@ -11,6 +11,9 @@ importers:
       lucide-static:
         specifier: 1.40.0
         version: 1.40.0
+      playwright-core:
+        specifier: 1.62.1
+        version: 1.62.1
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -20,6 +23,11 @@ packages:
   lucide-static@1.40.0:
     resolution: {integrity: sha512-ln37Ng6A709exLQH4pBxrbl6FAUk/ZBLTJnLrj02HN/Bb84eUGzlA2JjMglScI0TEab6vH2UVs0hm4vGgLzTrQ==}
 
+  playwright-core@1.62.1:
+    resolution: {integrity: sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   typescript@5.9.3:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
     engines: {node: '>=14.17'}
@@ -28,5 +36,7 @@ packages:
 snapshots:
 
   lucide-static@1.40.0: {}
+
+  playwright-core@1.62.1: {}
 
   typescript@5.9.3: {}

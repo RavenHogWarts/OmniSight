@@ -5,6 +5,11 @@ refer
 # 基准数据（tools/seed.py 生成，可达 GB 级）
 .bench/
 
+# 开发期仪表盘的一切（tools/devserver.py 与 tools/page.py 生成）：
+# 合成库、runtime.json、开发用 config.json，以及 shots/ 下的截图与 report.json。
+# 全都是可重新生成的产物，且截图动辄几百 KiB 一张——不进版本库。
+.dev/
+
 # ── Python ────────────────────────────────────────────────
 .venv/
 __pycache__/
