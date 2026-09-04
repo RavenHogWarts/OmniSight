@@ -250,12 +250,24 @@ def build_app(
         schema_version=TARGET_VERSION,
         capture=None if capture_down else _IdleCapture(capabilities.keyboard_backend),
     )
+    def on_config_change(new_config) -> None:
+        """设置改完后表现层要看到新配置——生产里由 `lifecycle.py:on_config_change` 做。
+
+        **少了它，主题切换在开发服务器上看起来是坏的**：`ui.theme` 由设置服务写进它自己
+        那份配置，而页面外壳的 `<html data-theme>` 读的是 `AppContext.config`
+        （web.py:index，15 文档 §11.3）。两份不同步的症状是"在设置里切成深色，刷新又变回
+        跟随系统"——而那正是防闪白要修的东西，于是这个缺口会伪装成 §11.3 的 bug。
+        """
+        context.config = new_config
+        context.paused = new_config.capture.paused
+
     context.services = Services.build(
         database=db,
         config=config,
         capabilities=capabilities,
         config_path=data_dir / "config.json",
         data_dir=data_dir,
+        on_config_change=on_config_change,
     )
     app = create_app(context)
     _disable_static_cache(app)

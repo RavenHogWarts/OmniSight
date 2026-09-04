@@ -1,36 +1,56 @@
 {
-  // 前端类型检查（07 文档 §2.1）。**只检查，不产出**：static/js 下的 .js 就是浏览器
-  // 加载的那份文件，tsc 从不改写它，因此"零构建"这条性质仍然成立。
+  // 前端类型检查（07 文档 §2.1、15 文档 批 2）。
   //
-  // 类型从 JSDoc 与 js/types/api.d.ts 来。挑这条路而不是改写成 .ts，是因为 .ts 必须
-  // 编译才能运行，而那会让 PyInstaller 打包前多一步 npm build——07 文档 §2 拒绝过。
+  // **M7 之前这里写着"只检查，不产出"**——那条前提在 15 文档选了方案 A 之后不成立了：
+  // `frontend/src` 下的源码要经 Vite 编译成 `static/dist`，浏览器加载的是产物。
+  // 但 `noEmit` 仍然为真：**产出由 Vite 负责，tsc 只当检查器**。两者读同一份 tsconfig，
+  // 因此"类型能过"与"能构建"不会各说一套。
+  //
+  // 迁移期 `allowJs` / `checkJs` 保持打开：`frontend/src` 里 .js 与 .ts 并存，
+  // 一次全改名会让 diff 无法审阅（15 文档 §8 的分批原则）。全部改完后再关。
   "compilerOptions": {
     // 浏览器基线是 Safari 15.4（07 文档 §2，pywebview 下的 WebKitGTK 最旧）。
+    // 与 vite.config.ts 的 build.target 是同一条基线，改一处要改两处。
     "target": "ES2022",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
-    // 源码里的相对导入都带 .js 后缀（浏览器要求），bundler 解析能把它映射到 .d.ts。
     "moduleResolution": "bundler",
+    // 相对导入写**真实存在的**扩展名（`./store.ts`）。这不是风格选择：
+    // `tests/frontend/*.test.ts` 用 `node --test --experimental-strip-types` 直接跑源码，
+    // 而 Node 的 ESM 只认磁盘上的真路径——无后缀与 `.js`→`.ts` 的回退它都不做。
+    // 保住那条路，"零依赖也能测纯函数"在引入构建工具之后才仍然成立（15 文档 §3.6）。
+    // `noEmit` 下开这个标志是允许的（不产出，就没有"产物里带 .ts 路径"的问题）。
+    "allowImportingTsExtensions": true,
+    "jsx": "react-jsx",
 
     "allowJs": true,
-    "checkJs": true,
+    // **迁移期刻意关掉**（15 文档 §8 的分批原则）。TS 只在导入方是 .ts 时才把
+    // `./store` 落到 `store.ts` 上；导入方是 .js 时它按字面路径找，于是每转换一个
+    // 模块，所有还是 .js 的导入方都会报 TS2307。Vite 不受影响（它的 resolve.extensions
+    // 认 .ts），所以产物一直是能跑的——只有类型检查这一侧要等 .js 清零。
+    // **批 6 收尾时连同 allowJs 一起删掉**，那时 frontend/src 下不该再有 .js。
+    "checkJs": false,
     "noEmit": true,
 
-    // 不自动引入任何 @types 包：产物零依赖，开发期也只装 typescript 一个。
-    "types": [],
+    // React 的类型要进来了，所以不能再写 "types": []。装进来的只有 @types/react
+    // 与 @types/react-dom 两个——**产物里没有它们**，类型在编译期就被擦掉。
     "skipLibCheck": true,
 
-    // strictNullChecks 是这套检查的主力：接口字段拼错、可能为 null 的响应直接取值，
-    // 都在这一条下暴露。noImplicitAny 刻意关掉——为它给 5900 行既有 JS 的每个局部
-    // 函数补参数类型，收益远小于工作量，而契约那一半收益不依赖它（PROGRESS 偏离 141）。
     "strict": true,
+    // 迁移期仍然关着：`frontend/src` 里还有 .js 文件，给它们每个局部函数补参数类型
+    // 收益远小于工作量（偏离 141）。**批 6 收尾时打开**——那时 .js 已经清零。
     "noImplicitAny": false,
     "noImplicitThis": false,
 
-    "forceConsistentCasingInFileNames": true
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
   },
-  "include": [
-    "src/omnisight/presentation/static/js/**/*.js",
-    "src/omnisight/presentation/static/js/types/*.d.ts"
-  ]
+  // vite.config.ts 不在其中：它跑在 Node 里（`node:url`、`import.meta.url`），
+  // 要为它引 @types/node 就得把 Node 的全局塞进浏览器代码的检查范围。
+  // Vite 自己用 esbuild 编译这份配置，不需要 tsc 过一遍。
+  "include": ["frontend/src/**/*.ts", "frontend/src/**/*.tsx", "frontend/src/**/*.js"]
 }

@@ -2,19 +2,29 @@
   "name": "omnisight-frontend-tooling",
   "private": true,
   "type": "module",
-  "description": "OmniSight 前端的开发期工具链。产物里没有任何 npm 包——tsc 用来在提交前检查前后端的接口契约（07 文档 §2.1），lucide-static 只在开发期供 tools/icons.py 生成图标精灵表（14 文档 §3.5），playwright-core 只在开发期供 tools/page.mjs 驱动已装的 Edge 读页面（14 文档 §8.3）——它不下载浏览器。",
+  "description": "OmniSight 前端：TypeScript + React，Vite 构建进 src/omnisight/presentation/static/dist（产物提交进版本库，因为 pip install 路径上没有 Node——15 文档 §3.2）。playwright-core 只在开发期供 tools/page.mjs 驱动已装的 Edge 读页面（14 文档 §8.3）——它不下载浏览器。",
   "packageManager": "pnpm@11.13.1",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "node --test \"tests/frontend/*.test.js\"",
+    "test": "node --test --experimental-strip-types --no-warnings \"tests/frontend/*.test.js\" \"tests/frontend/*.test.ts\"",
     "page": "node tools/page.mjs"
   },
   "devDependencies": {
-    "lucide-static": "1.40.0",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.7",
+    "@vitejs/plugin-react": "6.1.1",
     "playwright-core": "1.62.1",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vite": "8.2.2"
+  },
+  "dependencies": {
+    "lucide-react": "1.40.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
   }
 }

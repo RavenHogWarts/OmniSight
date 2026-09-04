@@ -1,0 +1,130 @@
+/* 产物缺失时的兜底样式。**只在那一种情况下加载**（dashboard.html 的 `bundle.missing`）。
+ *
+ * 为什么需要它：15 文档 §11.4 把 30 个样式文件搬进了 `frontend/styles`，由 Vite 打成
+ * 产物里的一份带哈希的 CSS。于是"产物缺失"这件事从"页面还在、只是没数据"变成了
+ * "连样式也没有"——而页面里那张说明卡存在的全部理由就是让人**读到**为什么白屏。
+ * 一段裸文字仍然能读，但读起来像程序崩了，而不像程序在告诉你缺了什么。
+ *
+ * 因此这份文件**刻意自带颜色与字体，不引用任何令牌**：tokens.css 现在也在产物里，
+ * 缺的时候一起缺。它只覆盖两块降级内容（说明卡与 noscript 横幅）加上一个能读的外壳，
+ * 不试图复刻 layout.css——真界面回来时它根本不会被加载。
+ *
+ * 值取自 tokens.css 的对应档，好让这一页看起来仍然是同一个程序：
+ * 浅色 #f5f5f7 / #ffffff / #1d1d1f / #5f5f66，深色 #16161a / #202024 / #f2f2f5 / #a8a8b2。
+ */
+:root {
+  color-scheme: light dark;
+  --shell-page: #f5f5f7;
+  --shell-card: #ffffff;
+  --shell-ink: #1d1d1f;
+  --shell-ink-soft: #5f5f66;
+  --shell-line: rgba(60, 60, 67, .10);
+  --shell-alarm: #c0392b;
+}
+
+/* 深色令牌写一次，两个选择器共用——与 tokens.css 同一套结构：媒体查询下
+ * `data-theme="light"` 可以反悔，而服务端渲染的 `data-theme="dark"` 无条件生效。 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --shell-page: #16161a;
+    --shell-card: #202024;
+    --shell-ink: #f2f2f5;
+    --shell-ink-soft: #a8a8b2;
+    --shell-line: rgba(255, 255, 255, .07);
+    --shell-alarm: #ff6b5e;
+  }
+}
+:root[data-theme="dark"] {
+  --shell-page: #16161a;
+  --shell-card: #202024;
+  --shell-ink: #f2f2f5;
+  --shell-ink-soft: #a8a8b2;
+  --shell-line: rgba(255, 255, 255, .07);
+  --shell-alarm: #ff6b5e;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--shell-page);
+  color: var(--shell-ink);
+  font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
+        "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+        "Helvetica Neue", Arial, sans-serif;
+}
+
+/* 顶栏在这个状态下**没有一个按钮是能用的**（事件委托要 JS）。所以不去复刻它的样子，
+ * 只留一条分隔线和一个正常大小的品牌名，让说明卡成为页面上唯一显眼的东西。 */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--shell-line);
+}
+.brand { font-weight: 600; }
+.brand__dot,
+.pill-tabs,
+.topbar__end { display: none; }
+
+.main { padding: 24px; }
+
+.card {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 20px 24px;
+  background: var(--shell-card);
+  border: 1px solid var(--shell-line);
+  border-radius: 16px;
+}
+.card h2 { margin: 0 0 8px; font-size: 17px; }
+.muted { color: var(--shell-ink-soft); margin: 0; }
+code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--shell-line);
+  font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace;
+  font-size: .92em;
+}
+
+/* noscript 横幅。它平时由产物里的 banner.css 管——JS 被禁不影响 <link> 加载样式表，
+ * 所以这里的规则只在"产物也缺了"这一种叠加情况下用得上。 */
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 24px;
+  background: var(--shell-card);
+  border-bottom: 1px solid var(--shell-line);
+}
+.banner[data-severity="error"] { border-left: 3px solid var(--shell-alarm); }
+.banner__mark { flex: none; color: var(--shell-alarm); }
+.banner__title { font-weight: 500; }
+.banner__detail { color: var(--shell-ink-soft); }
+
+/* noscript 里那个内联 SVG 只有几何，笔画规格在 CSS 里（14 文档 §3.5）。 */
+.icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 跳转链接平时是视觉隐藏的（base.css）。这里同样藏起来：它指向的 #view-root 里
+ * 只有那张说明卡，而多一个可见的"跳到内容"只会让这一页更像出了故障。 */
+.skip-link {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.skip-link:focus {
+  position: static;
+  width: auto; height: auto;
+  margin: 0;
+  clip-path: none;
+}

@@ -22,8 +22,12 @@ coverage.xml
 htmlcov/
 
 # ── 构建产物 ──────────────────────────────────────────────
-build/
-dist/
+# **锚定到根目录**：不加 / 前缀的 `dist/` 会连
+# src/omnisight/presentation/static/dist/（Vite 的前端产物）一起吞掉，而那一份
+# **必须提交**——`pip install` 路径上没有 Node，wheel 得自带打包好的前端
+# （15 文档 §3.2）。被吞掉时的症状是"从 wheel 装出来的仪表盘说产物缺失"。
+/build/
+/dist/
 *.spec
 
 # ── 本地运行产生的数据 ────────────────────────────────────

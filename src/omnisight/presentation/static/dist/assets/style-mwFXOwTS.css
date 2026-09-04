@@ -1,0 +1,2433 @@
+/* 唯一被 HTML 引用的样式表。文件仍按 06 文档 §10 一组件一文件拆开，这里只做汇总。
+ *
+ * 用 @import 而不是在 HTML 里排 20 个 <link>：新增一个组件样式只改这一处，
+ * 不必同时记得改模板。代价是多一次往返，而资源来自 127.0.0.1。 *//* 设计令牌（06 文档 §3）。**唯一定义颜色、间距、字号的地方**——其余 CSS 只引用变量。
+ *
+ * 与 06 文档的三处刻意差异，都是为了让"深色模式全页无对比度低于 4.5:1 的文本"这条
+ * 判据真的成立（数值由 tests/unit/test_design_tokens.py 机械核对）：
+ *
+ * 1. --text-secondary / --text-tertiary 比文档给的值更深（浅色）/更亮（深色）。
+ *    文档的 #77777d 在白底上是 4.45:1、在 --surface-sunken 上只有 3.84:1，而
+ *    #9a9aa3 只有 2.4:1——它们本来就达不到文档自己写的 4.6:1。
+ * 2. 状态色分成"填充色"与"文字色"两套。#d98613 作为文字在白底上是 2.85:1，
+ *    作为色块（配文字标签）才够用。凡是状态文字一律用 --status-*-text。
+ * 3. 数据分类色同理保留原值：它们只出现在图例色块与图表填充里，从不单独承载文字。
+ */
+:root {
+  color-scheme: light;
+
+  /* 中性灰阶 —— UI 骨架专用，绝不用于数据编码 */
+  --gray-0:  #ffffff;
+  --gray-25: #fbfbfd;
+  --gray-50: #f5f5f7;
+  --gray-100:#eeeef1;
+  --gray-150:#e6e6ea;
+  --gray-200:#d8d8de;
+  --gray-300:#c2c2ca;
+  --gray-400:#9a9aa3;
+  --gray-500:#77777d;
+  --gray-600:#5b5b61;
+  --gray-700:#3d3d42;
+  --gray-800:#2a2a2e;
+  --gray-900:#1d1d1f;
+
+  --surface-page:    var(--gray-50);
+  --surface-card:    var(--gray-0);
+  --surface-sunken:  var(--gray-100);
+  --surface-hover:   rgba(0, 0, 0, .035);
+  --surface-active:  rgba(0, 0, 0, .06);
+  --surface-overlay: rgba(255, 255, 255, .86);
+  --surface-scrim:   rgba(20, 20, 24, .32);
+
+  --text-primary:   var(--gray-900);
+  --text-secondary: #5f5f66;
+  --text-tertiary:  #6b6b73;
+  --text-inverse:   var(--gray-0);
+
+  --border-subtle:  rgba(60, 60, 67, .10);
+  --border-default: rgba(60, 60, 67, .16);
+  --border-strong:  rgba(60, 60, 67, .28);
+
+  --accent:        #2f7cf6;
+  --accent-hover:  #1f6ae4;
+  --accent-subtle: #e8f1fe;
+  --accent-text:   #1257c4;
+
+  /* 身份色 —— 只回答"这是哪一类"。四个带彩度的槽位两两都过 all-pairs 校验
+   * （CVD ΔE ≥ 6、正常视觉 ΔE ≥ 15），因为环形/列表里任意两类都可能并置。
+   * 后两个是**去强调灰**：刻意不带彩度，职责就是不承载身份（14 文档 §3.2）。 */
+  --cat-development:   #be2038;
+  --cat-productivity:  #2f7cf6;
+  --cat-communication: #16a394;
+  --cat-entertainment: #d37819;
+  --cat-system:        #57575c;
+  --cat-uncategorized: #919197;
+
+  /* 度量色 —— "这是哪个量"。时间是蓝，按键是色阶的中段（14 文档 §3.2）。 */
+  --data-time: #2f7cf6;
+  --data-keys: #7e438c;
+
+  /* 量级色阶 —— 单色相 H320，**5 个离散档**。
+   * 零态不在这里：它是承载面本身（键面 = 卡片色，格子 = --heat-0）。
+   * --heat-0 只给格子用；键面的零态是不填色（14 文档 §2.4、§2.16）。 */
+  --heat-0: var(--surface-sunken);
+  --heat-1: #cf8fde;
+  --heat-2: #b375c2;
+  --heat-3: #995ba6;
+  --heat-4: #7e438c;
+  --heat-5: #652a72;
+  --heat-ink: #ffffff;         /* 第 3 档起的数字颜色（翻转点见 key-cap.css） */
+
+  --status-ok:    #1a9d54;
+  --status-warn:  #d98613;
+  --status-error: #d6453d;
+  --status-info:  var(--accent);
+  --status-ok-text:    #0f7a3d;
+  --status-warn-text:  #8a5a0b;
+  --status-error-text: #b3352e;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.04), 0 1px 3px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.06), 0 1px 3px rgba(0,0,0,.04);
+  --shadow-lg: 0 12px 32px rgba(0,0,0,.08), 0 2px 8px rgba(0,0,0,.04);
+  --shadow-focus: 0 0 0 3px var(--accent-subtle), 0 0 0 1px var(--accent);
+
+  /* 键帽（14 文档 §3.4）。硬底影是键帽的侧壁，顶棱是打在帽面上的光——
+   * 两者都是中性色，不参与任何数据编码，所以色阶换了它们也不动。 */
+  --key-wall:  #c9c9d1;
+  --key-gloss: rgba(255, 255, 255, .72);
+  --key-tray:  var(--surface-sunken);
+
+  /* 排版（14 文档 §3.3）。Segoe UI Variable 在 Windows 11 上分三个族发行，设计意图
+   * 就是分档使用：Small 给 ≤12px（字重更实、字腔更开），Text 给 13–20px，Display
+   * 给 ≥24px。用 Display 排 11px 会偏细偏挤。三条链的头尾一致，只换中间那一段族名，
+   * 因此 Windows 10 与 macOS/Linux 上完全不变。 */
+  --font-small: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Small",
+                "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+                "Helvetica Neue", Arial, sans-serif;
+  --font-text: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
+               "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+               "Helvetica Neue", Arial, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display",
+                  "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+                  "Helvetica Neue", Arial, sans-serif;
+  /* 正文档的别名。旧代码引用它的地方不必一次改完。 */
+  --font-sans: var(--font-text);
+  --font-mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas,
+               "SF Mono", monospace;
+
+  --text-2xs: 11px;  --text-xs: 12px;  --text-sm: 13px;
+  --text-base:14px;  --text-md: 15px;  --text-lg: 17px;
+  --text-xl: 20px;   --text-2xl:26px;  --text-3xl:34px;  --text-4xl:44px;
+
+  --weight-normal: 400; --weight-medium: 500;
+  --weight-semibold: 600; --weight-bold: 700;
+
+  --leading-tight: 1.25; --leading-normal: 1.5; --leading-relaxed: 1.7;
+  --tracking-tight: -0.015em; --tracking-normal: 0; --tracking-wide: 0.02em;
+
+  /* 4px 基准栅格 */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10:40px;
+  --space-12:48px; --space-16:64px;
+
+  --radius-xs: 4px;  --radius-sm: 6px;  --radius-md: 10px;
+  --radius-lg: 16px; --radius-xl: 18px; --radius-full: 999px;
+
+  --duration-instant: 80ms;  --duration-fast: 140ms;
+  --duration-normal: 220ms;  --duration-slow: 360ms;
+  --ease-out:    cubic-bezier(.22, 1, .36, 1);
+  --ease-in-out: cubic-bezier(.4, 0, .2, 1);
+  --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+
+  --layout-max: 1440px;
+  --layout-gutter: var(--space-6);
+  --header-height: 56px;
+  --periodbar-height: 48px;
+}
+
+/* 深色令牌只写一次，两个选择器共用（媒体查询下 data-theme="light" 可反悔）。 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-page:    #16161a;
+    --surface-card:    #202024;
+    --surface-sunken:  #2a2a2f;
+    --surface-hover:   rgba(255,255,255,.05);
+    --surface-active:  rgba(255,255,255,.09);
+    --surface-overlay: rgba(32,32,36,.88);
+    --surface-scrim:   rgba(0, 0, 0, .52);
+
+    --text-primary:   #f2f2f5;
+    --text-secondary: #a8a8b2;
+    --text-tertiary:  #93939e;
+
+    --border-subtle:  rgba(255,255,255,.07);
+    --border-default: rgba(255,255,255,.12);
+    --border-strong:  rgba(255,255,255,.22);
+
+    --accent:        #5b9bff;
+    --accent-hover:  #7fb0ff;
+    --accent-subtle: #1c2c4a;
+    --accent-text:   #8fbaff;
+
+    /* 深色不是浅色的翻转：这六个值按深色明度带（OKLCH L 0.48–0.67）重新取，
+     * 不是"把浅色调亮"——后者会让小色块看起来发荧光（14 文档 §3.2）。 */
+    --cat-development:   #c82d40;
+    --cat-productivity:  #4c8df9;
+    --cat-communication: #1ea697;
+    --cat-entertainment: #d67918;
+    --cat-system:        #aaaab0;
+    --cat-uncategorized: #6e6e73;
+
+    --data-time: #4c8df9;
+    --data-keys: #a86ab6;
+
+    /* 深色的色阶是从暗爬到亮，所以零态必须坐在第 1 档**下面**——用 --surface-sunken
+     * （#2a2a2f，比卡片亮）会让零格反而比"按过一次"更亮，对比只有 1.87:1。
+     * 这里取一个比卡片更沉的灰：格子仍然看得见，而第 1 档从它里面浮起来。 */
+    --heat-0: #191920;
+    --heat-1: #773b84;
+    --heat-2: #8f539d;
+    --heat-3: #a86ab6;
+    --heat-4: #c282d0;
+    --heat-5: #dc9beb;
+    --heat-ink: #14141a;
+
+    --status-ok:    #3ddc84;
+    --status-warn:  #f5a55c;
+    --status-error: #ff7a72;
+    --status-ok-text:    #4ade80;
+    --status-warn-text:  #fbbf6b;
+    --status-error-text: #ff9a94;
+
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,.35);
+    --shadow-lg: 0 12px 32px rgba(0,0,0,.45);
+    --shadow-focus: 0 0 0 3px var(--accent-subtle), 0 0 0 1px var(--accent);
+
+    --key-wall:  #101014;
+    --key-gloss: rgba(255, 255, 255, .06);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-page:    #16161a;
+  --surface-card:    #202024;
+  --surface-sunken:  #2a2a2f;
+  --surface-hover:   rgba(255,255,255,.05);
+  --surface-active:  rgba(255,255,255,.09);
+  --surface-overlay: rgba(32,32,36,.88);
+  --surface-scrim:   rgba(0, 0, 0, .52);
+
+  --text-primary:   #f2f2f5;
+  --text-secondary: #a8a8b2;
+  --text-tertiary:  #93939e;
+
+  --border-subtle:  rgba(255,255,255,.07);
+  --border-default: rgba(255,255,255,.12);
+  --border-strong:  rgba(255,255,255,.22);
+
+  --accent:        #5b9bff;
+  --accent-hover:  #7fb0ff;
+  --accent-subtle: #1c2c4a;
+  --accent-text:   #8fbaff;
+
+  /* 深色不是浅色的翻转：这六个值按深色明度带（OKLCH L 0.48–0.67）重新取，
+   * 不是"把浅色调亮"——后者会让小色块看起来发荧光（14 文档 §3.2）。 */
+  --cat-development:   #c82d40;
+  --cat-productivity:  #4c8df9;
+  --cat-communication: #1ea697;
+  --cat-entertainment: #d67918;
+  --cat-system:        #aaaab0;
+  --cat-uncategorized: #6e6e73;
+
+  --data-time: #4c8df9;
+  --data-keys: #a86ab6;
+
+  /* 深色的色阶是从暗爬到亮，所以零态必须坐在第 1 档**下面**——用 --surface-sunken
+   * （#2a2a2f，比卡片亮）会让零格反而比"按过一次"更亮，对比只有 1.87:1。
+   * 这里取一个比卡片更沉的灰：格子仍然看得见，而第 1 档从它里面浮起来。 */
+  --heat-0: #191920;
+  --heat-1: #773b84;
+  --heat-2: #8f539d;
+  --heat-3: #a86ab6;
+  --heat-4: #c282d0;
+  --heat-5: #dc9beb;
+  --heat-ink: #14141a;
+
+  --status-ok:    #3ddc84;
+  --status-warn:  #f5a55c;
+  --status-error: #ff7a72;
+  --status-ok-text:    #4ade80;
+  --status-warn-text:  #fbbf6b;
+  --status-error-text: #ff9a94;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.35);
+  --shadow-lg: 0 12px 32px rgba(0,0,0,.45);
+  --shadow-focus: 0 0 0 3px var(--accent-subtle), 0 0 0 1px var(--accent);
+
+  --key-wall:  #101014;
+  --key-gloss: rgba(255, 255, 255, .06);
+}
+
+/* 色阶备选主题（06 文档 §3.1、14 文档 §3.1）。默认是紫红 H320；这两档只换色阶，
+ * 不换主色。TODO(批 1 收尾)：两条备选的最浅档目前对表面不足 2:1，需按序数标尺重取
+ * ——与默认色阶同一套明度结构（14 文档 §8.2 的 --ordinal 校验）。 */
+:root[data-heat="warm"] {
+  --heat-1: #fdeacc;
+  --heat-2: #fbcf8d;
+  --heat-3: #f2a94e;
+  --heat-4: #dd7f1b;
+  --heat-5: #a75410;
+  --heat-ink: #ffffff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* 元素级重置与通用工具类。组件样式一律放 components/。 */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+h1 { font-size: var(--text-xl); }
+h2 { font-size: var(--text-md); font-family: var(--font-text); }
+h3 { font-size: var(--text-base); font-family: var(--font-text); }
+p  { margin: 0; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+
+a { color: var(--accent-text); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+button, input, select, textarea { font: inherit; color: inherit; }
+
+button {
+  margin: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: inherit;
+}
+button:disabled { cursor: not-allowed; opacity: .55; }
+
+/* 焦点环只在键盘操作时出现——鼠标点击时出现会让界面显得坏了。 */
+:focus { outline: none; }
+:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: var(--radius-sm);
+}
+
+table { border-collapse: collapse; width: 100%; }
+th { text-align: left; font-weight: var(--weight-medium); color: var(--text-secondary); }
+
+canvas { display: block; max-width: 100%; }
+
+/* ── 工具类 ─────────────────────────────────────────────────────────── */
+/* 视觉隐藏但屏幕阅读器可读。canvas 图表的数据表用它（06 文档 §11）。 */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 跳转链接：键盘用户的第一个停靠点，聚焦时才可见（14 文档 §6）。 */
+.skip-link {
+  position: absolute;
+  left: var(--space-4);
+  top: calc(-1 * var(--space-12));
+  z-index: 100;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-md);
+  transition: top var(--duration-fast) var(--ease-out);
+}
+.skip-link:focus-visible { top: var(--space-3); text-decoration: none; }
+
+/* 内联 SVG 图标（14 文档 §3.5）。笔重与颜色跟随文字，因此深浅色不需要两套。 */
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: -0.15em;
+}
+.icon-sprite { display: none; }
+
+.numeric, .tabular {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-tight);
+}
+
+.muted { color: var(--text-secondary); }
+.dim   { color: var(--text-tertiary); }
+.mono  { font-family: var(--font-mono); }
+
+.text-xs { font-size: var(--text-xs); }
+.text-sm { font-size: var(--text-sm); }
+
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+.stack   { display: flex; flex-direction: column; gap: var(--space-3); }
+.row     { display: flex; align-items: center; gap: var(--space-2); }
+.row--wrap { flex-wrap: wrap; }
+.spacer  { flex: 1 1 auto; }
+
+/* 斜纹：能力缺失区间的唯一视觉编码（06 文档 §4.2 规则 1）。深浅两色都要看得出。 */
+.hatched {
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--border-strong) 0 2px,
+    transparent 2px 6px
+  );
+}
+
+[hidden] { display: none !important; }
+
+/* 全局框架：顶栏 56px + 周期栏 48px + 内容区（06 文档 §4.1）。 */
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 顶栏 ──────────────────────────────────────────────────────────── */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--layout-gutter);
+  background: var(--surface-overlay);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  flex: none;
+}
+
+.brand__dot {
+  width: 10px; height: 10px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  flex: none;
+}
+
+.topbar__end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+}
+
+.icon-button {
+  width: 32px; height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  transition: background var(--duration-fast) var(--ease-out);
+}
+.icon-button:hover { background: var(--surface-hover); color: var(--text-primary); }
+.icon-button[aria-pressed="true"] { background: var(--accent-subtle); color: var(--accent-text); }
+
+/* ── 周期栏 ────────────────────────────────────────────────────────── */
+.periodbar {
+  position: sticky;
+  top: var(--header-height);
+  z-index: 20;
+  min-height: var(--periodbar-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--layout-gutter);
+  background: var(--surface-page);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+}
+
+.periodbar__nav { display: flex; align-items: center; gap: var(--space-1); }
+
+/* 数据新鲜度。只在实时通道断掉时出现（16 文档 §A6），因此它不参与常态排版。 */
+.periodbar__freshness {
+  font-size: var(--text-2xs);
+  font-family: var(--font-small);
+  color: var(--text-tertiary);
+}
+
+/* 视图级筛选（14 文档 §4.1）。用一条竖线与周期部分分开：它们回答的是不同的问题
+   ——左边是"哪一段时间"，右边是"这一屏里的哪一批"。 */
+.periodbar__filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--border-subtle);
+}
+/* 这一行是固定 48px 高，因此**行内控件一律不换行**：分段器折成两行、复选框标签断成
+   两截，都会把周期栏顶开（应用视图加上第五个排序键"最近"之后就是这样）。要让位的是
+   搜索框的宽度，不是这一行的高度。 */
+.periodbar__filters .segmented { flex-wrap: nowrap; }
+.periodbar__filters .search { min-width: 132px; flex: 0 1 200px; }
+.periodbar__filters .checkbox { white-space: nowrap; }
+
+.period-label {
+  min-width: 12ch;
+  text-align: center;
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.period-custom {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.period-custom input[type="date"] {
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 3px var(--space-2);
+  color: var(--text-primary);
+}
+
+/* ── 内容区 ────────────────────────────────────────────────────────── */
+.main {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: var(--layout-max);
+  margin: 0 auto;
+  padding: var(--space-6) var(--layout-gutter) var(--space-16);
+}
+
+.view { display: flex; flex-direction: column; gap: var(--space-5); }
+.view__title { font-size: var(--text-xl); }
+.view__title:focus-visible { box-shadow: none; }
+
+/* 双列网格。窄窗口自动落回单列，不需要每个面板各写一次断点。 */
+.grid { display: grid; gap: var(--space-4); }
+.grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+@media (max-width: 1023px) {
+  .grid--2, .grid--3 { grid-template-columns: minmax(0, 1fr); }
+  .grid--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 899px) {
+  :root { --layout-gutter: var(--space-4); }
+  .topbar { gap: var(--space-2); }
+  .brand span:not(.brand__dot) { display: none; }
+}
+
+@media (max-width: 767px) {
+  .grid--4 { grid-template-columns: minmax(0, 1fr); }
+}
+
+.card {
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-5);
+  min-width: 0;
+}
+
+.card--sunken { background: var(--surface-sunken); box-shadow: none; }
+.card--flush  { padding: 0; overflow: hidden; }
+
+.card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  min-height: 24px;
+}
+.card__head .spacer { flex: 1 1 auto; }
+
+.card__title { font-size: var(--text-md); font-weight: var(--weight-semibold); }
+.card__hint  { font-size: var(--text-xs); color: var(--text-tertiary); }
+
+.card__link {
+  font-size: var(--text-sm);
+  color: var(--accent-text);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+}
+.card__link:hover { background: var(--accent-subtle); text-decoration: none; }
+
+/* 刷新中：保留旧数据，只在卡片顶沿走一条细进度条（06 文档 §10.1"不清空"）。 */
+.card[data-refreshing="true"] { position: relative; }
+.card[data-refreshing="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: card-refresh 1.1s var(--ease-in-out) infinite;
+}
+
+@keyframes card-refresh {
+  from { background-position: -40% 0; }
+  to   { background-position: 140% 0; }
+}
+
+/* 顶栏标签导航。role="tablist"，键盘用方向键在标签间移动。 */
+.pill-tabs {
+  display: flex;
+  gap: var(--space-1);
+  padding: 3px;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-full);
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.pill-tabs::-webkit-scrollbar { display: none; }
+
+.pill-tab {
+  padding: var(--space-1) var(--space-4);
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out);
+}
+.pill-tab:hover { color: var(--text-primary); }
+.pill-tab[aria-selected="true"] {
+  background: var(--surface-card);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+/* 分段控件：周期范围、指标、时间粒度共用一套（06 文档 §4 的三层控件合并）。 */
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-sm);
+  flex-wrap: wrap;
+}
+
+.segmented__item {
+  padding: 3px var(--space-3);
+  border-radius: var(--radius-xs);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.segmented__item:hover { color: var(--text-primary); }
+.segmented__item[aria-pressed="true"] {
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+  box-shadow: var(--shadow-sm);
+}
+
+.segmented--sm .segmented__item { padding: 2px var(--space-2); font-size: var(--text-xs); }
+
+.chip {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.chip[aria-pressed="true"] { background: var(--accent-subtle); color: var(--accent-text); }
+/* 指标卡（06 文档 §5.1、14 文档 §3.4）。delta 不做价值判断——只有方向，没有颜色。
+ *
+ * 解剖来自键帽：标签左上、数值右下、1px 描边、无独立卡头。整张卡就是一枚放大的键帽。 */
+.card--keycap {
+  border: 1px solid var(--border-default);
+  box-shadow: 0 2px 0 var(--key-wall), inset 0 1px 0 var(--key-gloss);
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.metric__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  font-family: var(--font-text);
+  color: var(--text-secondary);
+}
+/* delta 推到标签行的右端：数值在右下，涨跌在右上，同一条右对齐轴。 */
+.metric__delta { margin-left: auto; }
+
+.metric__value {
+  /* 数值右下对齐（键帽的"塞值"位）。比例数字而不是等宽：44px 上的 tabular-nums
+     会让 121 这类数字看起来松散（14 文档 §3.3）。 */
+  align-self: flex-end;
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-semibold);
+  line-height: 1.1;
+  letter-spacing: var(--tracking-tight);
+}
+/* 一屏只能有一个英雄数字：两个一样大等于没有（dataviz 的 hero figure 规则）。 */
+.metric[data-hero="true"] .metric__value { font-size: var(--text-4xl); }
+
+.metric__delta {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.metric__foot {
+  font-size: var(--text-xs);
+  font-family: var(--font-small);
+  color: var(--text-tertiary);
+}
+
+@media (max-width: 767px) {
+  .metric__value,
+  .metric[data-hero="true"] .metric__value { font-size: var(--text-2xl); }
+}
+
+/* 行内条形：占比条与 KPM 强度条。用 --fill（0..1）驱动，JS 只写这一个变量。 */
+.bar {
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--surface-sunken);
+  overflow: hidden;
+  min-width: 40px;
+}
+.bar > i {
+  display: block;
+  height: 100%;
+  width: calc(var(--fill, 0) * 100%);
+  background: var(--bar-color, var(--accent));
+  border-radius: var(--radius-full);
+  transition: width var(--duration-normal) var(--ease-out);
+}
+
+.bar--thin { height: 4px; }
+.bar--kpm  { --bar-color: var(--cat-communication); width: 56px; min-width: 56px; }
+
+/* 分类色由 data-category 决定，不在 JS 里查表（06 文档 §11 的"颜色硬编码"修正）。 */
+[data-category="productivity"]  { --bar-color: var(--cat-productivity); }
+[data-category="communication"] { --bar-color: var(--cat-communication); }
+[data-category="entertainment"] { --bar-color: var(--cat-entertainment); }
+[data-category="development"]   { --bar-color: var(--cat-development); }
+[data-category="system"]        { --bar-color: var(--cat-system); }
+[data-category="uncategorized"] { --bar-color: var(--cat-uncategorized); }
+
+.swatch {
+  width: 10px; height: 10px;
+  border-radius: 3px;
+  background: var(--bar-color, var(--cat-uncategorized));
+  flex: none;
+}
+
+.legend { display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); }
+.legend__item { display: flex; align-items: center; gap: var(--space-1); color: var(--text-secondary); }
+/* 应用列表行。keyed 更新复用节点，因此样式不能依赖 :nth-child（06 文档 §6.2）。 */
+.app-list { display: flex; flex-direction: column; }
+
+.app-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  width: 100%;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+.app-row:last-child { border-bottom: 0; }
+.app-row:hover { background: var(--surface-hover); }
+.app-row[aria-expanded="true"] { background: var(--surface-hover); }
+
+.app-row__icon {
+  width: 28px; height: 28px;
+  border-radius: var(--radius-sm);
+  object-fit: contain;
+  background: var(--surface-sunken);
+}
+
+/* 无图标时的首字母色块 —— 204 而不是 404 的那条路径（05 文档 §6）。 */
+.app-row__initial {
+  width: 28px; height: 28px;
+  border-radius: var(--radius-sm);
+  display: grid;
+  place-items: center;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--text-inverse);
+  background: var(--bar-color, var(--cat-uncategorized));
+}
+
+.app-row__main { min-width: 0; }
+.app-row__name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--weight-medium);
+}
+.app-row__meta {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.app-row__bar { margin-top: var(--space-2); }
+
+.app-row__stats {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  flex: none;
+}
+.app-row__duration { font-weight: var(--weight-medium); min-width: 8ch; text-align: right; }
+.app-row__percent  { color: var(--text-secondary); min-width: 5ch; text-align: right; }
+.app-row__presses  { color: var(--text-secondary); min-width: 8ch; text-align: right; }
+
+.app-row__running {
+  width: 6px; height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--status-ok);
+  flex: none;
+}
+
+.app-row__menu { color: var(--text-tertiary); padding: 0 var(--space-1); }
+.app-row__menu:hover { color: var(--text-primary); }
+
+/* 展开的单应用详情，同页展开不跳转（06 文档 §6）。 */
+.app-detail {
+  padding: var(--space-4) var(--space-4) var(--space-5) 60px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-sunken);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.app-detail__path {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  word-break: break-all;
+}
+
+.app-detail__totals {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.app-detail__total {
+  background: var(--surface-card);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+.app-detail__total dt { font-size: var(--text-xs); color: var(--text-secondary); }
+.app-detail__total dd {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.app-detail__keys { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+.key-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  font-size: var(--text-xs);
+}
+.key-chip b { font-family: var(--font-mono); font-weight: var(--weight-semibold); }
+.key-chip span { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+.app-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.app-actions__merge { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; width: 100%; }
+.app-actions__merge .control { min-width: 12em; }
+
+.button {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--surface-card);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  transition: background var(--duration-fast) var(--ease-out);
+}
+.button:hover { background: var(--surface-hover); }
+.button--primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+}
+.button--primary:hover { background: var(--accent-hover); }
+.button--danger { color: var(--status-error-text); }
+
+@media (max-width: 899px) {
+  .app-row { grid-template-columns: 28px minmax(0, 1fr); }
+  .app-row__stats { grid-column: 2; gap: var(--space-3); }
+  .app-detail { padding-left: var(--space-4); }
+  .app-detail__totals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* 应用范围选择器（14 文档 §4.6 第 3 项）。
+ *
+ * 弹层而不是常驻网格：它只在切范围时出现，常驻会把筛选行下面一整屏都占掉。
+ * 层级 50 与状态点浮层同档——它们都是"贴在筛选行上的临时面板"，都在抽屉(80)之下。 */
+.app-picker { position: relative; display: inline-flex; align-items: center; gap: var(--space-2); }
+
+.app-picker__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 240px;
+}
+.app-picker__mark { display: inline-flex; width: 18px; height: 18px; flex: none; }
+.app-picker__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.app-picker__panel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  /* **右对齐**：选择器长在筛选行的右段，左对齐会让 600px 的弹层顶出视口右边——
+     那不只是被裁掉，还会给整页拉出一条横向滚动条。 */
+  right: 0;
+  z-index: 50;
+  width: min(600px, calc(100vw - var(--space-8)));
+  max-height: min(60vh, 520px);
+  overflow: auto;
+  padding: var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-lg);
+}
+
+.app-picker__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  flex-wrap: wrap;
+}
+.app-picker__head .search { flex: 1 1 180px; }
+
+/* 190px 下限来自 14 §4.6：再窄"应用名 + 副行"就要截断，而认名字是这个网格的第二线索。 */
+.app-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: var(--space-2);
+}
+
+.app-picker__cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-out);
+}
+.app-picker__cell:hover { background: var(--surface-hover); }
+/* 选中态：底色 + 边框，不用勾。勾要额外一列宽度，而这一格只有 190px。 */
+.app-picker__cell[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.app-picker__icon,
+.app-picker__initial {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-xs);
+  flex: none;
+}
+.app-picker__icon { object-fit: contain; background: var(--surface-sunken); }
+.app-picker__initial {
+  display: grid;
+  place-items: center;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--text-inverse);
+  background: var(--bar-color, var(--cat-uncategorized));
+}
+
+.app-picker__copy { display: grid; min-width: 0; }
+.app-picker__label {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-picker__meta {
+  font-size: var(--text-2xs);
+  font-family: var(--font-small);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-picker__empty {
+  grid-column: 1 / -1;
+  padding: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+/* 键盘与键位（06 文档 §7.1、14 文档 §2.4/§2.5/§2.16/§3.4）。
+ *
+ * 几何的三条规则，全部由 CSS 承担，JS 只下发倍数：
+ *
+ * 1. 每 1 单位的步距是 `u + key-gap`，所以宽 w 的键是 `w*u + (w-1)*gap`，
+ *    宽 w 的空隙用同一个式子。于是每一行的总宽都是 `23u + 22gap`，行与行天然对齐，
+ *    渲染器不需要知道"这一行为什么短了一格"。
+ * 2. 行高固定为 u。双高键（小键盘的 + 与 Enter、ISO 回车）**溢出**到下一行，
+ *    下一行的布局数据里已如实留出空隙（layouts.py 的 _NUMPAD_MID）。行高不固定的话，
+ *    一个双高键会把后面所有行顶下去 1 个键位。
+ * 3. ISO 回车是唯一的非矩形键：用 clip-path 在左下角挖掉 0.25 单位的缺口。
+ *    代价是缺口那两条短边没有描边（clip-path 会把 border 一起裁掉）；换来的是
+ *    几何完全精确、没有两块拼接的接缝。只此一例，不引入通用多边形机制。
+ *
+ * 着色是**离散五档**，不是连续插值（14 文档 §2.4）：
+ *
+ * - 档位由 `data-level` 直接选色，于是图例的色块与键面渲染的是同一组值；连续插值时
+ *   图例摆 6 个离散块、键面画连续量，读者无法把颜色对回一个值区间。
+ * - 零态**不填色**：键面就是托盘上的一枚空键帽。因此"按过一次"（--heat-1）与
+ *   "从没按过"（卡片色）差 2.43:1，而连续插值时两者只差 1.07:1，实际不可辨。
+ * - 键盘托盘用 --surface-sunken 下沉一档，键面才有落点；否则零态键面与卡片同色，
+ *   整块键盘会散成一堆浮空的描边（14 文档 §2.16）。
+ */
+.keyboard-wrap {
+  overflow-x: auto;
+  padding: var(--space-3);
+  background: var(--key-tray);
+  border-radius: var(--radius-md);
+}
+
+.keyboard {
+  /* 下限 30px 而不是 26px：键面数值有 11px 的地板，--u 太小时它会被整个丢掉
+     （见 .key-cap__value 的 max()）。1440px 窗口下键盘一行是 23u + 22×0.14u。 */
+  --u: clamp(30px, 3.0vw, 46px);
+  --key-gap: calc(var(--u) * 0.14);
+  --pitch: calc(var(--u) + var(--key-gap));
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--key-gap);
+}
+
+/* 紧凑档：优先让整块键盘不横向滚动，代价是键面数值可能装不下（14 文档 §4.4）。 */
+.keyboard[data-density="compact"] { --u: clamp(24px, 2.4vw, 34px); }
+
+.keyboard__row {
+  display: flex;
+  gap: var(--key-gap);
+  align-items: flex-start;
+  height: var(--u);
+  flex: none;
+}
+
+.key-spacer {
+  flex: none;
+  width: calc(var(--u) * var(--w, 1) + var(--key-gap) * (var(--w, 1) - 1));
+}
+
+.key-cap {
+  --w: 1;
+  --h: 1;
+  position: relative;
+  flex: none;
+  align-self: flex-start;
+  width: calc(var(--u) * var(--w) + var(--key-gap) * (var(--w) - 1));
+  height: calc(var(--u) * var(--h) + var(--key-gap) * (var(--h) - 1));
+  border-radius: calc(var(--u) * 0.14);
+  border: 1px solid var(--border-default);
+  /* 零态 = 卡片色。它不是色阶的一档，是"这枚键帽上什么都没有"。 */
+  background: var(--surface-card);
+  color: var(--text-primary);
+  /* 键帽的物理感：硬底影是侧壁，顶棱是打在帽面上的光。两者都是中性色，
+     不参与数据编码，所以换色阶时它们不动（14 文档 §3.4）。 */
+  box-shadow: 0 2px 0 var(--key-wall), inset 0 1px 0 var(--key-gloss);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: calc(var(--u) * 0.08);
+  overflow: hidden;
+  text-align: left;
+  transition: transform var(--duration-instant) var(--ease-out),
+              box-shadow var(--duration-instant) var(--ease-out),
+              background var(--duration-normal) var(--ease-out);
+}
+
+/* 五个离散档。图例用的是同一组变量，两边永远一致。 */
+.key-cap[data-level="1"] { background: var(--heat-1); }
+.key-cap[data-level="2"] { background: var(--heat-2); }
+.key-cap[data-level="3"] { background: var(--heat-3); }
+.key-cap[data-level="4"] { background: var(--heat-4); }
+.key-cap[data-level="5"] { background: var(--heat-5); }
+
+/* 墨色翻转点在第 3 档。按真实渲染算，第 3 档起正文墨不足 4.5:1、反色墨够
+   （14 文档 §3.2 的色阶表）——现状是第 4 档才翻，第 3 档因此偏灰。 */
+.key-cap[data-level="3"],
+.key-cap[data-level="4"],
+.key-cap[data-level="5"] { color: var(--heat-ink); }
+
+.key-cap:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 0 var(--key-wall), inset 0 1px 0 var(--key-gloss);
+}
+
+.key-cap__label {
+  /* 11px 地板：全站最小字号。装不下时宁可不印，也不印成 8px（14 文档 §2.5）。 */
+  font-size: max(var(--text-2xs), calc(var(--u) * 0.26));
+  font-family: var(--font-small);
+  line-height: 1.15;
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.key-cap__value {
+  align-self: flex-end;
+  font-size: max(var(--text-2xs), calc(var(--u) * 0.21));
+  font-family: var(--font-small);
+  font-variant-numeric: tabular-nums;
+  opacity: .8;
+  white-space: nowrap;
+}
+
+/* 键面装不下 11px 的数值就藏起来（由 JS 按实际 --u 算，见 keyboard-view.js）。
+   兜底：折叠的「表格视图」里每个键都有完整读数。 */
+.keyboard[data-values="off"] .key-cap__value { display: none; }
+
+/* 超过 p95 的键（06 文档 §7 改进 1）。这一档已经饱和到最深，再用颜色区分不可能，
+   所以标记是**形状**：右上角切掉一个小三角（14 文档 §4.4）。 */
+.key-cap[data-saturated="true"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  border-width: 0 calc(var(--u) * 0.22) calc(var(--u) * 0.22) 0;
+  border-style: solid;
+  border-color: transparent var(--surface-card) transparent transparent;
+}
+
+.key-cap.is-pressed {
+  transform: translateY(2px);
+  box-shadow: 0 0 0 var(--key-wall), inset 0 2px 5px rgba(0, 0, 0, .22);
+}
+@media (prefers-reduced-motion: reduce) {
+  .key-cap.is-pressed { transform: none; box-shadow: inset 0 0 0 2px var(--accent); }
+}
+
+.key-cap.is-current { box-shadow: var(--shadow-focus); }
+
+/* ISO 回车。缺口宽度 = 0.25 步距，缺口顶边 = 第一行的底沿（含行间空隙）。 */
+.key-cap[data-shape="iso_enter"] {
+  --notch-x: calc(var(--pitch) * 0.25);
+  --notch-y: calc(var(--u) + var(--key-gap));
+  clip-path: polygon(
+    0 0, 100% 0, 100% 100%,
+    var(--notch-x) 100%,
+    var(--notch-x) var(--notch-y),
+    0 var(--notch-y)
+  );
+}
+
+/* 不在当前布局里但有数据的键（05 文档 §4 的 orphan_keys）。 */
+.orphans { margin-top: var(--space-4); }
+.orphans__title { font-size: var(--text-sm); color: var(--text-secondary); margin-bottom: var(--space-2); }
+.orphans__list { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+.heat-legend {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  font-family: var(--font-small);
+  color: var(--text-secondary);
+  margin-top: var(--space-3);
+  flex-wrap: wrap;
+}
+.heat-legend__scale { display: flex; gap: 2px; }
+.heat-legend__step {
+  width: 18px; height: 10px;
+  border-radius: 2px;
+  border: 1px solid var(--border-subtle);
+}
+/* 第 0 档是零态：图例里画成空键帽（卡片色 + 描边），与键面一致。 */
+.heat-legend__step[data-level="0"] { background: var(--surface-card); }
+.heat-legend__step[data-level="1"] { background: var(--heat-1); }
+.heat-legend__step[data-level="2"] { background: var(--heat-2); }
+.heat-legend__step[data-level="3"] { background: var(--heat-3); }
+.heat-legend__step[data-level="4"] { background: var(--heat-4); }
+.heat-legend__step[data-level="5"] { background: var(--heat-5); }
+
+/* 键盘的表格孪生（14 文档 §4.4）。canvas 图有 sr-only 表，键盘是 DOM 所以没有——
+   这里补一个人人可见、可复制的折叠表，同时兜住"数值印不下"的场景。 */
+.keyboard-table { margin-top: var(--space-3); }
+.keyboard-table > summary {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.keyboard-table__scroll { max-height: 320px; overflow: auto; margin-top: var(--space-2); }
+
+@media (max-width: 767px) {
+  .keyboard { --u: 26px; }
+}
+
+/* 强制颜色模式：色阶整个失效（系统只给有限几个颜色），改用斜纹密度分档。 */
+@media (forced-colors: active) {
+  .key-cap[data-level] {
+    background-image: repeating-linear-gradient(135deg, currentColor 0 1px, transparent 1px var(--hatch, 8px));
+  }
+  .key-cap[data-level="1"] { --hatch: 9px; }
+  .key-cap[data-level="2"] { --hatch: 7px; }
+  .key-cap[data-level="3"] { --hatch: 5px; }
+  .key-cap[data-level="4"] { --hatch: 3.5px; }
+  .key-cap[data-level="5"] { --hatch: 2.5px; }
+  .key-cap[data-level="0"] { background-image: none; }
+}
+/* 格子热力图：日历（365 天）与时/日/月/年网格共用。着色与键位同一套色阶，但**零态
+ * 不同**：格子直接坐在卡片上，没有键帽那层托盘，所以它的零态是 --heat-0（下沉一档的
+ * 灰），不是卡片色——否则 365 个零格会在卡上消失（14 文档 §2.4）。 */
+.heatgrid {
+  display: grid;
+  gap: 3px;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 1fr);
+  overflow-x: auto;
+  padding-bottom: var(--space-1);
+}
+
+.heatgrid--flow {
+  grid-auto-flow: row;
+  grid-template-rows: none;
+  grid-template-columns: repeat(auto-fill, minmax(14px, 1fr));
+}
+
+.heat-cell {
+  width: 12px; height: 12px;
+  border-radius: 3px;
+  background: var(--heat-0);
+  border: 1px solid var(--border-subtle);
+}
+
+/* 五个离散档，与键面同源。 */
+.heat-cell[data-level="1"] { background: var(--heat-1); }
+.heat-cell[data-level="2"] { background: var(--heat-2); }
+.heat-cell[data-level="3"] { background: var(--heat-3); }
+.heat-cell[data-level="4"] { background: var(--heat-4); }
+.heat-cell[data-level="5"] { background: var(--heat-5); }
+
+/* 无数据不等于零。缺口用斜纹，而不是最浅的热力档（06 文档 §4.2 规则 1）。 */
+.heat-cell[data-gap="true"] {
+  background-color: var(--surface-sunken);
+  background-image: repeating-linear-gradient(
+    135deg, var(--border-strong) 0 1.5px, transparent 1.5px 4px
+  );
+}
+
+.heat-cell[data-empty="true"] { background: transparent; border-color: transparent; }
+
+/* 月份轴（14 文档 §5.2）。365 个格子没有刻度就看不出六月在哪；标签的 grid-column
+   由 calendar-heatmap.js 按每个月第一列的位置下发。 */
+.heatgrid__months {
+  display: grid;
+  grid-auto-flow: column;
+  font-size: var(--text-2xs);
+  font-family: var(--font-small);
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-1);
+}
+.heatgrid__month { grid-row: 1; }
+
+@media (forced-colors: active) {
+  .heat-cell[data-level] {
+    background-image: repeating-linear-gradient(135deg, currentColor 0 1px, transparent 1px var(--hatch, 8px));
+  }
+  .heat-cell[data-level="1"] { --hatch: 6px; }
+  .heat-cell[data-level="2"] { --hatch: 5px; }
+  .heat-cell[data-level="3"] { --hatch: 4px; }
+  .heat-cell[data-level="4"] { --hatch: 3px; }
+  .heat-cell[data-level="5"] { --hatch: 2px; }
+  .heat-cell[data-level="0"] { background-image: none; }
+}
+
+.weekday-axis {
+  display: grid;
+  grid-template-rows: repeat(7, 1fr);
+  gap: 3px;
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+  margin-right: var(--space-1);
+  align-items: center;
+}
+
+.calendar { display: flex; align-items: flex-start; }
+
+/* Canvas 图表的外壳。canvas 自身尺寸由 ResizeObserver 按 DPR 设置（07 文档 §6.3）。 */
+.chart {
+  position: relative;
+  width: 100%;
+}
+.chart canvas { width: 100%; display: block; }
+
+.chart--tall canvas   { height: 220px; }
+.chart--medium canvas { height: 150px; }
+.chart--short canvas  { height: 96px; }
+
+.chart__axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--text-2xs);
+  font-family: var(--font-small);
+  color: var(--text-tertiary);
+  margin-top: var(--space-1);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 图例。两个系列的图必须有图例，且常驻（14 文档 §4.3）。系列用一小段线色标识。 */
+.chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-top: var(--space-2);
+  font-size: var(--text-2xs);
+  font-family: var(--font-small);
+  color: var(--text-secondary);
+}
+.chart__legend-item { display: inline-flex; align-items: center; gap: var(--space-2); }
+.chart__legend-item > i {
+  width: 14px;
+  height: 3px;
+  border-radius: var(--radius-full);
+  background: var(--text-tertiary);
+}
+.chart__legend-item[data-series="time"] > i { background: var(--data-time); }
+.chart__legend-item[data-series="keys"] > i { background: var(--data-keys); }
+/* 类别图例：色块而不是线段——它标的是堆叠段的填充色，不是一条系列线。
+   --bar-color 由 bar.css 的 [data-category] 规则给，色值不在这里第二次硬编码。 */
+.chart__legend-item[data-category] > i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--bar-color, var(--cat-uncategorized));
+}
+
+.chart__empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}
+
+/* 指标卡上的对照条（14 文档 §4.3 的 7–14 根柱）。高度由 JS 按实例给。
+   限宽的理由：7 根柱铺满一张 680px 的卡会读成散落的刻度而不是一组可比的柱子。 */
+.metric__context { max-width: 340px; }
+.metric__context canvas { display: block; width: 100%; }
+/* 每小时应用图标带（16 文档 §A1）。
+ *
+ * 24 行固定在场，空行也留——"这一小时什么都没干"本身是信息，跳过它会让读者以为
+ * 那一小时不存在。行高压到 26px：24 行必须能在一屏里看完，否则它就失去了"扫一眼
+ * 就知道一天怎么过的"的意义。 */
+.hour-band {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hour-band__row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 26px;
+  border-radius: var(--radius-xs);
+}
+.hour-band__row:hover { background: var(--surface-hover); }
+/* 没有记录的小时：标签压淡、行压矮，但**仍然在场**——空行是"那一小时什么都没干"，
+   而不是"那一小时不存在"。压矮只是让有内容的行自己浮出来。 */
+.hour-band__row[data-empty="true"] { min-height: 18px; }
+.hour-band__row[data-empty="true"] .hour-band__hour { color: var(--text-tertiary); }
+
+.hour-band__hour {
+  font-size: var(--text-2xs);
+  font-family: var(--font-small);
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.hour-band__apps {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.hour-band__app {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  flex: none;
+}
+.hour-band__icon {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-xs);
+  object-fit: contain;
+  background: var(--surface-sunken);
+}
+.hour-band__initial {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-xs);
+  display: grid;
+  place-items: center;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  color: var(--text-inverse);
+  background: var(--bar-color, var(--cat-uncategorized));
+}
+
+/* `+N`：装不下的与后端 top 之外的合成一格，hover 报它们的合计时长。 */
+.hour-band__more {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-xs);
+  flex: none;
+  font-size: var(--text-2xs);
+  font-family: var(--font-small);
+  color: var(--text-secondary);
+  background: var(--surface-sunken);
+}
+
+/* 整块缺口：绝不画一片 0（06 文档 §4.2 规则 1）。 */
+.hour-band__gap {
+  padding: var(--space-4);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--border-strong) 0 2px,
+    transparent 2px 6px
+  );
+}
+/* 单例浮动提示。跟随指针，靠近边界时翻转（06 文档 §10）。 */
+.tooltip {
+  position: fixed;
+  z-index: 60;
+  max-width: 280px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-md);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.tooltip[data-open="true"] { opacity: 1; }
+.tooltip__title { font-weight: var(--weight-semibold); margin-bottom: 2px; }
+.tooltip__row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.tooltip__note { color: var(--status-warn-text); margin-top: 2px; }
+.toast-host {
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-end;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-md);
+  font-size: var(--text-sm);
+  max-width: 380px;
+  animation: toast-in var(--duration-normal) var(--ease-out);
+}
+.toast[data-kind="error"] { border-color: var(--status-error); }
+.toast[data-kind="ok"]    { border-color: var(--status-ok); }
+.toast__dot { width: 6px; height: 6px; border-radius: var(--radius-full); flex: none; }
+.toast[data-kind="error"] .toast__dot { background: var(--status-error); }
+.toast[data-kind="ok"] .toast__dot    { background: var(--status-ok); }
+.toast[data-kind="info"] .toast__dot  { background: var(--accent); }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* 降级表达的前两级（06 文档 §4.2）：全局横幅与面板内说明块。
+ * 第三级（图表斜纹）在 heat-cell.css / base.css 的 .hatched 里。
+ *
+ * 文案的验收标准是"缺什么 / 什么仍然正常 / 怎么解决"三段齐全，这三段由后端
+ * degraded[] 的 title / detail / hint 提供——前端不编文案，也不判断平台。
+ */
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--layout-gutter);
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--border-default);
+  font-size: var(--text-sm);
+}
+.banner[data-severity="error"] { border-left: 3px solid var(--status-error); }
+.banner[data-severity="warning"] { border-left: 3px solid var(--status-warn); }
+
+.banner__mark { flex: none; color: var(--status-warn-text); }
+.banner[data-severity="error"] .banner__mark { color: var(--status-error-text); }
+.banner__body { flex: 1 1 auto; min-width: 0; }
+.banner__title { font-weight: var(--weight-medium); }
+.banner__detail { color: var(--text-secondary); }
+.banner__hint { color: var(--text-tertiary); font-size: var(--text-xs); margin-top: 2px; }
+.banner__close { flex: none; color: var(--text-tertiary); padding: 0 var(--space-1); }
+.banner__close:hover { color: var(--text-primary); }
+
+/* 面板内说明块：保留面板标题与边框，只替换正文。**不带重试按钮**——重试不改变结果。 */
+.notice {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  border: 1px dashed var(--border-default);
+  font-size: var(--text-sm);
+}
+.notice__mark {
+  flex: none;
+  width: 20px; height: 20px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+  display: grid;
+  place-items: center;
+  font-size: var(--text-xs);
+}
+.notice__title { font-weight: var(--weight-medium); margin-bottom: 2px; }
+.notice__detail { color: var(--text-secondary); }
+.notice__hint { color: var(--text-tertiary); font-size: var(--text-xs); margin-top: var(--space-1); }
+/* 采集状态指示器：绿=正常、黄=暂停、红=后端故障（06 文档 §4.1）。
+ * 点击展开采集详情浮层，这是旧版完全缺失的能力。 */
+/* 浮层相对这个容器定位：按钮与浮层是兄弟节点，定位上下文必须在它们的父级。 */
+.status-wrap { position: relative; display: flex; }
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: var(--surface-sunken);
+}
+.status:hover { color: var(--text-primary); }
+
+.status__dot {
+  width: 7px; height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--text-tertiary);
+  flex: none;
+}
+.status[data-state="ok"] .status__dot     { background: var(--status-ok); }
+.status[data-state="paused"] .status__dot { background: var(--status-warn); }
+.status[data-state="error"] .status__dot  { background: var(--status-error); }
+.status[data-state="ok"][data-live="true"] .status__dot { animation: status-pulse 2.4s var(--ease-in-out) infinite; }
+
+@keyframes status-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-ok) 60%, transparent); }
+  50%      { box-shadow: 0 0 0 4px color-mix(in srgb, var(--status-ok) 0%, transparent); }
+}
+
+.status-panel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 50;
+  width: 300px;
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  text-align: left;
+}
+.status-panel dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+}
+.status-panel dt { color: var(--text-secondary); }
+.status-panel dd { margin: 0; font-variant-numeric: tabular-nums; word-break: break-all; }
+/* 四种状态必须长得不一样（06 文档 §10.1）。"能力不可用"走 .notice，不在这里。 */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-10) var(--space-4);
+  text-align: center;
+  color: var(--text-secondary);
+}
+.empty__mark { font-size: var(--text-2xl); color: var(--text-tertiary); line-height: 1; }
+.empty__title { font-weight: var(--weight-medium); color: var(--text-primary); }
+.empty__detail { font-size: var(--text-sm); max-width: 42ch; }
+.empty--error .empty__mark { color: var(--status-error-text); }
+.empty--compact { padding: var(--space-6) var(--space-4); }
+/* 骨架屏：形状要与真实内容一致，否则内容到位时会跳版（06 文档 §10.1）。 */
+.skeleton {
+  border-radius: var(--radius-sm);
+  /* 同上：渐变里含 color-mix()，不支持时整条无效，骨架屏会变成看不见的空块。 */
+  background: var(--surface-sunken);
+  background: linear-gradient(
+    90deg,
+    var(--surface-sunken) 0%,
+    color-mix(in srgb, var(--surface-sunken) 60%, var(--surface-card)) 50%,
+    var(--surface-sunken) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.4s var(--ease-in-out) infinite;
+}
+.skeleton--text { height: 12px; margin-bottom: var(--space-2); }
+.skeleton--value { height: 38px; width: 60%; margin: var(--space-2) 0; }
+.skeleton--bar { height: 6px; }
+.skeleton--chart { height: 150px; }
+.skeleton--row { height: 44px; margin-bottom: 1px; border-radius: 0; }
+
+@keyframes skeleton-sweep {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* 设置抽屉。焦点陷阱与 Esc 关闭在 components/drawer.js 里，样式只管形与动。 */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: var(--surface-scrim);
+  animation: fade-in var(--duration-fast) var(--ease-out);
+}
+
+.drawer {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  z-index: 90;
+  width: min(420px, 100vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-card);
+  border-left: 1px solid var(--border-default);
+  box-shadow: var(--shadow-lg);
+  animation: drawer-in var(--duration-normal) var(--ease-out);
+}
+
+.drawer__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
+  flex: none;
+}
+.drawer__body { flex: 1 1 auto; overflow-y: auto; padding: var(--space-4) var(--space-5) var(--space-10); }
+.drawer__foot {
+  flex: none;
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+@keyframes drawer-in {
+  from { transform: translateX(16px); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+/* 设置表单。**每一项都由 GET /api/v1/settings 的元数据生成**（06 文档 §9）：
+ * 前端不写死"哪个开关在哪个平台上要隐藏"。available: false 的项显示但禁用，
+ * 并在旁边给出 unavailable_reason。 */
+.settings-group { margin-bottom: var(--space-6); }
+.settings-group__title {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-2);
+}
+
+.field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.field:last-child { border-bottom: 0; }
+.field__label { font-size: var(--text-sm); min-width: 0; }
+.field__note {
+  grid-column: 1 / -1;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+.field__error { grid-column: 1 / -1; font-size: var(--text-xs); color: var(--status-error-text); }
+.field[data-available="false"] .field__label { color: var(--text-tertiary); }
+
+.field__tag {
+  font-size: var(--text-2xs);
+  padding: 1px var(--space-1);
+  border-radius: var(--radius-xs);
+  background: var(--surface-sunken);
+  color: var(--text-tertiary);
+  margin-left: var(--space-2);
+  white-space: nowrap;
+}
+
+select.control, input.control {
+  min-width: 132px;
+  max-width: 200px;
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+input.control[type="number"] { width: 92px; min-width: 0; font-variant-numeric: tabular-nums; }
+.control:disabled { background: var(--surface-sunken); color: var(--text-tertiary); }
+
+/* 开关。原生 checkbox 保留在 DOM 里（可访问性 + 键盘），只是画成滑块。 */
+.switch { position: relative; width: 40px; height: 22px; flex: none; }
+.switch input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  width: 100%; height: 100%;
+  cursor: pointer;
+}
+.switch__track {
+  display: block;
+  width: 100%; height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--border-strong);
+  transition: background var(--duration-fast) var(--ease-out);
+  pointer-events: none;
+}
+.switch__track::after {
+  content: "";
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 16px; height: 16px;
+  border-radius: var(--radius-full);
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.switch input:checked + .switch__track { background: var(--accent); }
+.switch input:checked + .switch__track::after { transform: translateX(18px); }
+.switch input:focus-visible + .switch__track { box-shadow: var(--shadow-focus); }
+.switch input:disabled + .switch__track { opacity: .5; }
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  background: var(--surface-sunken);
+  min-width: 200px;
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+.search input {
+  border: 0;
+  background: none;
+  outline: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+.search__mark { color: var(--text-tertiary); flex: none; }
+/* 数据列表用真实 table（06 文档 §13"语义化"）。canvas 的 sr-only 数据表也用它。 */
+.data-table { font-size: var(--text-sm); }
+.data-table th,
+.data-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+.data-table th { font-size: var(--text-xs); }
+.data-table tbody tr:last-child td { border-bottom: 0; }
+.data-table tbody tr:hover { background: var(--surface-hover); }
+.data-table td.numeric,
+.data-table th.numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.data-table td.wide { white-space: normal; min-width: 0; }
+.data-table__scroll { overflow-x: auto; }
+
+.rank { color: var(--text-tertiary); font-variant-numeric: tabular-nums; width: 3ch; }
+
+.kv-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+.kv-list dt { color: var(--text-secondary); }
+.kv-list dd { margin: 0; font-variant-numeric: tabular-nums; }
+/* 导入向导与检测横幅（09 文档 §2）。横幅沿用 banner 的布局，向导内容在抽屉里。 */
+
+.banner--info {
+  border-left: 3px solid var(--accent);
+}
+
+.banner__actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex: none;
+}
+
+.import-wizard__title {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: var(--font-size-lg);
+  margin: 0 0 var(--space-3);
+}
+
+.import-wizard__step {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+.import-wizard__foot-row {
+  display: flex;
+  gap: var(--space-2);
+  width: 100%;
+  align-items: center;
+}
+
+.import-sources {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.import-source__main {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.import-source__main span {
+  display: grid;
+  gap: 2px;
+}
+
+.import-source__path {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  word-break: break-all;
+}
+
+.import-source__meta {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.import-manual {
+  margin: 0 0 var(--space-3);
+}
+
+.import-manual summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.import-manual .field {
+  margin-bottom: var(--space-2);
+}
+
+.import-losses {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.import-losses li {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.import-losses__mark {
+  color: var(--status-warn-text);
+  flex: none;
+}
+
+.import-losses--summary {
+  margin-top: var(--space-2);
+}
+
+.import-losses--summary summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: var(--space-2) 0;
+}
+
+.import-progress {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.import-progress__bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+
+.import-progress__fill {
+  height: 100%;
+  width: 40%;
+  background: var(--accent);
+  border-radius: 4px;
+  animation: import-progress-indeterminate 1.6s ease-in-out infinite;
+}
+
+@keyframes import-progress-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .import-progress__fill {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
+}
+
+.import-progress__counts {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.import-report {
+  margin-bottom: var(--space-3);
+}
+
+/* 首次运行说明（08 文档 §6.1）。
+ *
+ * 它是**居中对话框**而不是抽屉：抽屉的语义是"侧边的次要面板，随时可以划走"，
+ * 而这一屏在首次运行时必须被读到。scrim 复用 drawer.css 里那一份。
+ *
+ * 高度上限 + 内部滚动是必需的：路径行在便携模式下可能很长，而窗口可能只有 600px 高。 */
+.onboarding {
+  position: fixed;
+  z-index: 90;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(620px, calc(100vw - var(--space-8)));
+  max-height: min(90vh, 760px);
+  overflow-y: auto;
+  padding: var(--space-6);
+  display: grid;
+  gap: var(--space-5);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  animation: onboarding-in var(--duration-normal) var(--ease-out);
+}
+
+.onboarding:focus { outline: none; }
+
+.onboarding__head h2 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xl);
+  letter-spacing: var(--tracking-tight);
+}
+
+.onboarding__head p { margin: 0; }
+
+/* 两张清单并排：并排才能一眼看出"记录"与"不记录"是对照关系。
+ * 窄窗口下退成上下两行，而不是让每行挤成两三个字。 */
+.onboarding__lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+}
+
+.onboarding__list h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
+
+.onboarding__list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.onboarding__item {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: var(--text-sm);
+}
+
+.onboarding__item p {
+  margin: 2px 0 0;
+  font-size: var(--text-xs);
+}
+
+/* 标记色是**冗余**编码：文字本身已经分在两张有标题的清单里，
+ * 色觉障碍用户不依赖这个 ✓/✗ 的颜色也能读懂（06 文档 §13）。 */
+.onboarding__item--yes .onboarding__mark { color: var(--status-ok-text); }
+.onboarding__item--no  .onboarding__mark { color: var(--text-tertiary); }
+
+.onboarding__mark {
+  flex: none;
+  font-weight: var(--weight-semibold);
+}
+
+.onboarding__notice {
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--status-warn);
+  border-radius: var(--radius-xs);
+  background: var(--surface-sunken);
+}
+
+.onboarding__notice strong {
+  display: block;
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-1);
+}
+
+.onboarding__notice p {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.onboarding__section h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
+
+.onboarding__section p {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+}
+
+.onboarding__path {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: var(--text-xs);
+  padding: 2px 0;
+}
+
+.onboarding__path-label {
+  flex: none;
+  width: 5.5em;
+  color: var(--text-tertiary);
+}
+
+.onboarding__path code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  /* 路径可能比对话框宽：允许在任意字符处折行，别把对话框撑出横向滚动。 */
+  overflow-wrap: anywhere;
+}
+
+.onboarding__foot {
+  display: flex;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+@keyframes onboarding-in {
+  from { transform: translate(-50%, calc(-50% + 8px)); opacity: 0; }
+  to   { transform: translate(-50%, -50%); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding { animation: none; }
+}
+
+/* 总览：一眼看出"时长"和"键盘"的关系（06 文档 §5）。 */
+.overview__pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+
+.timeline-toggle { display: flex; align-items: center; gap: var(--space-2); }
+
+/* 单条 100% 构成条（14 文档 §2.10）。段间 2px 表面色间隙，**不给记号描边**：
+   描边会给每一段加一圈与数据无关的边界色（14 文档 §5.1）。 */
+.stackbar {
+  display: flex;
+  gap: 2px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-sunken);
+}
+.stackbar__seg {
+  flex-basis: 0;
+  min-width: 2px;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  overflow: hidden;
+  background: var(--cat-uncategorized);
+  transition: filter var(--duration-fast) var(--ease-out);
+}
+.stackbar--clickable .stackbar__seg { cursor: pointer; }
+.stackbar--clickable .stackbar__seg:hover { filter: brightness(1.08); }
+.stackbar__label {
+  font-size: var(--text-2xs);
+  font-family: var(--font-small);
+  font-weight: var(--weight-medium);
+  color: var(--text-inverse);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.stackbar__seg[data-category="development"]   { background: var(--cat-development); }
+.stackbar__seg[data-category="productivity"]  { background: var(--cat-productivity); }
+.stackbar__seg[data-category="communication"] { background: var(--cat-communication); }
+.stackbar__seg[data-category="entertainment"] { background: var(--cat-entertainment); }
+.stackbar__seg[data-category="system"]        { background: var(--cat-system); }
+.stackbar__seg[data-category="uncategorized"] { background: var(--cat-uncategorized); }
+/* 强度分布的四档：同一个度量色的四个明度，不是四个身份色。 */
+.stackbar__seg[data-category="input_heavy"] { background: var(--heat-5); }
+.stackbar__seg[data-category="interactive"] { background: var(--heat-4); }
+.stackbar__seg[data-category="passive"]     { background: var(--heat-3); }
+.stackbar__seg[data-category="idle_open"]   { background: var(--heat-2); }
+
+.highlights { display: flex; flex-direction: column; gap: var(--space-2); }
+/* 每条结论是一个 <details>：点开就是它的计算口径（M4 判据 4）。 */
+.highlight {
+  font-size: var(--text-sm);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.highlight:last-child { border-bottom: none; }
+.highlight summary {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  cursor: pointer;
+  padding: var(--space-1) 0;
+  list-style: none;
+}
+.highlight summary::-webkit-details-marker { display: none; }
+.highlight summary > span:first-child { flex: none; color: var(--accent-text); }
+.highlight__toggle {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  padding: 0 var(--space-2);
+}
+.highlight[open] .highlight__toggle { color: var(--accent-text); border-color: var(--accent-subtle); }
+.highlight__basis {
+  margin: 0 0 var(--space-2) calc(1em + var(--space-2));
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+}
+
+.category-list { display: flex; flex-direction: column; gap: var(--space-3); }
+.category-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+}
+.category-row__percent { color: var(--text-secondary); font-variant-numeric: tabular-nums; min-width: 5ch; text-align: right; }
+.category-row__value { font-variant-numeric: tabular-nums; min-width: 8ch; text-align: right; }
+.category-row__bar { grid-column: 2 / -1; }
+
+/* 两条构成条上下对齐、共用同一条 100% 宽度基准（14 文档 §4.3）。 */
+.overview__stacks { display: flex; flex-direction: column; gap: var(--space-5); }
+.overview__stack-label {
+  font-size: var(--text-xs);
+  font-family: var(--font-small);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+.overview__stacks .category-list { margin-top: var(--space-3); }
+
+/* 强度四档的图例色块：同一度量色的四个明度，与构成条同源。 */
+.category-row[data-profile="input_heavy"] .swatch { background: var(--heat-5); }
+.category-row[data-profile="interactive"] .swatch { background: var(--heat-4); }
+.category-row[data-profile="passive"] .swatch     { background: var(--heat-3); }
+.category-row[data-profile="idle_open"] .swatch   { background: var(--heat-2); }
+
+@media (max-width: 1023px) {
+  .overview__pair { grid-template-columns: minmax(0, 1fr); }
+}
+
+.apps__filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.apps__filters .spacer { flex: 1 1 auto; }
+
+.apps__count { font-size: var(--text-xs); color: var(--text-tertiary); }
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.checkbox { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
+
+.session-list { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); }
+.session-row {
+  display: grid;
+  grid-template-columns: 11ch minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+}
+.session-row__reason { font-size: var(--text-xs); color: var(--text-tertiary); }
+
+/* 会话明细可能有二十来条：给它一个滚动容器，而不是把详情面板撑到两屏高。 */
+.session-list { max-height: 220px; overflow-y: auto; }
+.keyboard-view__scope {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.keyboard-view__scope .spacer { flex: 1 1 auto; }
+
+.keyboard-totals {
+  display: flex;
+  gap: var(--space-8);
+  flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
+}
+.keyboard-total__label { font-size: var(--text-xs); color: var(--text-secondary); }
+.keyboard-total__value { font-size: var(--text-xl); font-weight: var(--weight-semibold); }
+
+.top-keys { display: flex; flex-direction: column; gap: var(--space-2); }
+.top-key {
+  display: grid;
+  grid-template-columns: 3ch 7ch minmax(0, 1fr) 7ch 6ch;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+.top-key__label { font-family: var(--font-mono); font-weight: var(--weight-medium); }
+.top-key__count { text-align: right; }
+.top-key__percent { text-align: right; color: var(--text-secondary); }
+
+.fingers { display: flex; flex-direction: column; gap: var(--space-2); }
+.finger-row {
+  display: grid;
+  grid-template-columns: 6em minmax(0, 1fr) 6ch;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+.finger-row__name { color: var(--text-secondary); }
+.finger-row__percent { text-align: right; }
+
+.hands {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: var(--space-3);
+}
+.hands__bar { flex: 1 1 auto; display: flex; height: 8px; border-radius: var(--radius-full); overflow: hidden; }
+.hands__bar i { display: block; height: 100%; }
+.hands__bar i:first-child { background: var(--cat-productivity); width: calc(var(--left, .5) * 100%); }
+.hands__bar i:last-child  { background: var(--cat-entertainment); flex: 1 1 auto; }
+.profile-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.profile-tag__bar { width: 48px; }
+
+/* 应用画像是**有序的**（主动输入 → 交互 → 被动 → 开着未用），不是四个身份。
+   所以它用同一个度量色的四个明度，而不是借四个类别色——后者会让"画像"看起来
+   像"类别"，而这两件事在同一屏里同时出现（14 文档 §3.2 的四职分离）。 */
+[data-profile="input_heavy"] { --bar-color: var(--heat-5); }
+[data-profile="interactive"] { --bar-color: var(--heat-4); }
+[data-profile="passive"]     { --bar-color: var(--heat-3); }
+[data-profile="idle_open"]   { --bar-color: var(--heat-2); }
+
+.focus-blocks { display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-sm); }
+.focus-block {
+  display: grid;
+  grid-template-columns: 13ch minmax(0, 1fr) 8ch;
+  gap: var(--space-3);
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+}
+
+.key-app-split { display: flex; flex-direction: column; gap: var(--space-2); }
+
+/* 排行表的应用名是下钻入口（M4 应用 × 键盘），下面一行是它的常用键小字。 */
+.rank__app {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+.rank__app:hover { color: var(--accent-text); text-decoration: underline; }
+.rank__app:focus-visible { outline: none; box-shadow: var(--shadow-focus); border-radius: var(--radius-xs); }
+.rank__keys { margin-top: 2px; }
+.rank__keys b { font-weight: var(--weight-medium); }
+/*$vite$:1*/

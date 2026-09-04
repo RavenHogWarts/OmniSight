@@ -328,9 +328,10 @@ def test_the_index_lists_every_package_once(three_packages):
 def test_each_package_gets_a_numbered_section_with_uniform_fields(three_packages):
     text = licenses.render_licenses(three_packages)
     body = text.split("每一节给出")[1]
-    # 嵌入素材（tools/licenses.py 的 EMBEDDED_ASSETS）也各占一节，字段与包一致——
-    # 写成加法而不是写死 4，加第二项素材时这条不该红。
-    expected = len(three_packages) + len(licenses.EMBEDDED_ASSETS)
+    # npm 包与嵌入素材也各占一节，字段与 Python 包一致——写成加法而不是写死数字，
+    # 加一个前端依赖或一项素材时这条不该红（15 文档 §3.5）。
+    extras = len(licenses.EMBEDDED_ASSETS) + len(licenses.npm_licenses.load())
+    expected = len(three_packages) + extras
     assert body.count("许可标识：") == expected
     assert body.count("项目地址：") == expected  # 字段齐整，缺地址也占位
     assert "项目地址：（元数据未提供）" in body
@@ -340,11 +341,12 @@ def test_each_package_gets_a_numbered_section_with_uniform_fields(three_packages
 def test_embedded_assets_are_declared_in_both_manifests(three_packages):
     """非 Python 素材的义务同样要出现在清单里，而不是只藏在生成文件的注释里。
 
-    lucide 的图标几何被搬进 `templates/_icon_sprite.html`（生成器 `tools/icons.py`），
-    因此它随产物分发。`importlib.metadata` 看不见 npm 的东西，所以这一节是手工声明的
-    ——这条用例是它唯一的执行机制。
+    `EMBEDDED_ASSETS` 现在是空的（图标改用 lucide-react，由 npm 那一节覆盖），所以
+    这条只在有素材时才有断言可做。**留着它而不是删掉**：这张表随时会再有内容
+    （字体、示例数据），而那时它是唯一的执行机制。
     """
-    assert licenses.EMBEDDED_ASSETS, "EMBEDDED_ASSETS 空了？lucide 的图标还在产物里"
+    if not licenses.EMBEDDED_ASSETS:
+        pytest.skip("EMBEDDED_ASSETS 为空——当前没有被搬进产物的非 Python 素材")
     notices = licenses.render_notices(three_packages)
     texts = licenses.render_licenses(three_packages)
     for asset in licenses.EMBEDDED_ASSETS:

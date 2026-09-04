@@ -1,0 +1,93 @@
+{
+  "_AppRow-BMX9Ac2T.js": {
+    "file": "assets/AppRow-BMX9Ac2T.js",
+    "name": "AppRow",
+    "imports": [
+      "src/main.tsx"
+    ]
+  },
+  "_buckets-Vq47HwJd.js": {
+    "file": "assets/buckets-Vq47HwJd.js",
+    "name": "buckets",
+    "imports": [
+      "src/main.tsx"
+    ]
+  },
+  "_panel-pair-ZeqsPmhE.js": {
+    "file": "assets/panel-pair-ZeqsPmhE.js",
+    "name": "panel-pair",
+    "imports": [
+      "src/main.tsx"
+    ]
+  },
+  "_states-DZ-0dhHV.js": {
+    "file": "assets/states-DZ-0dhHV.js",
+    "name": "states",
+    "imports": [
+      "src/main.tsx"
+    ]
+  },
+  "src/main.tsx": {
+    "file": "assets/main-DA_wrxiB.js",
+    "name": "main",
+    "src": "src/main.tsx",
+    "isEntry": true,
+    "dynamicImports": [
+      "src/views/overview.tsx",
+      "src/views/apps.tsx",
+      "src/views/keyboard.tsx",
+      "src/views/insights.tsx"
+    ]
+  },
+  "src/views/apps.tsx": {
+    "file": "assets/apps-D31fY4Sn.js",
+    "name": "apps",
+    "src": "src/views/apps.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "src/main.tsx",
+      "_AppRow-BMX9Ac2T.js",
+      "_states-DZ-0dhHV.js"
+    ]
+  },
+  "src/views/insights.tsx": {
+    "file": "assets/insights-Corh1BTj.js",
+    "name": "insights",
+    "src": "src/views/insights.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "src/main.tsx",
+      "_states-DZ-0dhHV.js",
+      "_panel-pair-ZeqsPmhE.js"
+    ]
+  },
+  "src/views/keyboard.tsx": {
+    "file": "assets/keyboard-n9wRvK-k.js",
+    "name": "keyboard",
+    "src": "src/views/keyboard.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "src/main.tsx",
+      "_states-DZ-0dhHV.js",
+      "_panel-pair-ZeqsPmhE.js",
+      "_buckets-Vq47HwJd.js"
+    ]
+  },
+  "src/views/overview.tsx": {
+    "file": "assets/overview-Bvsdp43E.js",
+    "name": "overview",
+    "src": "src/views/overview.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "src/main.tsx",
+      "_AppRow-BMX9Ac2T.js",
+      "_states-DZ-0dhHV.js",
+      "_panel-pair-ZeqsPmhE.js",
+      "_buckets-Vq47HwJd.js"
+    ]
+  },
+  "style.css": {
+    "file": "assets/style-mwFXOwTS.css",
+    "src": "style.css"
+  }
+}

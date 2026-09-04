@@ -17,6 +17,7 @@ import pytest
 from omnisight.core import paths
 from omnisight.core.lifecycle import EXIT_ALREADY_RUNNING, Lifecycle
 from omnisight.presentation import security
+from omnisight.presentation.web import create_app
 from omnisight.storage.migrations import TARGET_VERSION
 
 
@@ -115,6 +116,39 @@ def test_second_instance_is_blocked(isolated_root: Path, monkeypatch):
         assert first.runtime.token in opened[0]
     finally:
         first.shutdown()
+
+
+def test_settings_changes_reach_the_rendered_shell(isolated_root: Path, monkeypatch):
+    """设置改完后**表现层看到的是同一份新配置**（`lifecycle.py:on_config_change`）。
+
+    这条钉的是一个之前没有测试的接缝。设置服务把新配置写进它自己那份
+    `ServiceContext`，而 `AppContext` 是另一个对象——两者靠 `on_config_change` 回调
+    同步。少了那个回调，接口会回报"已生效"，而刷新页面看到的还是旧值。
+
+    15 文档 §11.3 让这个接缝**变得可见**：页面外壳的 `<html data-theme>` 由服务端按
+    `ui.theme` 渲染（防主题闪白的唯一机制，因为阻塞的引导脚本已删除）。回调断了的症状
+    是"在设置里切成深色、刷新又变回跟随系统"，而它会伪装成前端 bug。
+
+    走真实的 `Lifecycle`，不自己拼上下文——要验的正是那边的接线。
+    """
+    lifecycle = _start_headless(monkeypatch)
+    monkeypatch.setenv("OMNISIGHT_TEST", "1")
+    try:
+        assert lifecycle.start() == 0
+        runtime = lifecycle.runtime
+        assert runtime is not None and runtime.context is not None
+        assert runtime.context.config.ui.theme == "system"
+
+        result = runtime.services.settings.patch({"ui.theme": "dark"})
+        assert result["applied"] == ["ui.theme"], result
+
+        # 三处都要跟上：运行时（下次启动写回文件）、表现层（渲染外壳）、页面本身。
+        assert runtime.config.ui.theme == "dark"
+        assert runtime.context.config.ui.theme == "dark"
+        body = create_app(runtime.context).test_client().get("/").get_data(as_text=True)
+        assert '<html lang="zh-CN" data-theme="dark">' in body
+    finally:
+        lifecycle.shutdown()
 
 
 def test_shutdown_is_idempotent_and_leaves_no_threads(isolated_root: Path, monkeypatch):

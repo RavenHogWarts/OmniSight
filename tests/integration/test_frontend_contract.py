@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+import json
+import pathlib
 import re
 from pathlib import Path
 
@@ -17,8 +19,12 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 PRESENTATION = ROOT / "src" / "omnisight" / "presentation"
-JS = PRESENTATION / "static" / "js"
-CSS = PRESENTATION / "static" / "css"
+JS = ROOT / "frontend" / "src"
+DIST = PRESENTATION / "static" / "dist"
+#: 样式源码。15 文档 §11.4 把它搬进 `frontend/styles` 并接进 Vite；`static/css` 下只剩
+#: `shell.css`（产物缺失时的兜底）。
+CSS = ROOT / "frontend" / "styles"
+SHELL_CSS = PRESENTATION / "static" / "css" / "shell.css"
 TEMPLATE = PRESENTATION / "templates" / "dashboard.html"
 
 #: main.js / components 用 getElementById 找的挂载点。少一个就是一块界面消失。
@@ -33,10 +39,22 @@ ROUTES = ("overview", "apps", "keyboard", "insights")
 _API_LITERAL = re.compile(r"['\"`](/(?:api/v1/)?[a-z][a-z0-9/_$\-{}.]*)['\"`]")
 
 
+def _sources() -> list[pathlib.Path]:
+    """前端的**运行时**源码。
+
+    两种后缀都收着（迁移已完成，但多一个 glob 比"哪天加回一个 .js 就静默漏查"便宜）；
+    `.d.ts` 刻意排除——它只有类型，一行运行时代码都没有，而它的文档注释里有形如
+    `/apps/{id}` 的路径占位符，会被端点提取器当成真的调用。
+    """
+    found: list[pathlib.Path] = []
+    for pattern in ("*.ts", "*.tsx", "*.js"):
+        found.extend(path for path in JS.rglob(pattern) if not path.name.endswith(".d.ts"))
+    return sorted(found)
+
 def _js_api_paths() -> set[str]:
     """JS 里出现的 API 路径。模板串里的 `${...}` 归一成 `*`。"""
     found: set[str] = set()
-    for path in sorted(JS.rglob("*.js")):
+    for path in _sources():
         text = path.read_text(encoding="utf-8")
         for match in _API_LITERAL.finditer(text):
             raw = match.group(1)
@@ -107,7 +125,12 @@ def test_shell_carries_no_statistics(api_client):
 
 
 def test_every_css_import_resolves(api_client):
-    """app.css 用 @import 汇总；漏一个文件表现为"某个组件没有样式"而不是报错。"""
+    """`app.css` 用 @import 汇总那 30 个文件；漏一个的表现是"某个组件没有样式"。
+
+    15 文档 §11.4 之后 Vite 会内联这些 @import，所以**引用了不存在的文件**已经变成构建
+    失败——那半条现在是白拿的。反过来那半条仍然只有这里管：一个写好却没被汇总进来的
+    样式文件既不报错也不生效，构建看不出，浏览器里也只表现为"这个组件长得不对"。
+    """
     text = (CSS / "app.css").read_text(encoding="utf-8")
     targets = re.findall(r'@import url\("([^"]+)"\)', text)
     assert len(targets) >= 15
@@ -122,6 +145,71 @@ def test_every_css_import_resolves(api_client):
     assert on_disk == set(targets), f"未被 app.css 汇总：{sorted(on_disk - set(targets))}"
 
 
+def test_the_fallback_stylesheet_stays_out_of_the_bundle(api_client):
+    """`shell.css` 只在产物缺失时加载，因此**不能**进构建图（15 文档 §11.4）。
+
+    它进了构建图就会跟着产物一起消失，而它存在的全部理由是产物消失时那张说明卡还能
+    读——自带颜色与字体、不引用任何令牌，正是为此。
+
+    正常情况下页面不该引用它：多一份样式表就要为两份的级联顺序负责，而那是白拿的
+    复杂度（模板里用 `{% if bundle.missing %}` 分流）。
+    """
+    assert SHELL_CSS.is_file(), "兜底样式表不在了"
+    text = SHELL_CSS.read_text(encoding="utf-8")
+    assert "var(--surface-" not in text and "var(--text-" not in text, (
+        "shell.css 引用了 tokens.css 的令牌——那份文件现在也在产物里，缺的时候一起缺"
+    )
+    assert not (CSS / "shell.css").exists(), "shell.css 不该同时存在于样式源码目录"
+    body = api_client.get("/").get_data(as_text=True)
+    assert "shell.css" not in body, "产物在位时不该引用兜底样式表"
+    assert api_client.get("/static/css/shell.css").status_code == 200
+
+
+def test_the_shell_links_the_built_stylesheet(api_client):
+    """样式表也带内容哈希，因此地址由后端从清单读（web.py:read_bundle）。
+
+    这条盯的是"清单里的 CSS 真的被铺进了 `<head>`"。它坏掉的症状是整页无样式而
+    控制台一片安静——没有 404（文件在），只是没人引用它。
+    """
+    body = api_client.get("/").get_data(as_text=True)
+    links = re.findall(r'<link rel="stylesheet" href="(/static/dist/[^"]+\.css)">', body)
+    assert len(links) == 1, f"应当恰好有一份产物样式表（cssCodeSplit 是 false）：{links}"
+    response = api_client.get(links[0])
+    assert response.status_code == 200
+    assert response.headers["Content-Type"].startswith("text/css")
+    # 它必须在入口脚本之前：样式晚到就是一帧无样式的内容（FOUC）。
+    assert body.index(links[0]) < body.index('type="module"')
+
+
+def test_the_smoke_markers_match_the_real_shell(api_client):
+    """`tools/smoke.py` 的外壳标记与真实页面对得上。
+
+    **那个工具跑在打包产物上**——它 Popen 的是 PyInstaller 出来的 EXE，所以本机没有
+    EXE 时它根本起不来。于是标记写错只会在发布流水线上炸，而那时的报错长这样：
+    "首页缺少 /static/css/app.css"。它看起来像页面坏了，其实是标记过期了——这一轮
+    把样式表搬进产物（15 文档 §11.4）、把主题引导脚本删掉（§11.3），两处都动了那张表。
+
+    这条把检查提前到 pytest：同一个 `_check_shell`，喂给 Flask 直接渲染的外壳。
+    """
+    import sys as _sys
+
+    if str(ROOT / "tools") not in _sys.path:
+        _sys.path.insert(0, str(ROOT / "tools"))
+    import smoke
+
+    body = api_client.get("/").get_data()
+    assert not smoke._check_shell(body), smoke._check_shell(body)
+    # 固定地址的那几个（产物缺失时的兜底样式、favicon）——它们平时不被页面引用，
+    # 因此只有主动探一次才知道还在。
+    for asset in smoke.SHELL_ASSETS:
+        assert api_client.get(asset).status_code == 200, asset
+    # 带哈希的那些从页面里抓：入口、样式表、modulepreload。
+    found = smoke._bundle_assets(body)
+    assert len(found) >= 2, f"页面里只抓到 {found}——入口与样式表至少该有两个"
+    for asset in found:
+        assert api_client.get(asset).status_code == 200, asset
+
+
 def test_static_assets_referenced_by_the_shell_are_served(api_client):
     body = api_client.get("/").get_data(as_text=True)
     for asset in re.findall(r'(?:href|src)="(/static/[^"]+)"', body):
@@ -129,9 +217,17 @@ def test_static_assets_referenced_by_the_shell_are_served(api_client):
 
 
 def test_module_graph_is_reachable_over_http(api_client):
-    """浏览器按相对路径逐个加载模块。任何一个 404 都会让整页停在骨架屏上。"""
-    for path in sorted(JS.rglob("*.js")):
-        url = "/static/js/" + path.relative_to(JS).as_posix()
+    """产物里每个 chunk 都能取到。任何一个 404 都会让整页停在骨架屏上。
+
+    15 文档选了方案 A 之后浏览器不再逐个加载源码模块，而是加载 Vite 的产物；
+    因此这条从"遍历 static/js"改成"遍历产物清单"——它验证的仍然是同一件事，
+    只是模块图的真源换了地方。
+    """
+    manifest = json.loads((DIST / "manifest.json").read_text(encoding="utf-8"))
+    files = {record["file"] for record in manifest.values() if isinstance(record, dict)}
+    assert files, "产物清单是空的——跑 `pnpm build`"
+    for name in sorted(files):
+        url = "/static/dist/" + name
         assert api_client.get(url).status_code == 200, url
 
 
@@ -142,14 +238,15 @@ def test_modules_are_served_with_a_javascript_mime_type(api_client):
     ``text/plain``。症状是空白页 + 一条控制台报错，且只在那台机器上出现——
     ``create_app`` 因此显式注册类型，这条用例盯住它。
     """
-    response = api_client.get("/static/js/main.js")
+    body = api_client.get("/").get_data(as_text=True)
+    entry = re.search(r'<script type="module" src="([^"]+)"', body)
+    assert entry, "页面外壳里没有入口 <script>——产物缺失？"
+    response = api_client.get(entry.group(1))
     assert response.status_code == 200
     assert response.headers["Content-Type"].split(";")[0] in {
         "text/javascript",
         "application/javascript",
     }
-    css = api_client.get("/static/css/app.css")
-    assert css.headers["Content-Type"].startswith("text/css")
     icon = api_client.get("/favicon.svg")
     assert icon.headers["Content-Type"].startswith("image/svg+xml")
 
@@ -250,7 +347,7 @@ def test_every_data_map_entry_is_actually_requested_by_a_view(declarations):
     """
     used: set[str] = set()
     pattern = re.compile(r"(?:fetchInto\(\s*'(?P<a>\w+)'|key:\s*'(?P<b>\w+)')")
-    for path in sorted(JS.rglob("*.js")):
+    for path in _sources():
         for match in pattern.finditer(path.read_text(encoding="utf-8")):
             used.add(match.group("a") or match.group("b"))
     declared = set(declarations.fields_of("DataMap"))

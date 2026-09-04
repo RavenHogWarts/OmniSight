@@ -6,8 +6,8 @@
 Node 不在时**跳过而不是失败**：项目坚持零 Node 工具链（07 文档 §2），Node 只是
 "如果有就用"的开发期便利。Windows 上装了 Node 的机器会跑到；CI 镜像里装了也会跑到。
 
-`layouts.json` 每次运行前从 `capture/layouts.py` 重新导出：这让键盘渲染器的测试
-真正是**跨语言契约**——渲染器吃的是后端此刻的布局数据，而不是某次手工导出的快照。
+`layouts.json` 每次运行前从 `capture/layouts.py` 重新导出：这让键盘布局的测试
+真正是**跨语言契约**——前端吃的是后端此刻的布局数据，而不是某次手工导出的快照。
 """
 
 from __future__ import annotations
@@ -38,10 +38,20 @@ def _write_layout_fixture() -> Path:
 @pytest.mark.skipif(shutil.which("node") is None, reason="未安装 Node，跳过前端单元测试")
 def test_frontend_unit_tests_pass():
     _write_layout_fixture()
-    files = sorted(path.name for path in FRONTEND_TESTS.glob("*.test.js"))
+    files = sorted(
+        path.name for pattern in ("*.test.ts", "*.test.js") for path in FRONTEND_TESTS.glob(pattern)
+    )
     assert files, "tests/frontend 下没有测试文件——前端纯函数失去了保护"
     result = subprocess.run(
-        [shutil.which("node"), "--test", *[f"tests/frontend/{name}" for name in files]],
+        [
+            shutil.which("node"),
+            "--test",
+            # 用例是 .ts（15 文档方案 A 之后源码是 TS）。Node 22 能直接执行它们，
+            # 因此"零依赖也能测纯函数"这条路保住了——不必为跑几个纯函数引入 vitest。
+            "--experimental-strip-types",
+            "--no-warnings",
+            *[f"tests/frontend/{name}" for name in files],
+        ],
         cwd=ROOT,
         capture_output=True,
         text=True,

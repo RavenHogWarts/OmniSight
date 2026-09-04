@@ -126,6 +126,33 @@ def _version_resource() -> list[str]:
     return [f"--version-file={target}"]
 
 
+def _build_frontend() -> None:
+    """构建前端并确认产物齐全（15 文档 §3.1）。
+
+    **装了 Node 就重新构建，没装就用提交进版本库的那份。** 后者是刻意支持的路径：
+    `pip install` 与"克隆下来只装 Python 依赖"都没有 Node（15 文档 §3.2），而产物是
+    提交的，所以照样能打包。代价是那份可能过期——因此这里会说清用的是哪一条路。
+
+    产物缺失时**直接抛**，不是警告：打出来的 EXE 会是一个"能起、能查接口、但没有
+    界面"的程序，而首页仍然 200。那种失败在冒烟测试里也只表现为一句话，值不上
+    一次发布。
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import check_bundle
+
+    if check_bundle.resolve_command() is not None:
+        print("正在构建前端（Vite）……")
+        code, output = check_bundle.rebuild_into(check_bundle.DIST)
+        if code != 0:
+            raise SystemExit(f"前端构建失败：\n{output.rstrip()}")
+        print(output.strip().splitlines()[-1] if output.strip() else "前端构建完成")
+    else:
+        print("未找到 Node/Vite——使用版本库里已提交的前端产物（可能不是最新的）")
+
+    if problems := check_bundle.exists():
+        detail = "\n  ".join(problems)
+        raise SystemExit(f"前端产物不完整，打包会产出一个没有界面的程序：\n  {detail}")
+
 def build(
     *,
     clean: bool = True,
@@ -144,6 +171,8 @@ def build(
         _clean_dist()
         shutil.rmtree(BUILD, ignore_errors=True)
     BUILD.mkdir(parents=True, exist_ok=True)
+    # 前端先于 PyInstaller：产物要作为 --add-data 的一部分被收进去。
+    _build_frontend()
 
     args = [*COMMON, *PLATFORM.get(sys.platform, ["--onefile"]), *_version_resource()]
     if exclude_pynput:

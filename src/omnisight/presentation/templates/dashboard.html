@@ -1,41 +1,59 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+{#
+  `data-theme` 由服务端按 `ui.theme` 渲染（web.py:index）。原先这件事由 `<head>` 里一个
+  阻塞的普通脚本做——它是 `static/js/` 下最后一个手写文件，因为 Vite 的产物一律
+  `type="module"`（天然 defer），进了构建图就不再阻塞、防不住闪白。服务端渲染同时消掉了
+  它与 `core/theme.ts` 重复的两个 localStorage 键名。
+
+  只有显式的 light/dark 才有这个属性：`system` 那一档由 tokens.css 的
+  `@media (prefers-color-scheme: dark)` 处理，而媒体查询在首次绘制前就已生效。
+#}
+<html lang="zh-CN"{% if theme %} data-theme="{{ theme }}"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OmniSight</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/css/app.css">
-  <link rel="modulepreload" href="/static/js/core/store.js">
-  <link rel="modulepreload" href="/static/js/core/api.js">
-  <link rel="modulepreload" href="/static/js/views/overview.js">
   {#
-    主题在 CSS 之后、模块之前用一个**阻塞的普通脚本**设置。
-    06 文档 §3.2 给的是内联 <script>，但 CSP 是 script-src 'self'（无 nonce），
-    内联脚本会被浏览器拒掉——同源的外部脚本同样是阻塞的，效果一致而不破 CSP。
+    样式表与入口脚本一样带内容哈希，因此地址由后端从 Vite 清单里读
+    （web.py:read_bundle）。写死 `/static/css/app.css` 的老写法在 15 文档 §11.4 之后
+    必然过期——那 30 个源文件现在打成产物里的一份 CSS。
+
+    **仍然是 `<link>` 而不是由 JS 注入**：它必须在首次绘制前到位，而产物是
+    `type="module"`（天然 defer）。顺序也是刻意的——样式在 modulepreload 之前，
+    浏览器因此先拿能决定首屏长相的那个文件。
   #}
-  <script src="/static/js/theme.js"></script>
+  {% for href in bundle.styles %}
+  <link rel="stylesheet" href="{{ href }}">
+  {% endfor %}
+  {#
+    产物缺失时的兜底样式，**只在那一种情况下加载**。样式表现在也在产物里，缺的时候
+    一起缺——而下面那张说明卡存在的全部理由就是让人读到为什么白屏，一段裸文字读起来
+    像程序崩了。正常情况下不加载它，就不必为两份样式表的级联顺序负责。
+  #}
+  {% if bundle.missing %}
+  <link rel="stylesheet" href="/static/css/shell.css">
+  {% endif %}
+  {% for href in bundle.preload %}
+  <link rel="modulepreload" href="{{ href }}">
+  {% endfor %}
 </head>
 <body>
-  {#
-    图标精灵（14 文档 §3.5）。**这一块是生成的**，真源是 tools/icons.py 的 ICON_SOURCES
-    （一张"我们的 id → lucide 图标名"映射表），几何从 devDependency lucide-static 里读。
-    改图标：改那张表 + static/js/components/icon.js 的 ICON_NAMES，再跑
-    `python tools/icons.py`；tests/unit/test_icon_sprite.py 盯着三者一致。
-
-    为什么仍然是内联 symbol 而不是图标字体或 CDN：无构建、无出站网络、CSP 只允许 'self'
-    （07 文档 §2、08 文档 §3）。**产物里没有 npm 包**——lucide-static 只在开发期用来
-    生成这份片段，运行时零请求、零依赖。
-  #}
-  {% include "_icon_sprite.html" %}
-
   <div class="app" id="app">
     {# 键盘用户的第一个停靠点：不必 Tab 过整条导航才能到内容（14 文档 §6）。 #}
     <a class="skip-link" href="#view-root">跳到内容</a>
     <noscript>
       <div class="banner" data-severity="error">
+        {#
+          **整个模板里唯一一处内联图标几何**。这一块只在 JS 被禁时渲染，React 到不了，
+          所以它不能走 components/Icon.tsx。路径取自 lucide 的 triangle-alert（ISC，
+          许可义务由 lucide-react 那条清单覆盖，见 THIRD_PARTY_NOTICES.md）。
+        #}
         <span class="banner__mark" aria-hidden="true">
-          <svg class="icon"><use href="#i-warning"/></svg>
+          <svg class="icon" viewBox="0 0 24 24">
+            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/>
+            <path d="M12 9v4"/><path d="M12 17h.01"/>
+          </svg>
         </span>
         <div class="banner__body">
           <div class="banner__title">本仪表盘需要 JavaScript</div>
@@ -70,31 +88,51 @@
                 aria-selected="false" aria-controls="view-root">洞察</button>
       </nav>
 
-      <div class="topbar__end">
-        <div id="status-host"></div>
-        <button class="icon-button" type="button" id="theme-toggle"
-                data-action="theme:cycle" title="切换主题" aria-label="切换主题">
-          <svg class="icon" aria-hidden="true"><use href="#i-theme"/></svg>
-        </button>
-        <button class="icon-button" type="button"
-                data-action="settings:open" title="设置" aria-label="打开设置">
-          <svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg>
-        </button>
-      </div>
+      {#
+        右段整块交给 React（`#status-host`）：采集状态点、主题按钮、设置按钮。
+        它们要读 store（状态点）与调 React 组件（设置抽屉），因此没有留在模板里的理由。
+
+        **标签栏刻意留在模板里**：它是 `tools/smoke.py` 在产物上验证"外壳挂载点齐全"
+        的抓手（少一个 id 的症状是整页空白且控制台安静），且它不需要任何状态——
+        `aria-selected` 由 main.tsx 的 syncTabs 写。
+      #}
+      <div class="topbar__end" id="status-host"></div>
     </header>
 
     {# 周期栏在所有视图间共享状态（06 文档 §4）。 #}
     <div class="periodbar" id="periodbar"></div>
 
     <main class="main" id="main">
-      <div id="view-root" role="tabpanel" aria-labelledby="tab-overview"></div>
+      <div id="view-root" role="tabpanel" aria-labelledby="tab-overview">
+        {#
+          产物缺失时这里是唯一有内容的地方（下面那个 <script> 也不会出现）。
+          白屏是最难查的失败，而它的成因往往只是忘了 `pnpm build`（15 文档 §3.1）。
+          注意不能用内联 style——CSP 的 style-src 'self' 会拒掉 style 属性。
+        #}
+        {% if bundle.missing %}
+        <div class="card">
+          <h2>前端产物缺失</h2>
+          <p class="muted">
+            找不到 <code>static/dist</code> 下的构建产物。开发环境请运行
+            <code>pnpm install</code> 与 <code>pnpm build</code>；如果这是安装版或
+            便携版，说明打包时漏了前端产物，请重新下载。
+          </p>
+        </div>
+        {% endif %}
+      </div>
     </main>
   </div>
 
   <div class="toast-host" id="toasts" aria-live="polite" aria-atomic="false"></div>
   <div id="overlays"></div>
 
-  {# 令牌只从 URL 交接一次，随后存进 sessionStorage 并从地址栏抹掉（08 文档 §3.2b）。 #}
-  <script type="module" src="/static/js/main.js" data-token="{{ token }}"></script>
+  {#
+    令牌只从 URL 交接一次，随后存进 sessionStorage 并从地址栏抹掉（08 文档 §3.2b）。
+    入口文件名来自 Vite 清单（15 文档 §3.1）；产物缺失时不给 <script>，页面里那张
+    说明卡就是用户看到的全部。
+  #}
+  {% if not bundle.missing %}
+  <script type="module" src="{{ bundle.entry }}" data-token="{{ token }}"></script>
+  {% endif %}
 </body>
 </html>

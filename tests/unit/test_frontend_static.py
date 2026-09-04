@@ -20,6 +20,7 @@ import check_frontend  # noqa: E402
 
 STATIC = check_frontend.STATIC
 JS = check_frontend.JS
+STYLES = check_frontend.STYLES
 
 
 def _format(problems) -> str:
@@ -57,10 +58,10 @@ def test_templates_have_no_inline_script_or_handlers():
 
 def test_the_checker_actually_sees_files():
     """探针测试：目录改名或路径写错时，上面五条会全部"通过"。"""
-    modules = list(JS.rglob("*.js"))
-    styles = list((STATIC / "css").rglob("*.css"))
+    modules = check_frontend._sources(JS)
+    styles = list(STYLES.rglob("*.css"))
     assert len(modules) >= 20, f"只找到 {len(modules)} 个 JS 模块，检查路径是否正确"
-    assert len(styles) >= 15, f"只找到 {len(styles)} 个样式文件"
+    assert len(styles) >= 15, f"只找到 {len(styles)} 个样式文件，检查 STYLES 路径"
 
 
 def test_layer_rules_cover_every_directory_under_js():
@@ -72,21 +73,37 @@ def test_layer_rules_cover_every_directory_under_js():
     )
 
 
-def test_only_two_files_sit_at_the_js_root():
-    """入口只能有 main.js 与阻塞的 theme.js。多出来的文件就是没归层的代码。"""
+def test_only_the_entry_sits_at_the_source_root():
+    """源码根只能有入口一个文件。多出来的文件就是没归层的代码。"""
     files = sorted(path.name for path in JS.iterdir() if path.is_file())
-    assert files == ["main.js", "theme.js"], files
+    assert files in (["main.js"], ["main.tsx"]), files
 
 
-def test_theme_boot_script_is_not_a_module():
-    """它必须阻塞执行，否则深色偏好用户会看到一帧白底（06 文档 §3.2）。
+def test_the_theme_is_rendered_server_side_and_static_js_is_gone():
+    """防闪白从阻塞脚本换成服务端渲染（15 文档 §11.3）。
 
-    模块天然 defer，所以这个文件里不能出现 import/export——一旦有人给它加了
-    import，浏览器就要把它当模块加载，闪白会回来而且没人会立刻发现。
+    原先 `static/js/theme.js` 是一个**普通脚本**：模块天然 defer，所以 Vite 的产物
+    占不了这个位置（06 文档 §3.2 要它在首次绘制前跑完）。服务端本来就知道 `ui.theme`
+    ——前端切换时双写进配置——于是模板直接渲染 `<html data-theme>`，那个文件与它跟
+    `core/theme.ts` 重复的两个 localStorage 键名一起消失。
+
+    这条盯模板与目录那一半；"服务端真的按配置渲染"由
+    `tests/integration/test_web.py::test_shell_renders_the_configured_theme` 验。
     """
-    text = (JS / "theme.js").read_text(encoding="utf-8")
-    assert "import " not in text
-    assert "export " not in text
     template = (check_frontend.TEMPLATES / "dashboard.html").read_text(encoding="utf-8")
-    assert '<script src="/static/js/theme.js"></script>' in template
-    assert 'type="module" src="/static/js/main.js"' in template
+    assert '{% if theme %} data-theme="{{ theme }}"{% endif %}' in template
+    assert "/static/js/" not in template, "模板不该再引用 static/js"
+    assert not (STATIC / "js").exists(), "static/js 整个目录应该已经删除"
+    # 入口的文件名带内容哈希，所以模板里是 Jinja 变量而不是字面路径（15 文档 §3.1）。
+    assert 'type="module" src="{{ bundle.entry }}"' in template
+
+
+def test_relative_imports_carry_a_real_extension():
+    """相对导入写真实扩展名（15 文档 §3.6）。
+
+    这条保的是 `tests/frontend/*.test.ts` 那条路：Node 的 ESM 只认磁盘上的真路径，
+    无后缀与 `.js` -> `.ts` 的回退它都不做。tsc 与 Vite 都能自己回退，因此少一个后缀
+    只会在**跑 node 测试的那台机器上**红——这条把它提前到提交前。
+    """
+    problems = check_frontend.check_import_extensions()
+    assert not problems, "导入缺少扩展名（跑 tools/fix_imports.py）：\n" + _format(problems)

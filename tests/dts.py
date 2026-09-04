@@ -1,7 +1,7 @@
 """``.d.ts`` 里的 interface 声明 -> Python 字典，供接口契约测试比对真实响应。
 
 **为什么要自己解析而不是引一个 TS 解析器**：需要的语法只有一种形态，而
-``src/omnisight/presentation/static/js/types/api.d.ts`` 刻意按那一种写（嵌套对象
+``frontend/src/types/api.d.ts`` 刻意按那一种写（嵌套对象
 一律具名 interface，不用内联字面量）。为这点东西加一条 Node 侧依赖不划算，而且
 契约测试必须在没装 Node 的机器上也能跑——它查的是后端，不是前端。
 

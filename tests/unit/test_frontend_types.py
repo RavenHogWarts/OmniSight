@@ -21,7 +21,8 @@ if str(ROOT / "tools") not in sys.path:
 
 import check_types  # noqa: E402
 
-JS = ROOT / "src" / "omnisight" / "presentation" / "static" / "js"
+#: 源码根。15 文档选了方案 A 之后源码在 frontend/src，产物在 static/dist。
+JS = ROOT / "frontend" / "src"
 
 
 @pytest.mark.skipif(check_types.resolve_command() is None, reason="未装 tsc，跳过类型检查")
@@ -46,11 +47,18 @@ def test_tsconfig_covers_every_module_and_emits_nothing():
     config = json.loads(stripped)
     options = config["compilerOptions"]
     assert options["noEmit"] is True
-    assert options["checkJs"] is True
+    # checkJs 在迁移期是 false（见 tsconfig.json 里的理由）。这里断言"两者一致"
+    # 而不是断言某个值：allowJs 关掉时 checkJs 就没有意义，两个一起删才对。
+    assert options["checkJs"] is False
     assert options["allowJs"] is True
-    # 不自动引入 @types：产物零依赖，开发期也只装 typescript 一个。
-    assert options["types"] == []
-    assert any("static/js" in pattern for pattern in config["include"])
+    # React 的类型要进来，所以不能再写 "types": []（那条随 15 文档方案 A 作废）。
+    # 换成断言 jsx 的编译模式：写错这一处，每个 .tsx 都会报 "JSX 未启用"。
+    assert options["jsx"] == "react-jsx"
+    assert any("frontend/src" in pattern for pattern in config["include"])
+    # 三种后缀都要在检查范围里：迁移期 .js / .ts / .tsx 并存（15 文档 §8）。
+    patterns = " ".join(config["include"])
+    for suffix in (".js", ".ts", ".tsx"):
+        assert suffix in patterns, f"include 没盖住 *{suffix}：{config['include']}"
 
 
 def test_the_pinned_typescript_version_is_the_installed_one():
@@ -66,7 +74,7 @@ def test_the_pinned_typescript_version_is_the_installed_one():
 
 def test_every_module_is_inside_the_checked_tree():
     """探针：include 写错时上面那条会空跑通过。"""
-    modules = list(JS.rglob("*.js"))
+    modules = [*JS.rglob("*.js"), *JS.rglob("*.ts"), *JS.rglob("*.tsx")]
     assert len(modules) >= 20, f"只找到 {len(modules)} 个模块，检查路径"
     declarations = list((JS / "types").glob("*.d.ts"))
     assert declarations, "types/ 下没有类型声明——api.d.ts 是这套检查的核心"
@@ -79,7 +87,7 @@ def test_a_planted_type_error_is_caught():
     没有这条，"类型检查通过"可能只是因为 tsc 根本没看那些文件（include 写错、
     checkJs 被关掉），而那种失败是静默的。
     """
-    target = JS / "core" / "store.js"
+    target = next(p for p in (JS / "core").iterdir() if p.stem == "store")
     original = target.read_text(encoding="utf-8")
     # 往 store 里塞一个不存在的切片名——正常情况下 keyof State 会拦住它。
     planted = original + "\nsetState('nonexistent_slice_for_selftest', 1);\n"

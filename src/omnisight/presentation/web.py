@@ -10,16 +10,17 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import mimetypes
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from flask import Flask, render_template, request, send_from_directory
 from werkzeug.serving import make_server
 
-from .. import __version__
 from ..core import paths
 from . import errors, security, stream
 from .api import apps as apps_api
@@ -57,6 +58,91 @@ API_MODULES = (
     legacy_api,
 )
 
+
+#: Vite 产物的清单。键是相对 Vite `root`（= `frontend/`）的源码路径。
+#:
+#: **为什么读清单而不是写死文件名**：产物名带内容哈希，因此改一行前端不需要用户清缓存，
+#: 也不会出现"新页面配旧 chunk"。代价是多这十几行——比"教用户按 Ctrl+F5"便宜。
+#:
+#: 位置是 `dist/manifest.json`（vite.config.ts 显式指定），不是 Vite 默认的
+#: `dist/.vite/manifest.json`：setuptools 的 `**/*` 对点开头的目录不保证展开，
+#: 而这份清单必须进 wheel——少了它页面就只有"产物缺失"那张卡。
+BUNDLE_MANIFEST = ("dist", "manifest.json")
+
+
+@dataclass(frozen=True, slots=True)
+class Bundle:
+    """页面外壳需要的三样东西：入口 URL、要预载的分包 URL、样式表 URL。
+
+    ``missing`` 为真表示还没构建（或 wheel 里没带上产物）。这时页面外壳会显示一张
+    说明卡而不是白屏——白屏是最难查的一种失败，而它的成因往往只是忘了 `pnpm build`。
+    那张卡的样式来自 ``static/css/shell.css``（模板只在这一种情况下加载它）：15 文档
+    §11.4 之后样式表也在产物里，产物缺了它一起缺，说明卡会变成一段裸文字。
+    """
+
+    entry: str = ""
+    preload: tuple[str, ...] = ()
+    styles: tuple[str, ...] = ()
+
+    @property
+    def missing(self) -> bool:
+        return not self.entry
+
+
+def read_bundle(static_dir: Path) -> Bundle:
+    """从 Vite 清单里取入口与它的直接依赖。
+
+    失败一律退化成 ``Bundle()``（``missing`` 为真）而不是抛：API 与静态资源仍然可用，
+    只有页面外壳换成说明卡。构建产物缺失是**部署问题**，不该让进程起不来。
+    """
+    path = static_dir.joinpath(*BUNDLE_MANIFEST)
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        logger.warning("读不到前端产物清单 %s——页面外壳会显示构建缺失说明", path)
+        return Bundle()
+    # 按 `isEntry` 找入口，不写死键名：键是源码路径，`main.js` 改名成 `main.tsx` 时
+    # 写死的那份就会静默失配，症状是"页面说产物缺失"而产物其实在。
+    record = next(
+        (
+            value
+            for value in manifest.values()
+            if isinstance(value, dict) and value.get("isEntry") and value.get("file")
+        ),
+        None,
+    )
+    if record is None:
+        logger.warning("产物清单 %s 里没有入口（isEntry）", path)
+        return Bundle()
+    # 入口的静态依赖用 modulepreload 提前拉，省掉"下载入口 → 解析 → 再下载依赖"这一跳。
+    # 只取一层：更深的依赖由浏览器在解析 import 时自然发现，全铺开反而挤占首屏带宽。
+    preload = [
+        manifest[key]["file"]
+        for key in record.get("imports", [])
+        if isinstance(manifest.get(key), dict) and manifest[key].get("file")
+    ]
+    # 样式表在清单里有两种落法，两种都认：
+    #
+    #   * `cssCodeSplit: false`（当前配置，理由见 vite.config.ts）——整份 CSS 是一个
+    #     独立资产，清单里自成一条 `style.css` 记录，**入口记录上没有 `css` 字段**。
+    #   * `cssCodeSplit: true`——每个 chunk 的样式挂在自己那条记录的 `css` 数组上。
+    #
+    # 先读入口的 `css`（那是有序且权威的一份），没有就退回扫所有 .css 记录。不写死
+    # `"style.css"` 这个键名：它是 Vite 的实现细节，而"清单里的 css 就是这一页要的
+    # css"在两种配置下都成立——只有一个入口，没有第二个页面来分。
+    styles = [name for name in record.get("css", []) if isinstance(name, str)]
+    if not styles:
+        styles = sorted(
+            value["file"]
+            for value in manifest.values()
+            if isinstance(value, dict) and str(value.get("file", "")).endswith(".css")
+        )
+    prefix = "/static/dist/"
+    return Bundle(
+        entry=prefix + record["file"],
+        preload=tuple(prefix + f for f in preload),
+        styles=tuple(prefix + f for f in styles),
+    )
 
 @dataclass(slots=True)
 class AppContext:
@@ -130,11 +216,27 @@ def _register_routes(app: Flask, context: AppContext) -> None:
 
         模板里不注入 capabilities：前端只信 ``/api/v1/status``，注入一份就等于
         多一个可能过期的副本（07 文档 §10）。
+
+        ``bundle`` 是 Vite 产物的入口（15 文档 §3.1）。**每次请求都重读清单**：开发期
+        `pnpm dev` 会在后台重新构建并换掉哈希，缓存住清单就得重启进程才能看到改动。
+        清单是个 3 KB 的本地文件，这一次读远比"为什么我的改动没生效"便宜。
+
+        ``theme`` **由服务端渲染进 ``<html data-theme>``**（15 文档 §11.3）。这一档原先由
+        一个阻塞的普通脚本 ``static/js/theme.js`` 设置：深色偏好用户否则会看到一帧白底
+        （06 文档 §3.2），而 Vite 的产物一律是 ``type="module"``——模块天然 defer，放进
+        构建图就等于放弃防闪白。配置里本来就有 ``ui.theme``（前端切换时双写，见
+        ``core/theme.ts``），因此让模板直接渲染它：那个文件、以及它与前端重复的两个
+        localStorage 键名，一起消失了。
         """
+        theme = context.config.ui.theme
         return render_template(
             "dashboard.html",
-            version=__version__,
+            # 只有显式的 light/dark 才渲染属性。``system`` 那一档由 tokens.css 的
+            # ``@media (prefers-color-scheme: dark)`` 处理——写成属性反而会把它钉死在
+            # 某一色，而那正是"跟随系统"要避免的。
+            theme=theme if theme in ("light", "dark") else "",
             token=request.args.get("token", ""),
+            bundle=read_bundle(Path(app.static_folder or ".")),
         )
 
     @app.get("/favicon.svg")

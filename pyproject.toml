@@ -24,11 +24,14 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-# **必须是递归通配**：setuptools 的 `*` 不跨目录分隔符，而前端有五层子目录
-# （css/components、css/views、js/core、js/domain、js/charts、js/components、
-# js/views、js/types）。写成 `static/js/*.js` 时 wheel 里只有 main.js 与 theme.js，
-# 装出来的仪表盘是一片空白——app.css 的 @import 与 main.js 的 import 全部 404，
-# 而首页本身仍然 200，所以这种坏法完全静默。
+# **必须是递归通配**：setuptools 的 `*` 不跨目录分隔符。这一条是踩出来的——原先写成
+# `static/js/*.js`，而当时前端源码有五层子目录，于是 wheel 里 74 个文件只进了 8 个，
+# 装出来的仪表盘一片空白：@import 与 import 全部 404，而首页本身仍然 200，完全静默。
+#
+# 15 文档方案 A 之后 `static/` 下已经没有源码了（源码在 `frontend/`，不进 wheel），
+# 但递归通配仍然必需：`dist/` 有一层 `assets/`，而**清单必须进包**——`web.py:read_bundle`
+# 读不到它就只渲染"产物缺失"那张卡。它刻意不在 Vite 默认的 `dist/.vite/` 下：
+# setuptools 的 `**/*` 对点开头的目录不保证展开。
 #
 # 一直没暴露是因为实际分发走 PyInstaller（OmniSight.spec 拷整个 static 目录），
 # `pip install` 只在开发时用。tests/unit/test_package_data.py 现在盯着这一条。

@@ -29,10 +29,9 @@ from pathlib import Path
 
 import pytest
 
-TOKENS = (
-    Path(__file__).resolve().parents[2]
-    / "src" / "omnisight" / "presentation" / "static" / "css" / "tokens.css"
-)
+#: 15 文档 §11.4 起样式源码在 `frontend/styles`（由 Vite 打进产物）。这个测试读的是
+#: **源码**而不是产物：令牌是设计判据的真源，而产物里的那份是它的编译结果。
+TOKENS = Path(__file__).resolve().parents[2] / "frontend" / "styles" / "tokens.css"
 
 #: WCAG 2.1 AA：正文 4.5:1，大字与图形 3:1。
 TEXT_MINIMUM = 4.5
@@ -155,7 +154,7 @@ def simulate(hex_color: str, kind: str) -> str:
             else 1.055 * clamped ** (1 / 2.4) - 0.055
         )
         out.append(round(min(255, max(0, srgb * 255))))
-    return "#%02x%02x%02x" % tuple(out)
+    return "#" + "".join(f"{channel:02x}" for channel in out)
 
 
 # ── tokens.css 解析 ───────────────────────────────────────────────────

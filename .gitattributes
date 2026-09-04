@@ -8,3 +8,28 @@
 *.ico binary
 *.icns binary
 *.db  binary
+
+# ── 前端产物（15 文档 §3.2、§11.4）─────────────────────────────────────────────
+#
+# 它**提交进版本库**（`pip install` 与不装 Node 的打包路径都要能拿到界面），代价是每改
+# 一次前端就有约 836 KB 换了内容哈希的文件进来。下面三个属性只改**呈现与存储方式**，
+# 不改它进不进版本库：
+#
+#   linguist-generated  GitHub 在 PR 里默认折叠它们，语言统计也不再把仓库算成 JS 项目。
+#   -diff               `git diff` 只说"binary files differ"。这几个文件的逐行 diff
+#                       从来没人读——真要看改了什么，看 frontend/ 下的源码。
+#
+# **刻意不加 `-text`。** 直觉上"逐字节门禁盯着的东西不该让 git 碰"，而事实恰好相反：顶上
+# 那条 `text=auto eol=lf` 的规范化正是 `tools/check_bundle.py --check` 能跨机器成立的原因。
+# 实测过——工作区里有 8 个 CSS 源文件是 CRLF（不同人的 core.autocrlf 留下的），Vite 原样
+# 拼接，于是本机构建出的样式表混着 582 处 CRLF；CI 从纯 LF 的检出构建，产物是纯 LF。两边
+# 各自与自己的检出逐字节相同，**只因为 git 在两头做了同一件规范化**。关掉它，提交进去的就
+# 是本机那份 CRLF 字节，而 CI 上那条门禁会立刻红。
+#
+# **合并冲突会是二进制冲突**，而正确的解法本来就不是文本合并：`pnpm build` 重新构建，
+# 产物由源码唯一决定。
+src/omnisight/presentation/static/dist/** linguist-generated -diff
+
+# 清单例外：它只有 2 KB，而它的 diff 是唯一有信息量的那一份——新增一个视图分包、入口
+# 键改名、样式表记录出现或消失，都只在这里看得见（`web.py:read_bundle` 读的就是它）。
+src/omnisight/presentation/static/dist/manifest.json diff

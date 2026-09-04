@@ -36,9 +36,8 @@ if str(ROOT / "src") not in sys.path:
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-# 同目录的生成器。lucide 的许可正文是它的常量——**这里不留第二个字面量**，
-# 与 check_types.py 对 package.json 的处理同一条原则。
-import icons  # noqa: E402
+# 同目录的采集器：npm 侧的许可快照（发布流水线上没有 node_modules，读的是快照）。
+import npm_licenses  # noqa: E402
 from omnisight import APP_NAME, __version__  # noqa: E402
 
 #: 产物里会包含的依赖清单文件。开发依赖（requirements-dev.txt）刻意不在其中。
@@ -59,25 +58,15 @@ FORBIDDEN_LICENSE_PATTERN = re.compile(r"(?<![A-Za-z])(?:AGPL|GPL)", re.IGNORECA
 
 #: **不是 Python 包、但确实随产物分发的第三方素材。**
 #:
-#: 上面那套采集走 ``importlib.metadata``，因此它只看得见 pip 装的东西。图标几何是
-#: 另一类：``templates/_icon_sprite.html`` 里的路径数据从 lucide 搬过来（生成器是
-#: ``tools/icons.py``），npm 侧的 lucide-static 只是开发期依赖、不进产物，**但被搬进
-#: 产物的那些几何是 lucide 的作品**，ISC 要求副本保留声明。
+#: 现在是空的，这本身是一条记录：15 文档方案 A 之前，图标是 tools/icons.py 从
+#: lucide-static 生成的一份内联 <symbol> 精灵表，那些路径数据被搬进模板，因此要在
+#: 这里单列一条 ISC 声明。改用 lucide-react 之后图标由 npm 包提供、经 Vite 打进产物，
+#: 义务由 render_npm_notice() 那一节覆盖（同一个 lucide，同一个 ISC）。
 #:
-#: 声明因此有两处，各有各的读者：生成文件里那段 HTML 注释是"副本自带声明"（ISC 的
-#: 字面要求），这里这张表是让它同时出现在清单四件套里——合规审查看的是清单，不会去
-#: 翻模板。``license_text`` 逐字取自 lucide 的 LICENSE，不重排。
-EMBEDDED_ASSETS: tuple[dict[str, str], ...] = (
-    {
-        "name": "lucide",
-        "version": "1.40.0",
-        "license": "ISC",
-        "homepage": "https://lucide.dev",
-        "embedded": "src/omnisight/presentation/templates/_icon_sprite.html 里 15 个图标的路径数据",
-        "source": "npm lucide-static@1.40.0（开发期依赖，不随产物分发）",
-        "license_text": icons.ISC_NOTICE.strip(),
-    },
-)
+#: 留着这张表与两个渲染函数，是因为「把第三方素材搬进自己的文件」这件事随时可能再
+#: 发生一次（字体、示例数据、图标），而那时清单里需要有它的位置。
+EMBEDDED_ASSETS: tuple[dict[str, str], ...] = ()
+
 
 #: 许可/版权类文件的名字。**按文件名匹配，不按路径**：新式 wheel 把正文放在
 #: ``dist-info/licenses/`` 下，老式直接放 ``dist-info/`` 根，pywin32 这类甚至放在包
@@ -429,8 +418,65 @@ OmniSight 自身以 MIT 许可发布。发布物里静态包含了下列开源 P
 {rows}
 
 共 {len(packages)} 个包。
-{lgpl_note}{bundled_note}{undeclared_note}{render_embedded_assets_notice()}"""
+{lgpl_note}{bundled_note}{undeclared_note}{render_npm_notice()}{render_embedded_assets_notice()}"""
 
+
+def render_npm_notice() -> str:
+    """NOTICES 里的"随产物分发的 npm 包"一节。
+
+    与 Python 包分开列，因为读者要能看出它们进产物的方式不同：Python 包是被
+    PyInstaller 静态收进 EXE，npm 包是被 Vite **打进** `static/dist` 的 JS 文件里
+    ——后者没有可辨认的包边界，所以"哪些包在里面"只能靠这份清单说清楚。
+
+    快照由 `tools/npm_licenses.py` 采集并提交（发布流水线上没有 node_modules，
+    见 15 文档 §3.2）。快照缺失时这一节为空而不是报错：那属于开发环境没装依赖，
+    由 `--check` 与 CI 门禁去拦，不该让"生成清单"这件事失败。
+    """
+    packages = npm_licenses.load()
+    if not packages:
+        return ""
+    rows = "\n".join(
+        f"| {pkg['name']} | {pkg['version']} | {pkg['license'] or UNDECLARED} | "
+        f"{f'<{pkg['homepage']}>' if pkg['homepage'] else '—'} |"
+        for pkg in packages
+    )
+    return f"""
+## 随产物分发的 npm 包
+
+前端由 TypeScript + React 写成，经 Vite 打包进
+`src/omnisight/presentation/static/dist`（15 文档方案 A）。下列包的代码**打进了那份
+产物**，因此随发布物分发；完整许可正文见 `THIRD_PARTY_LICENSES.txt`。
+
+| 包 | 版本 | 许可 | 项目地址 |
+| --- | --- | --- | --- |
+{rows}
+
+共 {len(packages)} 个包，是 `package.json` 的 `dependencies` 传递闭包。
+开发期依赖（vite、typescript、@types/*、playwright-core）不进产物，
+因此不在其中。
+"""
+
+
+def render_npm_licenses(first_number: int) -> str:
+    """LICENSES 里 npm 包的许可正文节，编号接在 Python 包之后。"""
+    sections = []
+    for offset, pkg in enumerate(npm_licenses.load()):
+        body = pkg["license_text"] or (
+            "（此包未随附许可正文文件。许可标识见上，完整正文见项目地址。）"
+        )
+        # 与 Python 侧同一个记号：正文前标出它抄自哪个文件。
+        origin = f"node_modules/{pkg['name']}/{pkg['license_file']}"
+        source = f"--- {origin} ---\n" if pkg["license_file"] else ""
+        sections.append(f"""
+{RULE}
+{first_number + offset}. {pkg['name']} {pkg['version']}（npm，打进前端产物）
+{RULE}
+许可标识：{pkg['license'] or UNDECLARED}
+项目地址：{pkg['homepage'] or "（元数据未提供）"}
+
+{source}{body}
+""")
+    return "".join(sections)
 
 def render_embedded_assets_notice() -> str:
     """NOTICES 里的"嵌入素材"一节。
@@ -494,14 +540,26 @@ def render_licenses(packages: list[Package]) -> str:
         f"  {number:>3}. {pkg.name} {pkg.version} —— {pkg.license_label}"
         for number, pkg in enumerate(packages, start=1)
     )
-    # 嵌入素材接在包清单之后，编号连续——律师按编号跳节，断号就会以为漏了一段。
+    sections = [_render_license_section(number, pkg) for number, pkg in enumerate(packages, 1)]
+    # 编号连续：Python 包 → npm 包 → 嵌入素材。**律师按编号跳节，断号就会以为漏了一段。**
+    first_npm = len(packages) + 1
+    npm = npm_licenses.load()
+    first_asset = first_npm + len(npm)
+    for offset, pkg in enumerate(npm):
+        label = pkg["license"] or UNDECLARED
+        index += f"\n  {first_npm + offset:>3}. {pkg['name']} {pkg['version']} —— {label}（npm）"
     for offset, asset in enumerate(EMBEDDED_ASSETS):
-        number = len(packages) + 1 + offset
         index += (
-            f"\n  {number:>3}. {asset['name']} {asset['version']}"
+            f"\n  {first_asset + offset:>3}. {asset['name']} {asset['version']}"
             f" —— {asset['license']}（嵌入素材）"
         )
-    sections = [_render_license_section(number, pkg) for number, pkg in enumerate(packages, 1)]
+    # 分类计数拼在这里而不是 f-string 里：三段条件表达式挤在一行读不了。
+    parts = [f"{len(packages)} 个 Python 包"]
+    if npm:
+        parts.append(f"{len(npm)} 个 npm 包")
+    if EMBEDDED_ASSETS:
+        parts.append(f"{len(EMBEDDED_ASSETS)} 项嵌入素材")
+    counts = "、".join(parts)
     return f"""{RULE}
 {APP_NAME} {__version__} —— 第三方许可正文
 {RULE}
@@ -515,7 +573,7 @@ requirements.txt + requirements-optional.txt 的传递闭包，按当前平台�
 {APP_NAME} 自身以 MIT 许可发布，见同目录的 LICENSE。
 包名、版本、许可标识与项目地址的表格见 THIRD_PARTY_NOTICES.md。
 
-共 {len(packages)} 个包{f"，另有 {len(EMBEDDED_ASSETS)} 项嵌入素材" if EMBEDDED_ASSETS else ""}：
+共 {counts}：
 
 {index}
 
@@ -523,7 +581,7 @@ requirements.txt + requirements-optional.txt 的传递闭包，按当前平台�
 （以 "--- 路径 ---" 标出来源）。少数包的 wheel 未随附正文文件，该节会明确
 说明并给出项目地址。
 
-{"".join(sections)}{render_embedded_assets_licenses(len(packages) + 1)}"""
+{"".join(sections)}{render_npm_licenses(first_npm)}{render_embedded_assets_licenses(first_asset)}"""
 
 
 def _render_license_section(number: int, pkg: Package) -> str:

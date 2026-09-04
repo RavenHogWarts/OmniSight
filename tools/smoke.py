@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -30,31 +31,42 @@ TOKEN_HEADER = "X-OmniSight-Token"
 
 #: 页面外壳必须带的挂载点。模板改了 id 而 JS 没跟着改，症状是整页空白且控制台安静
 #: （getElementById 返回 null 不报错），因此这条要在产物上验一次。
+#:
+#: 入口脚本的文件名带内容哈希（15 文档 §3.1），所以这里不写死它——查的是
+#: `type="module"` 那一段前缀（产物确实被引到了）。
 SHELL_MARKERS = (
     b'id="view-root"',
     b'id="periodbar"',
     b'id="banners"',
     b'id="toasts"',
     b'id="tab-overview"',
-    b'/static/css/app.css',
-    b'/static/js/main.js',
-    b'/static/js/theme.js',
+    b'<link rel="stylesheet" href="/static/dist/',
+    b'<script type="module" src="/static/dist/',
 )
 
-#: 各层抽一个：入口、样式汇总、核心层、领域层、图表层、组件层、视图层、图标。
+#: 抽查的固定地址资源。**带哈希的产物不在这里逐个列**——名字每次构建都变，改成从页面里
+#: 把入口、样式表与 modulepreload 的地址抓出来实测（见 `_bundle_assets`）。
+#:
+#: 剩下这两个是打包最容易漏、而漏了又几乎无声的：
+#:
+#: * `shell.css` 平时**根本不会被页面引用**（只在产物缺失时加载），所以只有主动探它一次
+#:   才知道它进了包。它没进包的症状是"产物缺失"那张卡变成一段裸文字——而那正是它要防的。
+#: * `favicon.svg` 走的是独立路由而不是 static 托管（免令牌，见 web.py:favicon）。
+#:
+#: 样式源码与主题引导脚本都不在这里了：前者搬进 `frontend/styles` 并打进产物
+#: （15 文档 §11.4），后者换成了服务端渲染 `<html data-theme>`（§11.3）。
 SHELL_ASSETS = (
-    "/static/css/app.css",
-    "/static/css/tokens.css",
-    "/static/css/components/key-cap.css",
-    "/static/js/main.js",
-    "/static/js/theme.js",
-    "/static/js/core/store.js",
-    "/static/js/domain/keyboard-layout.js",
-    "/static/js/charts/canvas.js",
-    "/static/js/components/keyboard-view.js",
-    "/static/js/views/overview.js",
+    "/static/css/shell.css",
     "/favicon.svg",
 )
+
+#: 从页面外壳里抓出产物地址。`--add-data` 漏收 `static/dist` 时这些会 404，而首页
+#: 仍然 200——那正是这个函数存在的理由。
+_BUNDLE_REFERENCE = re.compile(rb'(?:src|href)="(/static/dist/[^"]+)"')
+
+
+def _bundle_assets(body: bytes) -> list[str]:
+    return [match.decode() for match in _BUNDLE_REFERENCE.findall(body)]
 
 
 def _check_shell(body: bytes) -> list[str]:
@@ -190,9 +202,9 @@ def run(executable: Path, *, keep: bool = False) -> int:
         if status_code != 200 or b"OmniSight" not in body:
             failures.append("首页未正常返回（可能漏了 --add-data 的模板）")
         failures.extend(_check_shell(body))
-        # M3 起前端是 39 个 ES 模块 + 26 个样式文件。逐个校验太慢，抽查入口与
-        # 每一层各一个：`--add-data` 收的是整棵目录树，漏就是整层都漏。
-        for asset in SHELL_ASSETS:
+        # `--add-data` 收的是整棵目录树，漏就是整层都漏，所以样式抽查各层一个；
+        # 前端产物则把页面里引到的地址全部实测一遍（15 文档 §3.1）。
+        for asset in (*SHELL_ASSETS, *_bundle_assets(body)):
             code, _ = _get(urljoin(base, asset))
             if code != 200:
                 failures.append(f"静态资源 404：{asset}（--add-data 未收进 static/）")

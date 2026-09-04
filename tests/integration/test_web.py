@@ -111,13 +111,34 @@ def test_security_headers_present(client: FlaskClient):
 def test_shell_page_has_no_inline_script(client: FlaskClient):
     """CSP 的 ``script-src 'self'`` 禁止内联脚本——这与 07 文档的前端决定互为前提。
 
-    06 文档 §3.2 给的防闪白方案是内联 ``<script>``，那会被 CSP 直接拒掉；M3 改成
-    同源的外部阻塞脚本（``/static/js/theme.js``），效果一致而不破 CSP。
+    06 文档 §3.2 给的防闪白方案是内联 ``<script>``，那会被 CSP 直接拒掉。M3 改成同源的
+    外部阻塞脚本 ``/static/js/theme.js``；15 文档 §11.3 又把它换成服务端渲染
+    ``<html data-theme>``（见下一条），于是页面里只剩产物入口那一个 ``<script>``。
     """
     body = client.get("/").get_data(as_text=True)
     assert '<script type="module" src=' in body
-    assert '<script src="/static/js/theme.js"></script>' in body
+    assert body.count("<script") == 1, "页面外壳只该有产物入口那一个 script"
     assert "onclick=" not in body
+
+
+def test_shell_renders_the_configured_theme(client: FlaskClient, context):
+    """``<html data-theme>`` 按 ``ui.theme`` 渲染（15 文档 §11.3）。
+
+    这是防主题闪白的**唯一**机制了：阻塞的引导脚本已删除。它坏掉的症状是深色用户每次
+    刷新闪一帧白底——没有报错、没有失败的请求，因此必须由测试盯着。
+
+    ``system`` 那一档刻意**不渲染属性**：tokens.css 用
+    ``@media (prefers-color-scheme: dark)`` 处理它，而写成属性会把"跟随系统"钉死在某一色。
+    """
+    from dataclasses import replace
+
+    body = client.get("/").get_data(as_text=True)
+    assert "data-theme" not in body, "默认 ui.theme 是 system，不该渲染属性"
+
+    for theme in ("dark", "light"):
+        context.config = replace(context.config, ui=replace(context.config.ui, theme=theme))
+        body = client.get("/").get_data(as_text=True)
+        assert f'<html lang="zh-CN" data-theme="{theme}">' in body
 
 
 def test_favicon_is_served_without_a_token(client: FlaskClient):

@@ -551,12 +551,53 @@ def test_against_a_real_repository(tmp_path: Path):
 # ── 流水线本身（.github/workflows/release.yml）────────────────────────
 
 
-def test_the_only_workflow_is_the_release_one():
-    """常驻 CI 已移除（10 文档 §11 记了这个决定与它的代价）：push 与 pull_request
-    上不再有 job，因此那些门禁的唯一自动执行时机就是发版这一次。
+def test_there_is_exactly_one_workflow_and_it_only_releases():
+    """**只有一条流水线，而它只做发布该做的事。**
+
+    这件事反复过两轮：10 文档 §11.1 为省额度移除了常驻 CI；15 文档 §9 因为"产物提交进
+    版本库"把它加回来；现在又去掉了，并且连发布流水线里的测试与静态检查一起去掉。理由
+    是那些检查在本地跑得到，而它们在 runner 上的失败模式——十几分钟后红在一条本地早就
+    跑过的检查上——比它们挡住的东西更常见。
+
+    **代价要写明白**：现在没有任何自动化在每次推送时验证任何东西。"改了 frontend/src
+    却忘了 pnpm build"这一类只能靠本地 `tools/check_bundle.py --check`。唯一的缓解是
+    发布物里的前端由 `build.py --release` 现场用 Vite 重新构建（见下一条），因此**发出去
+    的 EXE 不会带过期前端**——过期只会留在版本库里。
+
+    这条用例的作用是让"又悄悄加回一条流水线"和"又悄悄塞进一道 pytest"都得先改它。
     """
-    assert WORKFLOW.exists()
-    assert not (ROOT / ".github" / "workflows" / "ci.yml").exists()
+    workflows = sorted(path.name for path in (ROOT / ".github" / "workflows").glob("*.yml"))
+    assert workflows == ["release.yml"], workflows
+    text = _workflow()
+    for absent in (
+        "ruff check .",
+        "python -m pytest",
+        "check_frontend.py",
+        "check_types.py",
+        "check_bundle.py",
+        "pull_request",
+    ):
+        assert absent not in text, f"发布流水线里不该有 {absent}"
+
+
+def test_the_only_check_left_is_a_distribution_obligation():
+    """许可快照那一道留着，因为它不是测试。
+
+    `tools/licenses.py` 读的是提交进版本库的快照（`frontend/npm-licenses.json`），不读
+    node_modules——发布流水线上重新生成 THIRD_PARTY_NOTICES.md 用的就是那份快照。快照
+    过期意味着**发出去的许可清单少列或错列依赖**，而那是许可证要求的东西，不是"测试没
+    过"。它只比对两个文件，不到一秒，因此没有"省时间"这个动机去掉它。
+    """
+    assert "tools/npm_licenses.py --check" in _workflow()
+
+
+def test_the_release_pipeline_installs_node():
+    """产物必须由**当前源码**编出来。装了 Node，tools/build.py 才会重新构建而不是
+    用版本库里那份提交的产物（那条回退是给 pip 路径留的，发布不该走它）。
+    """
+    text = _workflow()
+    assert "pnpm/action-setup" in text
+    assert "pnpm install --frozen-lockfile" in text
 
 
 def test_it_triggers_on_version_tags_only():
@@ -573,18 +614,22 @@ def test_the_checkout_is_deep_enough_for_the_changelog():
     assert "fetch-depth: 0" in _workflow()
 
 
-def test_the_pipeline_runs_the_gates_it_claims_to_run():
-    """流水线里现在有哪几道门禁。这条用例的作用是让"少了一道"不能悄悄发生。
+def test_the_pipeline_does_the_three_things_only_it_can_do():
+    """流水线里剩下的都是**本地做不了或不该由本地做**的事，这条钉住它们还在。
 
-    **第一次发版之后，pytest / 平台泄漏 / 冒烟 / pip-licenses 四步被去掉了**（每次
-    重跑十几分钟，而它们在本地跑得到）。代价逐条记在 10 文档 §11.1，其中一条要在这里
-    点明：**冒烟是唯一碰过"真正发出去的那份字节"的东西**（产物由 runner 构建，本地那
-    份不是同一批字节），去掉之后没有任何自动化验证过产物能不能启动——它挪进了 §11.5
-    的人工步骤。GPL 门禁不受影响：`build.py --release` 自己就会因 GPL 系依赖失败
-    （`_regenerate_licenses`），`pip-licenses` 原本只是第二意见。
+    * `--check-only`：核对 tag 与 `__version__`。放在最前面——"发布页写 0.2.0、EXE 属性页
+      写 0.1.0-alpha.1"这种产物一旦发出去，用户唯一合理的解释是"文件被人换过"。
+    * `build.py --release`：产物必须由 runner 构建。本地构建的不是同一批字节，而校验值
+      是用户确认拿到的确实是这份产物的唯一手段。
+    * `npm_licenses.py --check`：分发义务，见上一条用例。
+
+    **冒烟测试不在这里，也不在别处**：它是唯一碰过"真正发出去的那份字节"的东西，去掉
+    之后没有任何自动化验证过产物能不能启动——它是 10 文档 §11.5 第 5 步的人工步骤
+    （对**下载到的** EXE 跑一次）。GPL 门禁不受影响：`build.py --release` 自己就会因
+    GPL 系依赖失败（`_regenerate_licenses`）。
     """
     text = _workflow()
-    for gate in ("--check-only", "ruff check .", "tools/build.py --release"):
+    for gate in ("--check-only", "tools/build.py --release", "npm_licenses.py --check"):
         assert gate in text, f"{gate} 从流水线里消失了"
 
 

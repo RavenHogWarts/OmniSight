@@ -1,13 +1,15 @@
 """前端类型检查（07 文档 §2.1、11 文档 §8.4）。
 
-``static/js`` 下的 ``.js`` 就是浏览器加载的那份文件——tsc 只**读**它，`noEmit` 为真，
-因此"零构建"这条性质没有变：仓库里没有构建产物，PyInstaller 照旧拷整个 static 目录。
+``frontend/src`` 下的 ``.ts``/``.tsx`` 是源码，由 Vite 编译进 ``static/dist``（15 文档
+§3.1）。tsc 只**读**它，``noEmit`` 为真，因此这个脚本与构建互不干扰——它查类型，不产出
+任何文件，也不需要产物在位。
 
 **它补的是哪个洞**：``types/api.d.ts`` 声明了后端每个响应的形状，视图读
 ``state.data.appsPeriod`` 时字段拼错、少判一次 null 都会在这里红。没有它的时候，
 后端改一个字段名前端只是静默显示空值，而"这段时间没有记录"恰好也是合法状态。
 ``tools/check_frontend.py`` 查不到这类错误（它只做导入解析与文本模式），
-``tests/frontend/dom-shim.js`` 也测不到（它断言渲染结构）。
+``tests/frontend/*.test.ts`` 也测不到（它们只跑纯函数，DOM 那一半交给
+``tools/page.py`` 在真实浏览器里验）。
 
 **Node 不在就跳过**，与 ``tests/unit/test_frontend_js.py`` 同一条原则：Node 是"有就用"
 的开发期便利，不是运行依赖。装了的机器会跑到。版本由 ``package.json`` 的
@@ -82,10 +84,15 @@ def main(argv: list[str] | None = None) -> int:
         print(output)
         return 0
     if code == 0:
-        js = ROOT / "src" / "omnisight" / "presentation" / "static" / "js"
-        modules = len(list(js.rglob("*.js")))
-        declarations = len(list((js / "types").glob("*.d.ts")))
-        print(f"前端类型检查通过（{modules} 个 JS 模块、{declarations} 份类型声明）")
+        source = ROOT / "frontend" / "src"
+        modules = [
+            path
+            for pattern in ("*.js", "*.ts", "*.tsx")
+            for path in source.rglob(pattern)
+            if not path.name.endswith(".d.ts")
+        ]
+        declarations = len(list(source.rglob("*.d.ts")))
+        print(f"前端类型检查通过（{len(modules)} 个模块、{declarations} 份类型声明）")
         return 0
     print("类型检查失败：", file=sys.stderr)
     print(output.rstrip(), file=sys.stderr)

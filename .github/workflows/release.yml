@@ -1,8 +1,11 @@
 name: Release
 
 # **只由版本 tag 触发**：v0.1.0-alpha.1 / v0.1.0-beta.1 / v0.1.0。push 与
-# pull_request 上不再有任何 job（移除常驻 CI 的决定与它的代价见 10 文档 §11），
-# 因此原先那些门禁全部挪进了这条流水线——发布前跑一次，是它们唯一的自动执行时机。
+# pull_request 上没有任何 job（移除常驻 CI 的决定与它的代价见 10 文档 §11.1）。
+#
+# 它**只做发布该做的事**：核对 tag、构建两件产物、生成说明、建 Release。测试与静态检查
+# 一概不跑——它们在本地跑，而这条流水线的失败模式（十几分钟后红在一条本地早就跑过的
+# 检查上）比它挡住的东西更常见。唯一的例外是许可快照那一道：它是分发义务，不是测试。
 #
 # 预发布还是正式版**不在这里判断**：tools/release_notes.py 按版本串自己算，用的
 # 就是 EXE 属性页那个"（预发布）"标记同一个函数（version_info.is_prerelease）。
@@ -24,7 +27,7 @@ jobs:
       # UnicodeEncodeError 把这条流水线弄红（第一次发版就死在脚本报喜的那一行上）。
       # 工具自己也各有一道（tools/_console.py），两道互不依赖。
       PYTHONIOENCODING: utf-8
-    # 冒烟测试要启动真实产物并等它探活。挂住时宁可红掉，也别静静烧掉 6 小时额度。
+    # 构建 + 打包 + 建 Release。挂住时宁可红掉，也别静静烧掉 6 小时额度。
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +42,18 @@ jobs:
 
       - run: pip install -r requirements-dev.txt -r requirements-optional.txt
 
+      # Node 是构建前端产物用的（15 文档 §3.1）。**装了它，tools/build.py 就会重新
+      # 构建**而不是用版本库里那份提交的产物——发布物里的前端因此一定是当前源码编出来
+      # 的。没装也能打包（那条回退是给 pip 路径留的），但发布不该走回退。
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
       # 放在最前面：tag 与代码里的 __version__ 对不上时，等构建完再发现等于白跑十几
       # 分钟；而"发布页写 0.2.0、EXE 属性页写 0.1.0-alpha.1"这种产物一旦发出去，
       # 用户唯一合理的解释是"文件被人换过"。
@@ -47,7 +62,12 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: python tools/release_notes.py --tag "$env:TAG" --check-only
 
-      - run: ruff check .
+      # **这条流水线不跑测试与静态检查**（ruff / pytest / check_frontend / check_types /
+      # check_bundle --check 都在本地跑，见 10 文档 §11.1 那张表）。留下的这一道不是
+      # 测试而是**分发义务**：许可清单是提交进版本库的快照（`tools/licenses.py` 读它，
+      # 不读 node_modules），快照过期意味着发出去的 THIRD_PARTY_NOTICES.md 少列或错列
+      # 依赖。它只比对两个文件，不到一秒。
+      - run: python tools/npm_licenses.py --check
 
       # 安装包要 Inno Setup 的 ISCC.exe。runner 镜像不保证带它，所以自己装一次；
       # 找不到编译器时 --release 直接失败（那是有意的，见 10 文档 §10.1）。

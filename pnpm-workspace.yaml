@@ -1,2 +1,4 @@
 minimumReleaseAgeExclude:
   - lucide-static@1.40.0
+  - lucide-react@1.40.0
+  - '@types/react-dom@19.2.7'
