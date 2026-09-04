@@ -45,9 +45,13 @@ pnpm typecheck               # tsc --noEmit
 pnpm test                    # tests/frontend 的纯函数用例（node --test）
 ```
 
-**没有 HMR。** CSP 是 `script-src 'self'`（`dev/08-privacy-and-security.md` §3），而 HMR
-要连 dev server 的 websocket 并注入内联脚本，两条都撞。保留 CSP 的单一真相比省一次
-刷新重要，因此开发期用 `pnpm dev` 的 watch 模式 + 手动刷新。
+**没有 HMR，但有"改完自己刷新"。** CSP 是 `script-src 'self'`（`dev/08-privacy-and-security.md`
+§3），而 HMR 要连 dev server 的 websocket 并注入内联脚本，两条都撞——保留 CSP 的单一真相比
+省一次刷新重要。替代形状是 `tools/devserver.py --watch`：它在**自己进程里**起 vite watch，
+再给页面注入一段同源轮询（`tools/_devlive.py`），产物 `manifest.json` 的内容哈希一变就
+`location.reload()`。于是一条命令、一个终端，改完 `frontend/` 页面自己刷新。判据是内容哈希
+而不是 mtime，所以"存了但什么都没改"不会白刷一次。已经在别处开着 `pnpm dev` 的话，用
+`--live-reload` 只要自动刷新那一半。
 
 **改完前端必须重新构建并提交产物。** 忘了的症状是"页面加载的仍然是旧代码，而测试
 全绿"——`tools/check_bundle.py --check` 就是为这件事存在的（它重新构建一次并逐字节
@@ -100,6 +104,7 @@ Node 的 ESM 只认磁盘上的真路径。`tools/check_frontend.py` 会拦，`t
 .venv/Scripts/python tools/check_types.py                    # 前端类型检查（需 Node，缺则跳过）
 .venv/Scripts/python tools/check_bundle.py --check            # 前端产物与源码一致吗（需 Node）
 .venv/Scripts/python tools/devserver.py --open               # 只跑仪表盘（合成数据，不采集不起托盘）
+.venv/Scripts/python tools/devserver.py --watch --open       # 同上 + vite watch + 页面自动刷新
 .venv/Scripts/python tools/page.py --all                     # 无头浏览器读页面：截图 + 版面报告
 .venv/Scripts/python tools/licenses.py                       # 重新生成第三方许可清单
 .venv/Scripts/python tools/build.py                          # 只构建 EXE（日常开发用这个）
