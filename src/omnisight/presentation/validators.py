@@ -26,7 +26,7 @@ from .errors import ApiError
 MAX_LIMIT = 1000
 MAX_PROCESS_NAME = 260
 
-_SORTS_USAGE = ("seconds", "presses", "sessions", "name")
+_SORTS_USAGE = ("seconds", "presses", "sessions", "name", "last_seen")
 _SORTS_APPS = ("name", "last_seen", "first_seen", "process")
 
 

@@ -181,6 +181,7 @@ ENDPOINT_TYPES: tuple[tuple[str, str], ...] = (
     ("/api/v1/usage/timeline?range=total&top=5", "UsageTimelineResponse"),
     (f"/api/v1/usage/sessions?{DAY}&limit=50", "SessionsResponse"),
     ("/api/v1/apps?limit=500&include_excluded=true", "AppsResponse"),
+    ("/api/v1/apps/running", "RunningAppsResponse"),
     ("/api/v1/apps/1", "AppDetailResponse"),
     ("/api/v1/keyboard/layout", "LayoutResponse"),
     # ISO 布局才有 shape=iso_enter 与跨行的 h——那两个字段只在这里出现。

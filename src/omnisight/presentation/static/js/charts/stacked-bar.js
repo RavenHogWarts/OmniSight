@@ -2,7 +2,8 @@
 import { formatDurationShort } from '../domain/format.js';
 import { Chart, hatchPattern, niceMax } from './canvas.js';
 
-const PAD = { top: 8, right: 8, bottom: 16, left: 34 };
+// left 同 panel-pair："1h23m" 这类刻度文字在 34px 下会被裁掉首字符。
+const PAD = { top: 8, right: 8, bottom: 16, left: 44 };
 
 /** data: { buckets: [{label, total, parts: [{category, seconds}], gap}] } */
 export function stackedBar(container, { height = 180, onSelect = null, label = '' } = {}) {

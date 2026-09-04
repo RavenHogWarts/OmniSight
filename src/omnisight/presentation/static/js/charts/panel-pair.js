@@ -14,7 +14,8 @@
 import { formatCount, formatDurationShort } from '../domain/format.js';
 import { BAR_MAX_WIDTH, Chart, MARK_GAP, bar, cssFont, hatchPattern, niceMax } from './canvas.js';
 
-const PAD = { top: 10, right: 8, bottom: 18, left: 40 };
+// left 要放得下最宽的刻度文字：按键数到五位数（"60,000"）时 40px 会把首位裁掉。
+const PAD = { top: 10, right: 8, bottom: 18, left: 52 };
 /** 两个面板之间的留白。共享 x 轴，所以中间只需要一条呼吸缝。 */
 const SPLIT = 14;
 

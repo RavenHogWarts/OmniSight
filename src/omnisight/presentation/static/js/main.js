@@ -159,6 +159,12 @@ function installChartTooltips() {
       rows.push(['时长', formatDurationShort(payload.value)]);
       rows.push(['占比', `${(payload.percent || 0).toFixed(1)}%`]);
     }
+    // 堆叠柱：段的高度只能看出相对大小，具体是哪一类多少必须能读到（14 文档 §4.3
+    // 的"一个悬停浮层同时报两个值"推到堆叠这一层）。名字由数据带来，前端不查表。
+    for (const part of payload.parts || []) {
+      if (!(Number(part.seconds) > 0)) continue;
+      rows.push([part.name || part.category, formatDurationShort(part.seconds)]);
+    }
     showTooltip({
       title: payload.label || payload.name || payload.bucket || '',
       rows,

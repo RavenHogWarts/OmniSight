@@ -7,7 +7,7 @@ import {
   addDays, addMonths, addYears, bucketCoversGap, caliberNotes, canGoForward,
   fromISO, gapSet, isPageable, periodParams, shift, toISO,
 } from '../../src/omnisight/presentation/static/js/domain/period.js';
-import { markGaps } from '../../src/omnisight/presentation/static/js/domain/buckets.js';
+import { markGaps, stackByCategory } from '../../src/omnisight/presentation/static/js/domain/buckets.js';
 
 test('日期加减不跨时区漂移', () => {
   assert.equal(addDays('2026-09-02', 1), '2026-09-03');
@@ -105,4 +105,40 @@ test('ISO 日期解析用本地时间，东八区不差一天', () => {
   assert.equal(date.getDate(), 2);
   assert.equal(toISO(date), '2026-09-02');
   assert.equal(fromISO('nonsense'), null);
+});
+
+// ── stackByCategory：活动带上面板的类别堆叠（14 文档 §4.3） ──────────────
+test('stackByCategory：各段之和等于桶高，且键序即后端序', () => {
+  const buckets = [{ bucket: '10', label: '10:00', seconds: 900, presses: 12, categories: { development: 600, system: 300 } }];
+  const [bucket] = stackByCategory(buckets, [
+    { id: 'development', name: '开发' },
+    { id: 'system', name: '系统' },
+  ]);
+  assert.deepEqual(bucket.parts.map((part) => part.category), ['development', 'system']);
+  assert.deepEqual(bucket.parts.map((part) => part.name), ['开发', '系统']);
+  assert.equal(bucket.parts.reduce((sum, part) => sum + part.seconds, 0), bucket.seconds);
+});
+
+test('stackByCategory：0 值的类别不占一段，全零桶退化成单色柱', () => {
+  const [bucket] = stackByCategory(
+    [{ bucket: '03', label: '03:00', seconds: 60, presses: 0, categories: { development: 60, system: 0 } }],
+    [],
+  );
+  assert.deepEqual(bucket.parts.map((part) => part.category), ['development']);
+  const [empty] = stackByCategory([{ bucket: '04', label: '04:00', seconds: 0, presses: 0, categories: {} }], []);
+  assert.equal(empty.parts, undefined);
+});
+
+test('stackByCategory：缺 categories 的响应不报错，也不产生空段', () => {
+  const [bucket] = stackByCategory([{ bucket: '05', label: '05:00', seconds: 30, presses: 0 }], []);
+  assert.equal(bucket.parts, undefined);
+  assert.deepEqual(stackByCategory(undefined, undefined), []);
+});
+
+test('stackByCategory：没有目录时用类别 id 兜底当名字', () => {
+  const [bucket] = stackByCategory(
+    [{ bucket: '06', label: '06:00', seconds: 10, presses: 0, categories: { development: 10 } }],
+    undefined,
+  );
+  assert.equal(bucket.parts[0].name, 'development');
 });

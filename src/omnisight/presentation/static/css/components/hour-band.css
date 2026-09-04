@@ -1,0 +1,91 @@
+/* 每小时应用图标带（16 文档 §A1）。
+ *
+ * 24 行固定在场，空行也留——"这一小时什么都没干"本身是信息，跳过它会让读者以为
+ * 那一小时不存在。行高压到 26px：24 行必须能在一屏里看完，否则它就失去了"扫一眼
+ * 就知道一天怎么过的"的意义。 */
+.hour-band {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hour-band__row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 26px;
+  border-radius: var(--radius-xs);
+}
+.hour-band__row:hover { background: var(--surface-hover); }
+/* 没有记录的小时：标签压淡、行压矮，但**仍然在场**——空行是"那一小时什么都没干"，
+   而不是"那一小时不存在"。压矮只是让有内容的行自己浮出来。 */
+.hour-band__row[data-empty="true"] { min-height: 18px; }
+.hour-band__row[data-empty="true"] .hour-band__hour { color: var(--text-tertiary); }
+
+.hour-band__hour {
+  font-size: var(--text-2xs);
+  font-family: var(--font-small);
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.hour-band__apps {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.hour-band__app {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  flex: none;
+}
+.hour-band__icon {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-xs);
+  object-fit: contain;
+  background: var(--surface-sunken);
+}
+.hour-band__initial {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-xs);
+  display: grid;
+  place-items: center;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  color: var(--text-inverse);
+  background: var(--bar-color, var(--cat-uncategorized));
+}
+
+/* `+N`：装不下的与后端 top 之外的合成一格，hover 报它们的合计时长。 */
+.hour-band__more {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-xs);
+  flex: none;
+  font-size: var(--text-2xs);
+  font-family: var(--font-small);
+  color: var(--text-secondary);
+  background: var(--surface-sunken);
+}
+
+/* 整块缺口：绝不画一片 0（06 文档 §4.2 规则 1）。 */
+.hour-band__gap {
+  padding: var(--space-4);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--border-strong) 0 2px,
+    transparent 2px 6px
+  );
+}

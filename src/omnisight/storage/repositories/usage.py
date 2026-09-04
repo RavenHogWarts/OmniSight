@@ -161,15 +161,29 @@ class UsageRepository:
         )
         return {row["day_bucket"]: int(row["duration_ms"] or 0) for row in rows}
 
-    def bucket_totals(self, grain: str, start: str, end: str) -> dict[str, int]:
-        """趋势图用的时长桶。``grain`` ∈ ``day`` | ``month`` | ``year``。"""
+    def bucket_app_totals(self, grain: str, start: str, end: str) -> list[dict]:
+        """趋势桶 × 应用的时长。``grain`` ∈ ``day`` | ``month`` | ``year``。
+
+        趋势图的桶高与类别构成都由服务层从这里折出来（活动带上面板按类别堆叠，
+        14 文档 §4.3）。**没有"只要桶总和"的那个方法**：整桶 ``SUM(duration_ms)`` 不认识
+        合并与排除，用它算出的柱高会比同一屏的英雄数值大一截（见 ``UsageService.
+        trend_composition``）。多一个应用维度的代价只有行数：日粒度看一个月是 31 ×
+        应用数行，仍然是同一次主键范围扫，没有新的表也没有新的索引。
+        """
         table, column = _BUCKET_TABLES[grain]
         rows = self._conn().execute(
-            f"SELECT {column} AS bucket, SUM(duration_ms) AS duration_ms "
-            f"FROM {table} WHERE {column} BETWEEN ? AND ? GROUP BY {column}",
+            f"SELECT {column} AS bucket, app_id, SUM(duration_ms) AS duration_ms "
+            f"FROM {table} WHERE {column} BETWEEN ? AND ? GROUP BY {column}, app_id",
             (start, end),
         )
-        return {row["bucket"]: int(row["duration_ms"] or 0) for row in rows}
+        return [
+            {
+                "bucket": str(row["bucket"]),
+                "app_id": int(row["app_id"]),
+                "duration_ms": int(row["duration_ms"] or 0),
+            }
+            for row in rows
+        ]
 
     def hourly_apps(self, start_day: str, end_day: str) -> list[dict]:
         """``(hour, app_id, duration_ms)``，跨日时同一小时相加。

@@ -28,6 +28,9 @@ const SORTS = [
   { id: 'presses', name: '按键' },
   { id: 'sessions', name: '次数' },
   { id: 'name', name: '名称' },
+  // "最近用过的排前面"（16 文档 §A4）。后端 `/usage/period?sort=last_seen` 是同一个
+  // 语义，本地排序只是它的即时反馈。
+  { id: 'last_seen', name: '最近' },
 ];
 /** 搜索词变化到重取之间的间隔。本机请求毫秒级，防的是连打时的请求风暴。 */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -68,6 +71,8 @@ function applyFilters(rows, { query, category, sort }) {
       case 'presses': return num(right.presses) - num(left.presses);
       case 'sessions': return num(right.session_count) - num(left.session_count);
       case 'name': return nameOf(left).localeCompare(nameOf(right), 'zh-CN');
+      // ISO 时间戳按字符串倒序即时间倒序；没有时间的排最后而不是排最前。
+      case 'last_seen': return String(right.last_seen_at || '').localeCompare(String(left.last_seen_at || ''));
       default: return num(right.seconds) - num(left.seconds);
     }
   });

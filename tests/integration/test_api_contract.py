@@ -84,6 +84,73 @@ def test_overview_trend_has_one_bucket_per_hour_including_empty_ones(seeded_clie
     assert by_bucket["03"]["seconds"] == 0.0  # 空桶必须在，不能跳过
 
 
+@pytest.mark.parametrize("range_name", RANGES)
+def test_overview_trend_buckets_carry_a_category_breakdown(seeded_client, range_name: str):
+    """活动带上面板按类别堆叠（14 文档 §4.3）。
+
+    **段之和必须等于柱高**：短一截的话用户看到的是"柱子上空了一块"，而没有任何线索
+    指向"那一块是被排除的应用"。空桶给 ``{}`` 而不是省略这个键。
+    """
+    trend = seeded_client.get(f"/api/v1/overview?range={range_name}").get_json()["trend"]
+    for bucket in trend["buckets"]:
+        assert "categories" in bucket, f"{bucket['bucket']} 少了 categories"
+        assert sum(bucket["categories"].values()) == pytest.approx(bucket["seconds"], abs=0.1)
+        assert all(value > 0 for value in bucket["categories"].values()), "0 值不该占一个类别槽"
+    assert any(bucket["categories"] for bucket in trend["buckets"]), "全是空桶，这条断言会假装成立"
+
+
+@pytest.mark.parametrize("range_name", RANGES)
+def test_overview_trend_total_matches_the_hero_number(seeded_client, range_name: str):
+    """柱高之和 = 屏幕时间指标卡。
+
+    改前 day/month/year 粒度走 ``bucket_totals``（整桶求和，不认识合并与排除），
+    于是同一屏上柱子加起来会比英雄数值大一截。现在两边同源。
+    """
+    payload = seeded_client.get(f"/api/v1/overview?range={range_name}").get_json()
+    total = sum(bucket["seconds"] for bucket in payload["trend"]["buckets"])
+    assert total == pytest.approx(payload["screen_time"]["total_seconds"], abs=1.0)
+
+
+#: range → (对照条粒度, 桶数)。年是"全部年份"，桶数随数据集，因此单独断言。
+CONTEXT_SHAPES = (("day", "day", 7), ("week", "week", 8), ("month", "month", 12))
+
+
+@pytest.mark.parametrize(("range_name", "grain", "count"), CONTEXT_SHAPES)
+def test_overview_context_series_ends_at_the_current_period(
+    seeded_client, range_name: str, grain: str, count: int
+):
+    """对照条 = 当前周期所在的上一档粒度序列（14 文档 §4.3）。
+
+    序列以当前周期收尾，且**当前那根的高度必须等于英雄数值**——对不上的话"今天算多
+    还是算少"这句话就是拿两套口径在比。
+    """
+    payload = seeded_client.get(f"/api/v1/overview?range={range_name}").get_json()
+    context = payload["context"]
+    assert context["grain"] == grain
+    assert len(context["buckets"]) == count
+    assert context["buckets"][-1]["bucket"] == context["current"], "序列该以当前周期收尾"
+    current = next(item for item in context["buckets"] if item["bucket"] == context["current"])
+    assert current["seconds"] == pytest.approx(payload["screen_time"]["total_seconds"], abs=1.0)
+    assert current["presses"] == payload["keyboard"]["total_presses"]
+
+
+def test_overview_context_series_for_year_covers_every_year_with_data(seeded_client):
+    context = seeded_client.get("/api/v1/overview?range=year").get_json()["context"]
+    assert context["grain"] == "year"
+    assert context["current"] == "2026"
+    years = [item["bucket"] for item in context["buckets"]]
+    # 数据集里最早的一天在 2025（BLIND_DAY 那一段），因此两年都要在场且按序。
+    assert years == sorted(years) == ["2025", "2026"]
+
+
+@pytest.mark.parametrize("query", ("range=total", "range=custom&start=2026-09-01&end=2026-09-02"))
+def test_overview_has_no_context_series_where_there_is_nothing_to_compare(seeded_client, query):
+    """"全部"与自定义区间没有可比的同粒度序列，宁可整段缺席也不硬凑一条。"""
+    payload = seeded_client.get(f"/api/v1/overview?{query}").get_json()
+    assert "context" not in payload
+    assert "context" in payload["included"], "段仍然被请求过，只是这两种 range 没有内容"
+
+
 def test_overview_highlights_are_sentences_with_a_code(seeded_client):
     """每条结论都要能说出口径，因此带 ``code`` 让前端能定位文案与说明。"""
     highlights = seeded_client.get("/api/v1/overview?range=day").get_json()["highlights"]
@@ -112,10 +179,22 @@ def test_usage_period_pagination_reports_the_untruncated_total(seeded_client):
     assert payload["pagination"] == {"limit": 1, "offset": 0, "total": 2}
 
 
-@pytest.mark.parametrize("sort", ["seconds", "presses", "sessions", "name"])
+@pytest.mark.parametrize("sort", ["seconds", "presses", "sessions", "name", "last_seen"])
 def test_usage_period_sorting_is_stable_and_complete(seeded_client, sort: str):
     payload = seeded_client.get(f"/api/v1/usage/period?range=day&sort={sort}").get_json()
     assert len(payload["apps"]) == 2
+
+
+def test_usage_period_can_sort_by_last_seen(seeded_client):
+    """"最近用过的排前面"是选应用时最自然的顺序（16 文档 §A4 的第三件事）。
+
+    ``/apps`` 早就支持这个排序键，``/usage/period`` 没有——于是应用视图的四种排序里
+    唯独缺了它，而每一行都带着 ``last_seen_at``。
+    """
+    apps = seeded_client.get("/api/v1/usage/period?range=total&sort=last_seen").get_json()["apps"]
+    stamps = [app["last_seen_at"] for app in apps]
+    assert stamps == sorted(stamps, reverse=True)
+    assert all(stamps), "每一行都该带 last_seen_at，否则这个排序键只是摆设"
 
 
 @pytest.mark.parametrize(

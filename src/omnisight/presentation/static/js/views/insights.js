@@ -17,6 +17,7 @@ import { formatCount, formatClock, formatDurationShort, formatPercent } from '..
 import { capabilityNotice, emptyState, errorState, skeletonRows } from '../components/states.js';
 import { capabilityOf, noticeFor } from '../components/degraded.js';
 import { card } from '../components/card.js';
+import { hourBand } from '../components/hour-band.js';
 import { stackedBar } from '../charts/stacked-bar.js';
 import { panelPair } from '../charts/panel-pair.js';
 import { gapSet, periodParams } from '../domain/period.js';
@@ -38,6 +39,7 @@ export function create(root) {
   const attributionNote = h('div');
   const hourlyHost = h('div', { class: 'chart chart--medium' });
   const hourlyNote = h('div');
+  const bandHost = h('div');
   const rhythmChartHost = h('div', { class: 'chart chart--medium' });
   const rhythmKvHost = h('div', { class: 'stack' });
   const focusHost = h('div', { class: 'stack' });
@@ -54,6 +56,9 @@ export function create(root) {
   });
 
   const hourlyChart = stackedBar(hourlyHost, { height: 170, label: '每小时时间去向' });
+  // 堆叠柱答"哪一类"，图标带答"是哪一个"——同一张卡两层，不再是两个面板
+  // （16 文档 §A1；前身把后者藏在另一张卡的背面）。
+  const band = hourBand(bandHost);
   // 24 小时的 KPM 是一维时间序列，默认形式是柱不是格子——格子热图适合"网格上比大小"
   // （日历的 7×53），不适合一维序列（14 文档 §2.11）。
   const rhythmChart = panelPair(rhythmChartHost, { height: 150, label: '每小时输入强度' });
@@ -64,7 +69,17 @@ export function create(root) {
     card('输入强度排行', h('div', null, attributionNote, rankHost), [], rankNote),
     card('键位与应用', keySplitHost),
     card('节奏对比', h('div', null, rhythmChartHost, rhythmKvHost)),
-    card('每小时时间去向', h('div', null, hourlyHost, hourlyNote)),
+    card(
+      '每小时时间去向',
+      h(
+        'div',
+        null,
+        hourlyHost,
+        hourlyNote,
+        h('div', { class: 'text-sm muted', text: '这些小时里用的是哪些应用' }),
+        bandHost,
+      ),
+    ),
     h(
       'div',
       { class: 'grid grid--2' },
@@ -250,6 +265,10 @@ export function create(root) {
     }
     const hours = payload.hours || [];
     const gaps = gapSet(state.coverage, ['foreground']);
+    // 图标带的缺口只在"看的就是这一天、而这一天测不到"时才成立：多天聚合里某天缺失
+    // 不该让 24 行全画斜纹，那种情况由下面那行注记说明。
+    const period = payload.period || {};
+    band.update({ hours, gap: (period.days || 0) <= 1 && gaps.has(period.start) });
     const buckets = hours.map((hour) => ({
       label: `${hour.hour}:00`,
       total: hour.total_seconds,
@@ -478,7 +497,8 @@ export function create(root) {
     return [
       { key: 'insightKeyboard', path: '/insights/app-keyboard', params: { ...period, limit: 20 } },
       { key: 'insightRhythm', path: '/insights/rhythm', params: period },
-      { key: 'insightTimeline', path: '/usage/timeline', params: { ...period, top: 5 } },
+      // top=10：图标带一行装得下十来个，取 5 会让 `+N` 把大半个下午都吞掉。
+      { key: 'insightTimeline', path: '/usage/timeline', params: { ...period, top: 10 } },
       // 高频键选择器的数据源（M3-6 给出的两个方案之一：让洞察视图也取一次 heatmap）。
       { key: 'insightHeatmap', path: '/keyboard/heatmap', params: period },
       { key: 'insightKey', path: `/keyboard/keys/${keyIdFor(state)}`, params: period },
@@ -491,6 +511,7 @@ export function create(root) {
     filters: () => [keySelect],
     render,
     destroy() {
+      band.destroy();
       hourlyChart.destroy();
       rhythmChart.destroy();
       root.replaceChildren();

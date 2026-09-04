@@ -7,19 +7,31 @@
 // 本身就是卡头。产品自己的器物是键帽，界面的形状语言从它推导，而不是再发明一种卡片。
 import { h, setText } from '../core/dom.js';
 import { formatDelta } from '../domain/format.js';
-import { sparkline } from '../charts/sparkline.js';
+import { contextBars } from '../charts/context-bars.js';
 import { icon } from './icon.js';
 import { skeleton } from './states.js';
 
 /**
- * @param {{ label: string, hint?: string, hero?: boolean, trendColor?: string }} options
+ * @param {{ label: string, hint?: string, hero?: boolean, series?: 'time' | 'keys',
+ *           metric?: 'seconds' | 'presses', format?: (value: number) => string }} options
  */
-export function statCard({ label, hint = '', hero = false, trendColor = '--accent' }) {
+export function statCard({
+  label,
+  hint = '',
+  hero = false,
+  series = 'time',
+  metric = 'seconds',
+  format = (value) => String(value),
+}) {
   // 大号独立数字用**比例数字**：44px 上的 tabular-nums 会让 121 这类数字看起来松散。
   // tabular-nums 留给需要竖向对齐的列（14 文档 §3.3）。
   const value = h('div', { class: 'metric__value', text: '—' });
   const delta = h('div', { class: 'metric__delta numeric' });
-  const trend = sparkline({ accent: trendColor });
+  // 卡上那条迷你图是**对照条**，不是本周期内部的走势线：后者与卡上方的活动带同源
+  // （overview.js 的注释早就写明了这一点），因此画两遍只是把同一件事说两次，
+  // 而"这段时间算不算多"仍然没人回答（14 文档 §2.18）。
+  const contextHost = h('div', { class: 'metric__context' });
+  const context = contextBars(contextHost, { accent: series, metric, format, label: `${label}对照条` });
   const foot = h('div', { class: 'metric__foot' });
   const root = h(
     'div',
@@ -33,7 +45,7 @@ export function statCard({ label, hint = '', hero = false, trendColor = '--accen
         : null,
       delta,
     ),
-    trend.root,
+    contextHost,
     value,
     foot,
   );
@@ -45,21 +57,30 @@ export function statCard({ label, hint = '', hero = false, trendColor = '--accen
       value.replaceChildren(skeleton('value'));
       setText(foot, '');
       setText(delta, '');
-      trend.update([]);
+      context.update({ buckets: [], current: '' });
+      contextHost.hidden = true;
     },
     /**
-     * trend: 上一档粒度的同周期序列，画成迷你趋势线。
-     * 它替换的是原来那根"对比条"——那根条画的是 min(1, now/max(now, prev))，
-     * 只要本期不比上期少就恒为满格，也就是说它不编码任何东西（14 文档 §2.6）。
+     * `contextSeries` 是 `/overview` 的 `context` 段：当前周期所在的上一档粒度序列
+     * （日→近 7 天、周→近 8 周、月→近 12 个月、年→全部年份）。
+     *
+     * `range=total` 与 `custom` 没有可比的序列，后端整段不给——那时整块隐藏，
+     * 而不是画一根孤零零的柱子充数（14 文档 §4.3）。
+     *
+     * @param {{ text: string, deltaValue?: import('../types/api.js').Delta | null,
+     *           contextSeries?: import('../types/api.js').ContextSeries | null,
+     *           footnote?: string }} options
      */
-    update({ text, deltaValue = null, trend: series = null, footnote = '' }) {
+    update({ text, deltaValue = null, contextSeries = null, footnote = '' }) {
       value.replaceChildren(document.createTextNode(text));
       setText(delta, deltaValue ? formatDelta(deltaValue) : '');
-      trend.update(series || []);
+      const buckets = (contextSeries && contextSeries.buckets) || [];
+      contextHost.hidden = buckets.length === 0;
+      context.update({ buckets, current: (contextSeries && contextSeries.current) || '' });
       setText(foot, footnote);
     },
     destroy() {
-      trend.destroy();
+      context.destroy();
     },
   };
 }

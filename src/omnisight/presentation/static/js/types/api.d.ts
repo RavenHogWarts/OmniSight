@@ -142,6 +142,22 @@ export interface AppRecord {
   last_seen_at: string;
 }
 
+/**
+ * `/apps/running` 的一行。`app_id` 为 null 表示这个进程还没被记录过——它没有统计可看，
+ * 因此范围选择器不列它（挑它只会得到一张空热图）。
+ */
+export interface RunningApp {
+  app_id: number | null;
+  app_key: string;
+  display_name: string;
+  process_name: string;
+  known: boolean;
+}
+
+export interface RunningAppsResponse extends Envelope {
+  apps: RunningApp[];
+}
+
 export interface AppsResponse extends Envelope {
   apps: AppRecord[];
   categories: CategoryOption[];
@@ -286,11 +302,34 @@ export interface TrendBucket {
   label: string;
   seconds: number;
   presses: number;
+  /**
+   * 类别 id → 秒。**各值之和恒等于 `seconds`**（后端同源计算），活动带上面板据此
+   * 堆叠；空桶是 `{}` 而不是缺席。
+   */
+  categories: Record<string, number>;
 }
 
 export interface Trend {
   granularity: string;
   buckets: TrendBucket[];
+}
+
+/** 对照条的一根柱。`bucket` 与 `ContextSeries.current` 相等的那根是"当前"。 */
+export interface ContextBucket {
+  bucket: string;
+  label: string;
+  seconds: number;
+  presses: number;
+}
+
+/**
+ * 「这段时间算不算多」的参照序列（14 文档 §4.3）：当前周期所在的上一档粒度序列。
+ * `range=total` 与 `custom` 没有可比的序列，因此响应里**没有** `context` 这一段。
+ */
+export interface ContextSeries {
+  grain: string;
+  current: string;
+  buckets: ContextBucket[];
 }
 
 /** 一条结论。`basis` 说明它是怎么算出来的，前端原样显示（06 文档 §5.3）。 */
@@ -311,6 +350,7 @@ export interface OverviewResponse extends Envelope {
   top_apps?: AppUsageRow[];
   categories?: CategoryShare[];
   trend?: Trend;
+  context?: ContextSeries;
   highlights?: Highlight[];
 }
 
@@ -319,6 +359,8 @@ export interface TimelineHourApp {
   display_name: string;
   seconds: number;
   percent: number;
+  /** `capabilities.icons === false` 时是 `null`——前端走首字母色块，不发注定 204 的请求。 */
+  icon_url: string | null;
 }
 
 export interface TimelineHour {
@@ -486,6 +528,8 @@ export interface KeyByHour {
 }
 
 export interface KeyDetailResponse extends Envelope {
+  /** 与热图同一个范围口径：`scope_app_id` 传了就是那个应用，否则全部应用。 */
+  scope: Scope;
   key: KeyIdentity;
   totals: KeyTotals;
   by_app: KeyByApp[];
@@ -953,6 +997,7 @@ export interface DataMap {
   overviewIntensity: AppKeyboardResponse;
   appsPeriod: UsagePeriodResponse;
   appsMeta: AppsResponse;
+  appsRunning: RunningAppsResponse;
   appDetail: AppDetailResponse;
   appSessions: SessionsResponse;
   layout: LayoutResponse;
@@ -960,7 +1005,6 @@ export interface DataMap {
   timeline: KeyboardTimelineResponse;
   ergonomics: ErgonomicsResponse;
   keyDetail: KeyDetailResponse;
-  insightHighlights: OverviewResponse;
   insightKeyboard: AppKeyboardResponse;
   insightRhythm: RhythmResponse;
   insightTimeline: UsageTimelineResponse;

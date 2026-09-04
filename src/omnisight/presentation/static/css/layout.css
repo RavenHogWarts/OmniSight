@@ -73,6 +73,13 @@
 
 .periodbar__nav { display: flex; align-items: center; gap: var(--space-1); }
 
+/* 数据新鲜度。只在实时通道断掉时出现（16 文档 §A6），因此它不参与常态排版。 */
+.periodbar__freshness {
+  font-size: var(--text-2xs);
+  font-family: var(--font-small);
+  color: var(--text-tertiary);
+}
+
 /* 视图级筛选（14 文档 §4.1）。用一条竖线与周期部分分开：它们回答的是不同的问题
    ——左边是"哪一段时间"，右边是"这一屏里的哪一批"。 */
 .periodbar__filters {
@@ -82,6 +89,12 @@
   padding-left: var(--space-4);
   border-left: 1px solid var(--border-subtle);
 }
+/* 这一行是固定 48px 高，因此**行内控件一律不换行**：分段器折成两行、复选框标签断成
+   两截，都会把周期栏顶开（应用视图加上第五个排序键"最近"之后就是这样）。要让位的是
+   搜索框的宽度，不是这一行的高度。 */
+.periodbar__filters .segmented { flex-wrap: nowrap; }
+.periodbar__filters .search { min-width: 132px; flex: 0 1 200px; }
+.periodbar__filters .checkbox { white-space: nowrap; }
 
 .period-label {
   min-width: 12ch;

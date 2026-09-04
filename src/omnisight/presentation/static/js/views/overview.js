@@ -8,7 +8,7 @@ import { h, mount, setText } from '../core/dom.js';
 import { getState, setState } from '../core/store.js';
 import { panelPair } from '../charts/panel-pair.js';
 import { stackBar } from '../components/stack-bar.js';
-import { markGaps } from '../domain/buckets.js';
+import { markGaps, stackByCategory } from '../domain/buckets.js';
 import { formatCount, formatDuration, formatPercent } from '../domain/format.js';
 import { gapSet, periodParams } from '../domain/period.js';
 import { renderAppRows } from '../components/app-list.js';
@@ -39,12 +39,16 @@ export function create(root) {
     label: '屏幕时间',
     hint: '前台应用的累计时长，已扣除空闲',
     hero: true,
-    trendColor: '--data-time',
+    series: 'time',
+    metric: 'seconds',
+    format: formatDuration,
   });
   const keyboard = statCard({
     label: '按键',
     hint: '按键次数。不记录按了什么内容',
-    trendColor: '--data-keys',
+    series: 'keys',
+    metric: 'presses',
+    format: (value) => `${formatCount(value)} 次`,
   });
 
   const timelineHost = h('div', { class: 'chart chart--tall' });
@@ -124,19 +128,19 @@ export function create(root) {
     const keys = overview.keyboard || {};
     const timeDelta = time.delta_vs_previous;
     const keyDelta = keys.delta_vs_previous;
-    // 趋势线画的是活动带同一批桶——它已经是"上一档粒度的同周期序列"（看"日"时是
-    // 每小时，看"月"时是每天）。替换掉的那根对比条恒为满格（14 文档 §2.6）。
-    const buckets = (overview.trend && overview.trend.buckets) || [];
+    // 两张卡共用一条对照序列（后端一次算好 seconds 与 presses），各取自己那一列：
+    // 屏幕时间比时长、按键比次数，"这段时间算不算多"因此在两张卡上是同一把尺子。
+    const context = overview.context || null;
     screen.update({
       text: time.total_formatted || formatDuration(time.total_seconds || 0),
       deltaValue: timeDelta,
-      trend: buckets.map((item) => item.seconds || 0),
+      contextSeries: context,
       footnote: `${time.app_count || 0} 个应用，日均 ${formatDuration(time.daily_average_seconds || 0)}`,
     });
     keyboard.update({
       text: `${formatCount(keys.total_presses || 0)} 次`,
       deltaValue: keyDelta,
-      trend: buckets.map((item) => item.presses || 0),
+      contextSeries: context,
       footnote: `${keys.active_keys || 0} 个活跃键，峰值 ${formatCount(keys.kpm_peak || 0)} KPM`,
     });
     const grain = GRAIN_NAMES[overview.trend && overview.trend.granularity] || '时间';
@@ -148,17 +152,24 @@ export function create(root) {
     const granularity = trend.granularity || 'hour';
     // 上下两个面板共享时间轴，缺口取两者的并集：任何一侧测不到，这个桶就不可信。
     const gaps = gapSet(state.coverage, ['foreground', 'keyboard']);
-    const buckets = markGaps(trend.buckets || [], granularity, gaps, overview.period);
+    const buckets = markGaps(stackByCategory(trend.buckets, overview.categories), granularity, gaps, overview.period);
     chart.update({
       buckets,
       mode,
       caption: '活动带',
       summary: `${(overview.period && overview.period.label) || ''}，共 ${buckets.length} 个时间桶`,
     });
-    // 两个系列必须有图例，且常驻（14 文档 §4.3）。
+    // 两个系列必须有图例，且常驻（14 文档 §4.3）。上面板按类别着色，因此时长那一侧
+    // 的图例就是类别本身——一个蓝色"屏幕时间"色块会与柱子的实际颜色对不上。
+    const categories = (overview.categories || []).filter((item) => (item.seconds || 0) > 0);
+    const showTime = mode === 'both' || mode === 'seconds';
     mount(
       legendHost,
-      mode === 'both' || mode === 'seconds'
+      showTime && categories.length
+        ? categories.map((item) =>
+            h('span', { class: 'chart__legend-item', dataset: { category: item.id } }, h('i'), h('span', { text: item.name })))
+        : null,
+      showTime && !categories.length
         ? h('span', { class: 'chart__legend-item', dataset: { series: 'time' } }, h('i'), h('span', { text: '屏幕时间' }))
         : null,
       mode === 'both' || mode === 'presses' || mode === 'kpm'

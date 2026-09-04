@@ -17,12 +17,15 @@ from .apps import AppService
 from .context import ServiceContext
 from .period import Period
 
-#: 排序键 → 取值函数。``name`` 用展示名，其余用数值倒序。
+#: 排序键 → 取值字段。``name`` 用展示名升序、``last_seen`` 用时间戳字符串倒序，
+#: 其余用数值倒序。``last_seen`` 与 ``/apps`` 的同名排序键是同一个语义（``_SORTS_APPS``
+#: 早就有它）——"最近用过的排前面"是选应用时最自然的一种顺序。
 _SORT_KEYS: dict[str, str] = {
     "seconds": "duration_ms",
     "presses": "presses",
     "sessions": "session_count",
     "name": "display_name",
+    "last_seen": "last_seen_at",
 }
 
 
@@ -219,12 +222,15 @@ class UsageService:
                     "categories": {
                         name: round(value, 1) for name, value in sorted(by_category.items())
                     },
+                    # ``icon_url`` 与 ``/usage/period`` 的行同形——小时图标带靠它认应用，
+                    # 而"认图标比读文字快"正是这一块存在的理由（16 文档 §A1）。
                     "apps": [
                         {
                             "app_id": app_id,
                             "display_name": lens.name(app_id),
                             "seconds": round(duration_ms / 1000, 1),
                             "percent": formatting.percent(duration_ms, total_ms),
+                            "icon_url": self._icon_url(lens, app_id),
                         }
                         for app_id, duration_ms in head
                     ],
@@ -233,6 +239,10 @@ class UsageService:
                 }
             )
         return {"hours": hours}
+
+    def _icon_url(self, lens, app_id: int) -> str | None:
+        meta = lens.meta(app_id)
+        return self._apps.icon_url(meta) if meta else None
 
     # ── 会话明细 ────────────────────────────────────────────────────────
     def sessions(
@@ -291,28 +301,85 @@ class UsageService:
         }
 
     # ── 趋势 ────────────────────────────────────────────────────────────
-    def trend_seconds(self, period: Period) -> dict[str, float]:
-        """趋势桶 → 秒。粒度由后端按 ``range`` 决定（05 文档 §2）。"""
-        if period.granularity == "hour":
-            rows = self._ctx.usage_repo.hourly_apps(period.start_day, period.end_day)
-            lens = self._apps.lens()
-            per_hour: dict[str, float] = {}
-            for row in rows:
-                if not lens.is_real_app(row["app_id"]):
-                    continue
-                bucket = f"{row['hour']:02d}"
-                per_hour[bucket] = per_hour.get(bucket, 0) + row["duration_ms"] / 1000
-            return {bucket: round(value, 1) for bucket, value in per_hour.items()}
-        totals = self._ctx.usage_repo.bucket_totals(
-            period.granularity, *_bucket_bounds(period)
+    def trend_composition(self, period: Period) -> dict[str, dict[str, float]]:
+        """趋势桶 → 类别 → 秒。活动带的上面板按类别堆叠要用它（14 文档 §4.3）。
+
+        **两处刻意的口径决定：**
+
+        * **桶高 = 各类别之和**（``trend_seconds`` 直接由这里求和得出）。堆叠段加起来
+          短于柱高是最难被发现的一类错误——用户看到的是"柱子上面空了一块"，而没有任何
+          线索指向"那一块是被排除的应用"。
+        * **按应用取行再经 AppLens 折叠**，而不是整桶 ``SUM(duration_ms)``。后者不认识
+          合并与排除，于是日/月/年粒度的柱高会比同一屏的英雄数值大一截——那个数值走的
+          是 ``app_rows``，早就把排除项折掉了。（那个只取桶总和的仓储方法因此被删掉：
+          留着它就是留着一条会算出不一致数字的近路。）
+        """
+        return self._ctx.cached(
+            ("usage.trend_composition", period.range, period.day_range, period.granularity),
+            lambda: self._trend_composition(period),
         )
-        return {bucket: round(value / 1000, 1) for bucket, value in totals.items()}
+
+    def _trend_composition(self, period: Period) -> dict[str, dict[str, float]]:
+        lens = self._apps.lens()
+        if period.granularity == "hour":
+            rows = [
+                {
+                    "bucket": f"{row['hour']:02d}",
+                    "app_id": row["app_id"],
+                    "duration_ms": row["duration_ms"],
+                }
+                for row in self._ctx.usage_repo.hourly_apps(period.start_day, period.end_day)
+            ]
+        else:
+            rows = self._ctx.usage_repo.bucket_app_totals(
+                period.granularity, *_bucket_bounds(period)
+            )
+        buckets: dict[str, dict[str, float]] = {}
+        for row in rows:
+            app_id = row["app_id"]
+            if not lens.is_real_app(app_id):
+                continue
+            slot = buckets.setdefault(row["bucket"], {})
+            category = lens.category(app_id)
+            slot[category] = slot.get(category, 0.0) + row["duration_ms"] / 1000
+        # 类别序固定（按 id 排），槽位因此在每个周期都在同一个位置（14 文档 §2.10）。
+        return {
+            bucket: {name: round(value, 1) for name, value in sorted(values.items())}
+            for bucket, values in buckets.items()
+        }
+
+    def bucket_seconds(self, grain: str, start: str, end: str) -> dict[str, float]:
+        """给定粒度的桶 → 秒，口径与 :meth:`trend_composition` 一致（经 AppLens 折叠）。
+
+        对照条用它（14 文档 §4.3）。``grain`` ∈ ``day`` | ``month`` | ``year``——"周"没有
+        聚合表，由调用方拿日桶自己折：一次 8 周就是 56 行，为它建第四张表不划算。
+        """
+        lens = self._apps.lens()
+        totals: dict[str, float] = {}
+        for row in self._ctx.usage_repo.bucket_app_totals(grain, start, end):
+            if not lens.is_real_app(row["app_id"]):
+                continue
+            totals[row["bucket"]] = totals.get(row["bucket"], 0.0) + row["duration_ms"] / 1000
+        return {bucket: round(value, 1) for bucket, value in totals.items()}
+
+    def trend_seconds(self, period: Period) -> dict[str, float]:
+        """趋势桶 → 秒。粒度由后端按 ``range`` 决定（05 文档 §2）。
+
+        求和自 :meth:`trend_composition`——两者恒等，见那里的第一条口径决定。
+        """
+        return {
+            bucket: round(sum(values.values()), 1)
+            for bucket, values in self.trend_composition(period).items()
+        }
 
 
 def _sorted(rows: list[dict], sort: str) -> list[dict]:
     field = _SORT_KEYS.get(sort, "duration_ms")
     if field == "display_name":
         return sorted(rows, key=lambda row: (row["display_name"] or "").casefold())
+    if field == "last_seen_at":
+        # ISO 时间戳按字符串倒序即时间倒序；没有时间的（元数据缺失）排在最后而不是抛。
+        return sorted(rows, key=lambda row: row.get(field) or "", reverse=True)
     return sorted(rows, key=lambda row: row.get(field) or 0, reverse=True)
 
 

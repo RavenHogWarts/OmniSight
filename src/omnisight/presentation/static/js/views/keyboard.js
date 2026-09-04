@@ -59,6 +59,11 @@ export function create(root) {
   }, { small: true, label: '时间粒度' });
   const timelineHost = h('div', { class: 'chart chart--medium' });
   const timelineNote = h('div');
+  // 月与年常驻（16 文档 §A5）。四个粒度本来就是**一次请求**取回的（见 needs()），
+  // 所以多画两块不多一次往返；前身 KeyTrace 把 365 天 / 24 小时 / 月 / 年四张卡同屏
+  // 铺开，而这里原先只有"当前选中的那一个粒度 + 常驻日历"。
+  const monthsHost = h('div', { class: 'chart chart--short' });
+  const yearsHost = h('div', { class: 'chart chart--short' });
   const topKeysHost = h('div', { class: 'top-keys' });
   const fingersHost = h('div');
   const calendarHost = h('div');
@@ -71,6 +76,8 @@ export function create(root) {
     },
   });
   const timeline = panelPair(timelineHost, { height: 150, label: '按键时间分布' });
+  const months = panelPair(monthsHost, { height: 96, label: '按月的按键分布' });
+  const years = panelPair(yearsHost, { height: 96, label: '按年的按键分布' });
   const calendar = calendarHeatmap(calendarHost, {
     weekStartsOn: getState().prefs.weekStartsOn,
     metric: 'press_count',
@@ -93,6 +100,12 @@ export function create(root) {
       card('手指负荷', fingersHost),
     ),
     card('每日活跃度（近 365 天）', h('div', null, calendarHost, calendarNote)),
+    h(
+      'div',
+      { class: 'grid grid--2' },
+      card('按月', monthsHost),
+      card('按年', yearsHost),
+    ),
   );
 
   let renderedFamily = null;
@@ -135,8 +148,9 @@ export function create(root) {
     board.update(heatmap, state.metric);
     renderTotals(heatmap);
     renderTopKeys(heatmap, state.metric);
-    picker.update(pickerApps(state));
+    picker.update(pickerApps(state), runningIds(state));
     renderTimeline(state);
+    renderCoarse(state);
     renderCalendar(state);
     renderErgonomics(state);
     renderKeyDetail(state);
@@ -282,6 +296,26 @@ export function create(root) {
     mount(timelineNote, gapLegend(gaps.size));
   }
 
+  /** 月 / 年两张常驻小卡。与上面那张大图同源同指标，只是粒度固定、不占分段器。 */
+  function renderCoarse(state) {
+    const payload = state.data.timeline;
+    const gaps = gapSet(state.coverage, ['keyboard']);
+    for (const { grain, chart } of [{ grain: 'months', chart: months }, { grain: 'years', chart: years }]) {
+      const view = (payload && payload.views && payload.views[grain]) || null;
+      if (!view || view.available === false) {
+        chart.update({ buckets: [], mode: 'presses' });
+        continue;
+      }
+      const buckets = markGaps(view.buckets || [], grainOf(grain), gaps, view.period);
+      chart.update({
+        buckets: buckets.map((bucket) => ({ ...bucket, presses: bucket[state.metric] })),
+        mode: 'presses',
+        caption: grain === 'months' ? '按月的按键分布' : '按年的按键分布',
+        summary: `按${grainName(grain)}的按键分布，共 ${buckets.length} 个桶`,
+      });
+    }
+  }
+
   function renderCalendar(state) {
     const payload = state.data.timeline;
     const view = payload && payload.views && payload.views.days;
@@ -381,6 +415,8 @@ export function create(root) {
       },
       { key: 'ergonomics', path: '/keyboard/ergonomics', params: { ...period, ...scope } },
       { key: 'appsMeta', path: '/apps', params: { limit: 300 } },
+      // "正在运行"分组的数据源（← 前身 KeyTrace 要靠 TimeLens 的集成接口才拿得到）。
+      { key: 'appsRunning', path: '/apps/running' },
     ];
     if (state.selectedKeyId) {
       // 与 loadKeyDetail 同一个口径：详情必须跟着热图的范围走。
@@ -401,6 +437,8 @@ export function create(root) {
     destroy() {
       board.destroy();
       timeline.destroy();
+      months.destroy();
+      years.destroy();
       calendar.destroy();
       root.replaceChildren();
     },
@@ -416,6 +454,14 @@ function familyParam(state) {
 function pickerApps(state) {
   const meta = state.data.appsMeta;
   return (meta && meta.apps) || [];
+}
+
+/** "正在运行"分组只认已记录过的应用：app_id 为 null 的进程没有统计可看。 */
+function runningIds(state) {
+  const payload = state.data.appsRunning;
+  return ((payload && payload.apps) || [])
+    .map((app) => app.app_id)
+    .filter((id) => typeof id === 'number');
 }
 
 function total(label, value) {

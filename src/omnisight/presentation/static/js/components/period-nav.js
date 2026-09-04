@@ -11,6 +11,7 @@
 //    整个视图——看起来是那张卡的开关，实际改了整屏（14 文档 §2.8）。它们现在挂进这一
 //    行的右段。界线：**改请求参数的控件在筛选行，改渲染方式的控件留在卡头。**
 import { h, mount, setText } from '../core/dom.js';
+import { formatClock } from '../domain/format.js';
 import { getState, setState, subscribe } from '../core/store.js';
 import { RANGES } from '../domain/metrics.js';
 import { canGoForward, isPageable, shift, todayISO } from '../domain/period.js';
@@ -68,6 +69,10 @@ export function mountPeriodNav(container) {
 
   // 视图级筛选的插槽。切视图时整体替换内容（见 setFilters）。
   const filters = h('div', { class: 'periodbar__filters', hidden: true });
+  // 数据新鲜度（16 文档 §A6）。**只在实时通道断掉时出现**：SSE 正常时数据一变就重取，
+  // 常驻一行"更新于 刚刚"是噪声；而退到 30 秒轮询后，屏幕上原本没有任何地方说得出
+  // 这屏数字算于何时（前身 TimeLens 的 `.updated` 是常驻的，它没有实时通道）。
+  const freshness = h('span', { class: 'periodbar__freshness numeric', hidden: true });
 
   mount(
     container,
@@ -77,8 +82,23 @@ export function mountPeriodNav(container) {
     customToggle,
     custom,
     h('span', { class: 'spacer' }),
+    freshness,
     filters,
   );
+
+  /** @type {Date | null} */
+  let fetchedAt = null;
+  const syncFreshness = () => {
+    const { live } = getState();
+    const stamp = live.mode === 'stream' ? null : fetchedAt;
+    freshness.hidden = stamp === null;
+    setText(freshness, stamp ? `更新于 ${formatClock(stamp.toISOString())}` : '');
+  };
+  subscribe('data', () => {
+    fetchedAt = new Date();
+    syncFreshness();
+  });
+  subscribe('live', syncFreshness);
 
   const render = () => {
     const { period, periodMeta } = getState();

@@ -54,6 +54,9 @@ ICON_SOURCES: dict[str, str] = {
     "theme": "contrast",
     "left": "chevron-left",
     "right": "chevron-right",
+    # 弹层触发器的下箭头（应用范围选择器，14 文档 §4.6）。用 chevron 而不是 caret：
+    # 与左右两个翻页箭头同族，三个箭头因此是同一套笔画。
+    "down": "chevron-down",
     "info": "info",
     "keyboard": "keyboard",
     "apps": "layout-grid",

@@ -183,6 +183,7 @@ def ensure_database(
     db = Database(db_path)
     migrate(db)
     if existed:
+        _apply_auto_categories(db, quiet=quiet)
         return db
     zone = ZoneInfo(tz)
     if not quiet:
@@ -200,7 +201,24 @@ def ensure_database(
     )
     if not quiet:
         print(f"播种完成：{report.render()}")
+    _apply_auto_categories(db, quiet=quiet)
     return db
+
+
+def _apply_auto_categories(db: Database, *, quiet: bool = False) -> None:
+    """补自动分类——**生产里这一步在 ``Lifecycle._refresh_categories``**，开发服务器
+    不跑生命周期，于是不做就每个应用都是"未分类"。
+
+    后果不是"少一列元数据"而是**整屏配色失真**：类别构成条只有一段灰、活动带上面板
+    也只有一层，看起来像功能没做（14 文档 §4.3 的类别堆叠就是这样被瞒过去的）。
+    只改 ``category_source = 'auto'`` 的行，和生产同一条规则。
+    """
+    from omnisight.services import categories as category_rules
+    from omnisight.storage.repositories.apps import AppDirectory
+
+    changed = AppDirectory(db).apply_auto_categories(category_rules.categorize)
+    if changed and not quiet:
+        print(f"按当前规则补了 {changed} 个应用的自动分类")
 
 
 def build_app(

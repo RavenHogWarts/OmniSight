@@ -38,6 +38,14 @@
 }
 .chart__legend-item[data-series="time"] > i { background: var(--data-time); }
 .chart__legend-item[data-series="keys"] > i { background: var(--data-keys); }
+/* 类别图例：色块而不是线段——它标的是堆叠段的填充色，不是一条系列线。
+   --bar-color 由 bar.css 的 [data-category] 规则给，色值不在这里第二次硬编码。 */
+.chart__legend-item[data-category] > i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--bar-color, var(--cat-uncategorized));
+}
 
 .chart__empty {
   position: absolute;
@@ -48,4 +56,7 @@
   color: var(--text-tertiary);
 }
 
-.sparkline { display: block; width: 100%; height: 36px; }
+/* 指标卡上的对照条（14 文档 §4.3 的 7–14 根柱）。高度由 JS 按实例给。
+   限宽的理由：7 根柱铺满一张 680px 的卡会读成散落的刻度而不是一组可比的柱子。 */
+.metric__context { max-width: 340px; }
+.metric__context canvas { display: block; width: 100%; }

@@ -57,6 +57,18 @@ export function formatDelta(delta, unit = '') {
   return `${arrow} ${Math.abs(percent).toFixed(1)}%`;
 }
 
+/**
+ * ISO 时间戳 -> `M/D HH:MM`。"最近用过"这类副行要日期也要钟点：只给钟点的话
+ * 昨天 18:32 与今天 18:32 长得一样。
+ */
+export function formatDayTime(iso) {
+  if (!iso) return '';
+  const value = new Date(iso);
+  if (Number.isNaN(value.getTime())) return '';
+  const clock = `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`;
+  return `${value.getMonth() + 1}/${value.getDate()} ${clock}`;
+}
+
 /** ISO 时间戳 -> `HH:MM`。后端给的是带时区偏移的字符串，Date 能正确解析。 */
 export function formatClock(iso) {
   if (!iso) return '';

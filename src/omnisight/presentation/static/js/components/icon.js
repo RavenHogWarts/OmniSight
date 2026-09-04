@@ -17,7 +17,7 @@
  * tests/unit/test_icon_sprite.py 断言这一点，不再靠"记得两边一起改"。
  */
 export const ICON_NAMES = Object.freeze([
-  'gear', 'theme', 'left', 'right', 'info', 'keyboard', 'apps', 'insights',
+  'gear', 'theme', 'left', 'right', 'down', 'info', 'keyboard', 'apps', 'insights',
   'overview', 'download', 'pause', 'more', 'search', 'close', 'warning',
 ]);
 
