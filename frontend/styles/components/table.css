@@ -24,4 +24,12 @@
   font-size: var(--text-sm);
 }
 .kv-list dt { color: var(--text-secondary); }
-.kv-list dd { margin: 0; font-variant-numeric: tabular-nums; }
+/* 值要能换行（18 文档 批 7）：数据库文件与配置文件的路径动辄六十来个字符，而路径里没有可断
+   的空白——不给 anywhere，这一列要么把左边那列挤没，要么顶出卡片。`min-width: 0` 是同一件事
+   的另一半：网格轨道默认按 min-content 撑开，不清零就还是撑。 */
+.kv-list dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}

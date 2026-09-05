@@ -785,6 +785,8 @@ export interface SettingField {
   options?: string[];
   note?: string;
   unavailable_reason?: string;
+  /** 留空时"此刻实际在用的那一个"（时区、数据目录）。只读，不参与写回。 */
+  effective?: string;
 }
 
 export interface SettingsResponse extends Envelope {

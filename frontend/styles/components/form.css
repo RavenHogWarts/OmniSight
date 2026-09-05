@@ -38,9 +38,72 @@
   white-space: nowrap;
 }
 
+/* ── 动作行 / 标签输入 / 路径行（18 文档 批 7）───────────────────────────────
+ *
+ * 设置里的"动作"（导出、打开目录、导入、去另一个页面）用的是**同一个 .field 骨架**：左边
+ * 名字、控件位一个 .icon-button。它们原先是一排 .button 挤在卡片底部，读起来像另一类东西，
+ * 而"导出使用记录 CSV"这种长度的按钮怎么排都排不齐。
+ */
+.kv-list + .field,
+.kv-list + .field__note { margin-top: var(--space-3); }
+
+/* 标签输入与说明要占满整行：一列名单挤在 200px 的控件位里改不动。 */
+.field--stack { grid-template-columns: minmax(0, 1fr); }
+
+/* 控件位上放两件东西（输入框 + 一个图标钮）：数据目录那一行。 */
+.control-row { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+
+.tag-input {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-height: 32px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+}
+/* 焦点环给整个框而不是里面那个输入框：视觉上它就是一个输入框。 */
+.tag-input:focus-within { box-shadow: var(--shadow-focus); }
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 2px 1px var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--surface-sunken);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.tag__remove {
+  width: 18px; height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-full);
+  color: var(--text-tertiary);
+}
+.tag__remove:hover { background: var(--surface-hover); color: var(--text-primary); }
+.tag__remove .icon { width: 12px; height: 12px; }
+
+/* 输入位跟着剩余空间走，最少 140px——"KeePass.exe"这种长度要能一眼看全。 */
+.tag-input__field {
+  flex: 1 1 140px;
+  min-width: 140px;
+  border: 0;
+  background: none;
+  outline: none;
+  font-size: var(--text-sm);
+}
+
+/* 上限 300px 而不是 200px：多数下拉的内容远窄于此，只有时区那一项用得上——它的当前值是
+   "跟随系统（中国标准时间 (UTC+08:00)）"，200px 里会被截成看不懂的一截。max-width 不会把
+   短内容的下拉撑宽，因此其余各项一像素都没变。 */
 select.control, input.control {
   min-width: 132px;
-  max-width: 200px;
+  max-width: 300px;
   padding: 3px var(--space-2);
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);

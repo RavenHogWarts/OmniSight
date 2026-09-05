@@ -54,9 +54,24 @@ export interface DrawerProps {
   onClose?: (() => void) | null;
   /** 宽一档（560px）。设置抽屉要它：一行设置是"标签 + 控件"两栏，420px 里两栏会挤成一栏。 */
   wide?: boolean;
+  /**
+   * 表头上、关闭钮左边的一两个图标钮。
+   *
+   * 设置抽屉用它放「在独立页面中打开」（18 文档 批 7）。那一项原先是抽屉**底部**一条
+   * 文字链：抽屉底部是滚动之外的一条常驻带，为一个链接占掉整整一行，而它与"关闭"是同一
+   * 类东西——都是对这个抽屉本身的操作，因此归到表头。
+   */
+  headExtra?: ReactNode;
 }
 
-export function Drawer({ title, children, footer, onClose = null, wide = false }: DrawerProps) {
+export function Drawer({
+  title,
+  children,
+  footer,
+  onClose = null,
+  wide = false,
+  headExtra,
+}: DrawerProps) {
   const panel = useRef<HTMLElement | null>(null);
   const closeButton = useRef<HTMLButtonElement | null>(null);
   // 打开它的那个元素。**在挂载前读**：挂载后 activeElement 已经变了。
@@ -120,6 +135,7 @@ export function Drawer({ title, children, footer, onClose = null, wide = false }
         <div className="drawer__head">
           <h2>{title}</h2>
           <span className="spacer" />
+          {headExtra}
           <button
             className="icon-button"
             type="button"

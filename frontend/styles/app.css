@@ -36,6 +36,7 @@
 @import url("components/import.css");
 @import url("components/onboarding.css");
 @import url("components/confirm.css");
+@import url("components/context-menu.css");
 
 @import url("views/overview.css");
 @import url("views/apps.css");

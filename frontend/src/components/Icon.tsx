@@ -12,6 +12,7 @@
 // 默认 aria-hidden：图标几乎总是配着文字出现；只有纯图标按钮才需要名字，那时名字
 // 应该写在按钮的 aria-label 上，不是写在图标里。
 import {
+  Ban,
   ChartColumn,
   Check,
   ChevronDown,
@@ -19,7 +20,12 @@ import {
   ChevronRight,
   Download,
   EllipsisVertical,
+  ExternalLink,
+  EyeOff,
+  FileText,
+  FolderOpen,
   House,
+  Import,
   Info,
   Keyboard,
   LayoutGrid,
@@ -69,6 +75,18 @@ const ICONS = {
   check: Check,
   close: X,
   warning: TriangleAlert,
+  // 设置页里那几行"动作"的控件位（18 文档 批 7）：一行一项，控件位上是一个图标钮，
+  // 与它上下那些开关、下拉对齐——原先是一排文字按钮，读起来像另一种东西。
+  folder: FolderOpen,
+  //「打开日志目录」。与数据目录同族但必须能一眼分开，因此是"一份文件"而不是第二个文件夹。
+  logs: FileText,
+  import: Import,
+  // 去另一个页面：关于页、以及把设置抽屉搬到 `/settings` 那一页。
+  external: ExternalLink,
+  // 应用网格的右键菜单（18 文档 批 7）。两件事必须长得不一样：`hide` 只是不再计入统计
+  // （历史数据留着），`ban` 是此后不再采集这个进程。
+  hide: EyeOff,
+  ban: Ban,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;

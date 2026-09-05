@@ -57,45 +57,45 @@ export function CalendarHeatmap({
 }: CalendarHeatmapProps) {
   const cells = useMemo(() => padToWeeks(buckets || [], weekStartsOn, metric), [buckets, weekStartsOn, metric]);
   const months = useMemo(() => monthMarks(cells), [cells]);
+  // 列数下发给 CSS（18 文档 批 7）：格子网格与月份轴必须用**同一个**列模板，否则两者的
+  // 1fr 宽度不同——"6 月"那个标签会落在六月旁边那一列上。格子按列填，每列 7 天。
+  const columns = Math.max(1, Math.ceil(cells.length / 7));
 
+  // 三块是**同一个网格的三个格位**（月份轴、星期轴、格子），因此星期标签与它对应的那七行
+  // 一定对齐。原先星期轴是格子网格的兄弟节点，而月份轴占掉了格子上方一行的高度——七个标签
+  // 因此整体上移了一行的高度，"三"指着的其实是周二那一行（18 文档 批 7）。
   return (
-    <div className="calendar">
+    <div className="calendar" style={{ '--columns': columns } as React.CSSProperties}>
+      {/* 月份轴：365 个格子没有刻度就看不出六月在哪（14 文档 §5.2）。 */}
+      <div className="heatgrid__months" aria-hidden="true">
+        {months.map((mark) => (
+          <span key={mark.column} className="heatgrid__month" style={{ gridColumn: mark.column }}>
+            {mark.label}
+          </span>
+        ))}
+      </div>
       <div className="weekday-axis">
         {Array.from({ length: 7 }, (_unused, index) => (
           <span key={index}>{index % 2 === 0 ? WEEKDAYS[(index + weekStartsOn) % 7] : ''}</span>
         ))}
       </div>
-      <div className="calendar__body">
-        {/* 月份轴：365 个格子没有刻度就看不出六月在哪（14 文档 §5.2）。 */}
-        <div className="heatgrid__months" aria-hidden="true">
-          {months.map((mark) => (
-            <span
-              key={mark.column}
-              className="heatgrid__month"
-              style={{ gridColumn: mark.column }}
-            >
-              {mark.label}
-            </span>
-          ))}
-        </div>
-        <div
-          className="heatgrid"
-          role="group"
-          aria-label="每日活跃度"
-          onClick={
-            onSelect
-              ? (event) => {
-                  const cell = (event.target as HTMLElement).closest('.heat-cell');
-                  const bucket = (cell as HTMLElement | null)?.dataset.bucket;
-                  if (bucket) onSelect(bucket);
-                }
-              : undefined
-          }
-        >
-          {cells.map((cell) => (
-            <HeatCell key={cell.key} cell={cell} scale={scale} gap={Boolean(cell.bucket && gaps?.has(cell.bucket))} />
-          ))}
-        </div>
+      <div
+        className="heatgrid"
+        role="group"
+        aria-label="每日活跃度"
+        onClick={
+          onSelect
+            ? (event) => {
+                const cell = (event.target as HTMLElement).closest('.heat-cell');
+                const bucket = (cell as HTMLElement | null)?.dataset.bucket;
+                if (bucket) onSelect(bucket);
+              }
+            : undefined
+        }
+      >
+        {cells.map((cell) => (
+          <HeatCell key={cell.key} cell={cell} scale={scale} gap={Boolean(cell.bucket && gaps?.has(cell.bucket))} />
+        ))}
       </div>
     </div>
   );

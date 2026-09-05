@@ -25,6 +25,9 @@
 .card__head .spacer { flex: 1 1 auto; }
 
 .card__title { font-size: var(--text-md); font-weight: var(--weight-heading); }
+/* 「关于」标题旁那个去隐私说明的图标（18 文档 批 7）：它属于标题这一句，因此在标题行里，
+   而不是卡头最右端那个"这张卡的开关"的位置。 */
+.card__title-row { display: flex; align-items: center; gap: var(--space-1); min-width: 0; }
 .card__hint  { font-size: var(--text-xs); color: var(--text-tertiary); }
 
 /* 卡头下面那行 11px 副标题（TimeLens 的 `.keyboard-card-header p`）。 */

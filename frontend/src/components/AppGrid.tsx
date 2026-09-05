@@ -35,6 +35,8 @@ export interface PickerApp {
   total_seconds?: number;
   total_seconds_formatted?: string;
   last_seen_at?: string | null;
+  /** 已被排除（不计入统计）。右键菜单要据此决定那一项写"不再计入"还是"重新计入"。 */
+  excluded?: boolean;
 }
 
 export interface AppGridProps {
@@ -48,6 +50,11 @@ export interface AppGridProps {
   allowAll?: boolean;
   /** 搜索框重挂载的钥匙：弹层每次打开都要清掉上一次的输入。 */
   searchKey?: string;
+  /**
+   * 右键一格。给了才拦浏览器自己的菜单——**应用视图那一块给，键盘视图的弹层不给**：
+   * 弹层本身就是一个菜单，在菜单里再开一层菜单没有出路（18 文档 批 7）。
+   */
+  onMenu?: (app: PickerApp, event: React.MouseEvent) => void;
 }
 
 function num(value: unknown): number {
@@ -74,6 +81,7 @@ export function AppGrid({
   onPick,
   allowAll = true,
   searchKey = 'grid',
+  onMenu,
 }: AppGridProps) {
   // 分组是**共享**的（core/store.ts 的 appsGroup）：同一份网格出现在应用面板与键盘
   // 视图的弹层里，在一处切了分组、另一处不该退回默认。搜索词相反——它是这一次打开
@@ -147,6 +155,7 @@ export function AppGrid({
             meta={metaOf(app)}
             mark={<Mark app={app} />}
             onPick={() => onPick(app.app_id)}
+            onMenu={onMenu ? (event) => onMenu(app, event) : undefined}
           />
         ))}
         {matched.length ? null : (
@@ -167,6 +176,7 @@ function Cell({
   mark,
   category,
   onPick,
+  onMenu,
 }: {
   active: boolean;
   label: string;
@@ -174,6 +184,7 @@ function Cell({
   mark: React.ReactNode;
   category?: string;
   onPick: () => void;
+  onMenu?: (event: React.MouseEvent) => void;
 }) {
   return (
     <button
@@ -182,6 +193,15 @@ function Cell({
       aria-pressed={active}
       data-category={category}
       onClick={onPick}
+      onContextMenu={
+        onMenu
+          ? (event) => {
+              // 拦掉浏览器自己的菜单：这一格上我们的两项动作比"另存图片"有用。
+              event.preventDefault();
+              onMenu(event);
+            }
+          : undefined
+      }
     >
       {mark}
       <span className="app-grid__cell-copy">

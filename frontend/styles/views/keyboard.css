@@ -18,16 +18,23 @@
   gap: var(--space-2);
 }
 
-.top-keys { display: flex; flex-direction: column; gap: var(--space-2); }
-.top-key {
+/* Top 10 是**一张网格**，不是十个各自的网格（18 文档 批 7）：键名列要按最长的那一个撑开
+   （"Backspace" 9 个、"PrintScreen" 11 个字符，原先固定 7ch 会被裁），而十行的条形又必须
+   对齐——只有同一个网格能同时满足这两条，因此每一行是 display: contents。 */
+.top-keys {
   display: grid;
-  grid-template-columns: 3ch 7ch minmax(0, 1fr) 7ch 6ch;
+  grid-template-columns: 3ch max-content minmax(0, 1fr) 7ch 6ch;
   align-items: center;
   gap: var(--space-2);
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
 }
-.top-key__label { font-family: var(--font-mono); font-weight: var(--weight-medium); }
+.top-key { display: contents; }
+.top-key__label {
+  font-family: var(--font-mono);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
 .top-key__count { text-align: right; }
 .top-key__percent { text-align: right; color: var(--text-secondary); }
 

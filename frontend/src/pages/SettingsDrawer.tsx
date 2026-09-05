@@ -3,9 +3,10 @@
 // 负责"把它装进抽屉"这三件事：等数据、开覆盖层、给一条去独立页面的出口。
 //
 // **按需加载。** main.tsx 用 `import()` 拉它（那是仪表盘唯一一处提到设置代码的地方），
-// 因此首屏不为一个可能不点的面板付表单、导出、进程动作那几个模块的钱——与四个视图同一个
+// 因此首屏不为一个可能不点的面板付表单与导出那几个模块的钱——与四个视图同一个
 // 手法（main.tsx:VIEW_MODULES）。
 import { Drawer, openOverlay } from '../components/Drawer.tsx';
+import { Icon } from '../components/Icon.tsx';
 import { fail } from '../components/toast.tsx';
 import { getState } from '../core/store.ts';
 import { SettingsPage, loadSettings } from './SettingsPage.tsx';
@@ -29,11 +30,18 @@ export async function openSettingsDrawer(): Promise<void> {
     <Drawer
       title="设置"
       wide
-      footer={
-        // 抽屉里没有的东西只有一样：地址。给一条出口，于是"我想把这一页发给别人/开着
-        // 慢慢看"不必先去改 `ui.settings_surface`。
-        <a className="button" href={pageUrl('/settings')}>
-          在独立页面中打开 →
+      headExtra={
+        // 抽屉里没有的东西只有一样：地址。给一条出口，于是"我想把这一页发给别人 / 开着慢慢
+        // 看"不必先去改 `ui.settings_surface`。
+        //
+        // **在表头而不是底部**（18 文档 批 7）：抽屉底部是滚动之外的一条常驻带，为一个链接
+        // 占掉整整一行；而这个动作与"关闭"是同一类——都是对这个抽屉本身的操作，因此并排。
+        <a
+          className="icon-button"
+          href={pageUrl('/settings')}
+          aria-label="在独立页面中打开设置"
+        >
+          <Icon name="external" />
         </a>
       }
     >

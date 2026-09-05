@@ -8,6 +8,9 @@
 //
 // 前端唯一自带的是字段的中文标签（UI 文案，后端不提供）。未知键仍会渲染，只是显示原始
 // 键名——于是后端新增一项设置时前端不必同步改，只是名字不好看。
+import { useState } from 'react';
+import { Icon } from '../components/Icon.tsx';
+import type { IconName } from '../components/Icon.tsx';
 import { Switch } from '../components/controls.tsx';
 import { fail, ok } from '../components/toast.tsx';
 import { messageOf, post } from '../core/api.ts';
@@ -64,6 +67,7 @@ const OPTION_LABELS: Record<string, string> = {
   browser: '浏览器',
   drawer: '侧边抽屉',
   page: '独立页面',
+  'zh-CN': '中文（简体）',
 };
 
 const HINTS: Record<string, string> = {
@@ -77,8 +81,39 @@ export function labelOf(key: string): string {
   return LABELS[key] || key;
 }
 
-function optionLabel(value: SettingValue): string {
-  return OPTION_LABELS[String(value)] || String(value);
+function optionLabel(value: SettingValue, effective?: string): string {
+  const text = String(value ?? '');
+  // 空串是"没有配置"那一档（时区留空 = 跟随系统）。**把此刻实际在用的那一个写进标签**：
+  // 光是"跟随系统"四个字回答不了"那到底是哪个时区"，而那正是来看这一项的人要问的。
+  if (text === '') return effective ? `跟随系统（${effective}）` : '跟随系统';
+  return OPTION_LABELS[text] || text;
+}
+
+/**
+ * 把 `Asia/Shanghai` 这类选项按第一段分组。不带 `/` 的留在最前面（`""`、`UTC`）。
+ *
+ * 600 条时区平铺在一个下拉里找不动；分了组之后与系统设置里那个时区选择器读起来一样。
+ * 普通枚举（主题、周起始日）没有 `/`，因此全部落在 `plain` 里——它们的渲染一行没变。
+ */
+function groupOptions(options: readonly SettingValue[]): {
+  plain: string[];
+  groups: [string, string[]][];
+} {
+  const plain: string[] = [];
+  const groups = new Map<string, string[]>();
+  for (const option of options) {
+    const text = String(option ?? '');
+    const slash = text.indexOf('/');
+    if (slash <= 0) {
+      plain.push(text);
+      continue;
+    }
+    const region = text.slice(0, slash);
+    const bucket = groups.get(region);
+    if (bucket) bucket.push(text);
+    else groups.set(region, [text]);
+  }
+  return { plain, groups: [...groups] };
 }
 
 /** 一行设置。控件类型完全由 spec.kind 决定。 */
@@ -126,7 +161,11 @@ function Control({
       />
     );
   }
-  if (spec.kind === 'enum') {
+  // **判据是"有没有 options"，不是 kind === 'enum'**：时区是一个 string 项（任何 IANA 名都
+  // 合法，校验在 config.validate 里），但后端把本机 tzdata 的全部时区当 options 一起下发了
+  // ——那 600 条只能是一个下拉，不该是一个要用户默写 "Asia/Shanghai" 的输入框（18 批 7）。
+  if (spec.options) {
+    const { plain, groups } = groupOptions(spec.options);
     return (
       <select
         className="control"
@@ -135,10 +174,19 @@ function Control({
         value={String(spec.value ?? '')}
         onChange={(event) => onChange(settingKey, event.target.value)}
       >
-        {(spec.options || []).map((option) => (
-          <option value={String(option)} key={String(option)}>
-            {optionLabel(option)}
+        {plain.map((option) => (
+          <option value={option} key={option || '__auto__'}>
+            {optionLabel(option, spec.effective)}
           </option>
+        ))}
+        {groups.map(([region, items]) => (
+          <optgroup label={region} key={region}>
+            {items.map((option) => (
+              <option value={option} key={option}>
+                {option}
+              </option>
+            ))}
+          </optgroup>
         ))}
       </select>
     );
@@ -281,6 +329,209 @@ export function ActionToggle({
         <div className="field__note">{spec.unavailable_reason}</div>
       ) : null}
       {spec.note ? <div className="field__note">{spec.note}</div> : null}
+    </div>
+  );
+}
+/**
+ * 一行"动作"：左边是名字，控件位上是一个图标钮（18 文档 批 7）。
+ *
+ * 这些动作原先是一排文字按钮挤在卡片底部。一排按钮读起来是"这张卡的操作"，而它们其实与上面
+ * 那些一行一项是同一类东西——一个名字、一个控件。名字回到标签列之后还顺带解决了按钮宽度：
+ * 「导出使用记录 CSV」这种长度的按钮怎么排都排不齐，而标签列天然对齐。
+ *
+ * 图标钮一律带 `aria-label`：控件位上没有文字，屏幕阅读器读不到左边那一列。
+ */
+export function ActionField({
+  label,
+  icon,
+  note,
+  href,
+  download = false,
+  onClick,
+}: {
+  label: string;
+  icon: IconName;
+  note?: string;
+  /** 给链接式动作（导出、去另一个页面）。与 `onClick` 二选一。 */
+  href?: string;
+  download?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <div className="field">
+      <div className="field__label">
+        <span>{label}</span>
+      </div>
+      {href ? (
+        <a
+          className="icon-button"
+          href={href}
+          aria-label={label}
+          download={download ? '' : undefined}
+        >
+          <Icon name={icon} />
+        </a>
+      ) : (
+        <button className="icon-button" type="button" aria-label={label} onClick={onClick}>
+          <Icon name={icon} />
+        </button>
+      )}
+      {note ? <div className="field__note">{note}</div> : null}
+    </div>
+  );
+}
+
+/**
+ * 名单类设置（当前只有「排除的进程」）：**标签 + 一个输入框**，不是一行逗号分隔的长文本。
+ *
+ * 逗号分隔那种写法的三个毛病都只在真的去用的时候才发现：改一项要先把整行读懂、删一项要连着
+ * 一个逗号一起删干净、而"要不要写 .exe"没有任何提示。标签形态里每一项自带一个删除位，新增
+ * 敲回车，占位符里就写着一个例子（18 文档 批 7）。
+ *
+ * 粘贴一串也认：空白、半角与全角逗号都当分隔符——用户手里那份名单多半就是这种形状。
+ */
+export function TagsField({
+  settingKey,
+  spec,
+  onChange,
+}: {
+  settingKey: string;
+  spec: SettingField;
+  onChange: ApplyFn;
+}) {
+  const values = Array.isArray(spec.value) ? spec.value.map(String) : [];
+  const [draft, setDraft] = useState('');
+  const disabled = spec.available === false;
+  const label = labelOf(settingKey);
+
+  const commit = (text: string) => {
+    const additions = text
+      .split(/[,，;；\s]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    setDraft('');
+    if (!additions.length) return;
+    const merged = [...values];
+    for (const item of additions) {
+      // 进程名在 Windows 上不分大小写，两条只差大小写的规则只会让人以为没生效。
+      if (!merged.some((existing) => existing.toLowerCase() === item.toLowerCase())) {
+        merged.push(item);
+      }
+    }
+    if (merged.length !== values.length) onChange(settingKey, merged);
+  };
+
+  return (
+    <div className="field field--stack" data-available={String(!disabled)}>
+      <div className="field__label">
+        <span>{label}</span>
+        {spec.applies === 'restart' ? <span className="field__tag">需重启</span> : null}
+      </div>
+      <div className="tag-input" data-empty={values.length ? undefined : 'true'}>
+        {values.map((value) => (
+          <span className="tag" key={value}>
+            {value}
+            <button
+              className="tag__remove"
+              type="button"
+              aria-label={`不再排除 ${value}`}
+              disabled={disabled}
+              onClick={() => onChange(settingKey, values.filter((item) => item !== value))}
+            >
+              <Icon name="close" />
+            </button>
+          </span>
+        ))}
+        <input
+          className="tag-input__field"
+          type="text"
+          value={draft}
+          disabled={disabled}
+          aria-label={`添加${label}`}
+          placeholder={values.length ? '再加一个…' : '输入进程名后回车，例如 KeePass.exe'}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ',' || event.key === '，') {
+              event.preventDefault();
+              commit(draft);
+              return;
+            }
+            // 空输入框上按退格删掉最后一个标签：与所有标签输入框一致的手感。
+            if (event.key === 'Backspace' && !draft && values.length) {
+              event.preventDefault();
+              onChange(settingKey, values.slice(0, -1));
+            }
+          }}
+          // 失焦也提交：敲完不按回车就走开是最常见的一种"以为已经加上了"。
+          onBlur={() => commit(draft)}
+        />
+      </div>
+      {spec.note ? <div className="field__note">{spec.note}</div> : null}
+      <div className="field__note">
+        名单里的进程完全不被采集：既不记按键，也不记前台时长。改动立即生效。
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 路径项（当前只有「数据目录」）。与普通输入框有两处不同，都来自同一个事实：**这一项留空
+ * 表示"按平台惯例解析"**（18 文档 批 7）。
+ *
+ * 1. 留空时输入框原先是空的——而来看这一项的人要问的恰恰是"数据现在落在哪儿"。后端给了
+ *    `effective`，这里把它放进 placeholder，并在说明行里再写一遍：placeholder 在 200px 的
+ *    控件里一定会被截断，而路径的关键部分在末尾。
+ * 2. 旁边直接给一个打开那个目录的按钮——否则用户得先把路径读出来，再自己去文件管理器里找。
+ */
+export function PathField({
+  settingKey,
+  spec,
+  onChange,
+  onReveal,
+}: {
+  settingKey: string;
+  spec: SettingField;
+  onChange: ApplyFn;
+  onReveal?: () => void;
+}) {
+  const label = labelOf(settingKey);
+  const disabled = spec.available === false;
+  const configured = spec.value === null || spec.value === undefined ? '' : String(spec.value);
+  return (
+    <div className="field" data-available={String(!disabled)}>
+      <div className="field__label">
+        <span>{label}</span>
+        {spec.applies === 'restart' ? <span className="field__tag">需重启</span> : null}
+      </div>
+      <div className="control-row">
+        <input
+          className="control"
+          type="text"
+          defaultValue={configured}
+          disabled={disabled}
+          aria-label={label}
+          placeholder={spec.effective || ''}
+          onBlur={(event) => {
+            const next = event.target.value.trim();
+            if (next !== configured) onChange(settingKey, next || null);
+          }}
+        />
+        {onReveal ? (
+          <button
+            className="icon-button"
+            type="button"
+            aria-label={`打开${label}`}
+            onClick={onReveal}
+          >
+            <Icon name="folder" />
+          </button>
+        ) : null}
+      </div>
+      {spec.note ? <div className="field__note">{spec.note}</div> : null}
+      <div className="field__note">
+        {configured ? '当前使用：' : '留空表示按平台惯例解析。当前使用：'}
+        <span className="mono">{spec.effective || '-'}</span>
+      </div>
     </div>
   );
 }

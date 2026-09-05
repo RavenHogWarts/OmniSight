@@ -1,12 +1,20 @@
-// 设置页里那几块**不是一行一项**的内容（18 文档 批 2）：数据与导出、运行环境能力、关于、
-// 以及底部的进程动作。原先散在设置抽屉的末尾，现在各自是一张卡。
+// 设置页里那几块**不是一行一项**的内容（18 文档 批 2）：数据与导出、运行环境能力、关于。
+// 原先散在设置抽屉的末尾，现在各自是一张卡。
+//
+// **动作也是一行一项**（18 文档 批 7）：导出、打开目录、导入都走 `ActionField`——左边是名字，
+// 控件位上一个图标钮，与上下那些开关、下拉对齐。原先是三个挤在卡底的文字按钮排，读起来像
+// 另一类东西，而"导出使用记录 CSV"这种长度的按钮怎么排都排不齐。
+//
+// 进程动作（重新启动、退出）已经从这一页撤掉，只从托盘走（18 文档 批 7）。
 import { Card } from '../components/Card.tsx';
+import { Icon } from '../components/Icon.tsx';
 import { openImportWizard } from '../components/ImportWizard.tsx';
-import { tokenParam } from '../core/api.ts';
+import { fail } from '../components/toast.tsx';
+import { messageOf, post, tokenParam } from '../core/api.ts';
 import { useSlice } from '../core/useStore.ts';
 import type { StatusResponse } from '../types/api.d.ts';
+import { ActionField } from './settings-fields.tsx';
 import { pageUrl } from './shell.tsx';
-import { RevealButton } from './system-actions.tsx';
 
 /** 能力名的中文。`capabilities` 只读布尔值，这里只是给它们起个名字。 */
 const CAPABILITY_NAMES: Record<string, string> = {
@@ -21,6 +29,8 @@ const CAPABILITY_NAMES: Record<string, string> = {
   key_position_stable: '左右键位可分',
 };
 
+
+
 /**
  * 导出用普通链接而不是 fetch：响应是流式的附件，交给浏览器下载最省事。
  * 令牌走查询串（下载请求带不了自定义头，与图标同一个理由）。
@@ -29,17 +39,22 @@ const CAPABILITY_NAMES: Record<string, string> = {
  * 长在抽屉里，能读到仪表盘当前那个周期；独立成页之后那个上下文不存在了，继续读 store 里
  * 的默认值等于悄悄只导出了今天。
  */
-function ExportLink({ scope, format, label }: { scope: string; format: string; label: string }) {
+function exportHref(scope: string, format: string): string {
   const params = new URLSearchParams({ scope, format, range: 'total' });
-  return (
-    <a
-      className="button"
-      href={`/api/v1/export?${params.toString()}&token=${encodeURIComponent(tokenParam())}`}
-      download=""
-    >
-      {label}
-    </a>
-  );
+  return `/api/v1/export?${params.toString()}&token=${encodeURIComponent(tokenParam())}`;
+}
+
+/**
+ * 打开数据目录 / 日志目录。**只有后端做得到**：浏览器里的页面开不了文件管理器，而"管理员
+ * 模式下要降权打开"这件事本来就在后端（`lifecycle._open_external`）。托盘里那两项、以及
+ * 「数据目录」那一行旁边的按钮，走的都是这一条。
+ */
+export async function revealDirectory(target: 'data' | 'logs'): Promise<void> {
+  try {
+    await post('/system/reveal', { target });
+  } catch (error) {
+    fail(messageOf(error, '打开目录失败'));
+  }
 }
 
 /** 数据与导出。备份、重算聚合与删除数据排在后续版本——**说明而不是画一个禁用按钮**。 */
@@ -59,20 +74,27 @@ export function DataCard({ status }: { status: StatusResponse | null }) {
         <dt>数据库文件</dt>
         <dd className="mono">{database?.path || '-'}</dd>
       </dl>
-      <div className="actions">
-        <ExportLink scope="usage" format="csv" label="导出使用记录 CSV" />
-        <ExportLink scope="keyboard" format="csv" label="导出键盘统计 CSV" />
-        <ExportLink scope="all" format="json" label="导出全部 JSON" />
-      </div>
-      <div className="actions">
-        {/* 目录由后端打开：浏览器里的页面开不了文件管理器，而后端本来就要为"管理员模式下
-            降权打开"负责（lifecycle._open_external）。托盘里那两项是同一条路径。 */}
-        <RevealButton target="data" label="打开数据目录" />
-        <RevealButton target="logs" label="打开日志目录" />
-        <button className="button" type="button" onClick={() => openImportWizard()}>
-          从旧版导入数据…
-        </button>
-      </div>
+      <ActionField
+        label="导出使用记录 CSV"
+        icon="download"
+        href={exportHref('usage', 'csv')}
+        download
+      />
+      <ActionField
+        label="导出键盘统计 CSV"
+        icon="download"
+        href={exportHref('keyboard', 'csv')}
+        download
+      />
+      <ActionField label="导出全部 JSON" icon="download" href={exportHref('all', 'json')} download />
+      <ActionField label="打开数据目录" icon="folder" onClick={() => void revealDirectory('data')} />
+      <ActionField label="打开日志目录" icon="logs" onClick={() => void revealDirectory('logs')} />
+      <ActionField
+        label="从旧版导入数据"
+        icon="import"
+        note="从 KeyTrace 或 TimeLens 的旧数据库导入历史记录"
+        onClick={() => openImportWizard()}
+      />
       <div className="field__note">备份、重算聚合与删除数据排在后续版本。</div>
     </Card>
   );
@@ -112,7 +134,7 @@ export function CapabilityCard() {
   );
 }
 
-/** 关于。详细的隐私说明在 `/about`——这里只留版本、环境与一条去那一页的链接。 */
+/** 关于。详细的隐私说明在 `/about`——标题旁那个图标是去那一页的入口（18 文档 批 7）。 */
 export function AboutCard({
   status,
   configPath,
@@ -122,7 +144,14 @@ export function AboutCard({
 }) {
   const platform = status?.platform;
   return (
-    <Card title="关于">
+    <Card
+      title="关于"
+      titleAside={
+        <a className="icon-button" href={pageUrl('/about')} aria-label="关于与隐私说明">
+          <Icon name="external" />
+        </a>
+      }
+    >
       <dl className="kv-list">
         <dt>版本</dt>
         <dd>{status?.version || '-'}</dd>
@@ -136,11 +165,6 @@ export function AboutCard({
         <dt>配置文件</dt>
         <dd className="mono">{configPath || '-'}</dd>
       </dl>
-      <div className="actions">
-        <a className="button" href={pageUrl('/about')}>
-          关于与隐私说明 →
-        </a>
-      </div>
       <div className="field__note">
         所有数据只保存在本机，不上传任何服务器。本程序不记录按键内容，只记录按了哪个键、多少次。
       </div>

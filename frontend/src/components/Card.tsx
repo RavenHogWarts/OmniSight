@@ -13,6 +13,14 @@ export interface CardProps {
   controls?: ReactNode;
   /** 标题下面那行 11px 副标题（"颜色越深，使用次数越多"这类说明）。 */
   subtitle?: string;
+  /**
+   * 紧贴标题右侧的一个小控件（通常是图标钮）。
+   *
+   * 与 `controls` 的区别只有位置，而位置就是意思：`controls` 在卡头最右端，读作"这张卡的
+   * 开关"；`titleAside` 在标题这一句的旁边，读作"这一句的延伸"——「关于」旁边那个去隐私
+   * 说明的图标属于后者（18 文档 批 7）。
+   */
+  titleAside?: ReactNode;
   footer?: ReactNode;
   children?: ReactNode;
   /** 刷新中：卡片顶沿一条细进度条，旧数据留在原位（06 文档 §10.1 第二态）。 */
@@ -25,6 +33,7 @@ export function Card({
   title,
   controls,
   subtitle,
+  titleAside,
   footer,
   children,
   refreshing,
@@ -39,7 +48,10 @@ export function Card({
     >
       <div className="card__head">
         <div>
-          <h2 className="card__title">{title}</h2>
+          <div className="card__title-row">
+            <h2 className="card__title">{title}</h2>
+            {titleAside}
+          </div>
           {subtitle ? <p className="card__subtitle">{subtitle}</p> : null}
         </div>
         <span className="spacer" />

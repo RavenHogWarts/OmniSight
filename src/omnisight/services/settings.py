@@ -18,11 +18,13 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from ..capture import layouts
 from ..core import config as config_module
+from ..core.clock import timezone_label
 from ..core.config import Config, ConfigError
 from . import categories
 from .context import ServiceContext
@@ -47,6 +49,9 @@ class SettingSpec:
     #: 需要哪项能力才可用；``None`` 表示与平台无关。
     capability: str | None = None
     note: str | None = None
+    #: 留空（``""``）等于"没有配置"，落盘写 ``null``。给"空着就由环境决定"的项用：
+    #: 时区留空跟随系统、数据目录留空按平台惯例——而下拉列表与输入框都只能交出空串。
+    nullable: bool = False
 
     @property
     def section(self) -> str:
@@ -55,6 +60,41 @@ class SettingSpec:
     @property
     def field(self) -> str:
         return self.path.split(".", 1)[1]
+
+
+#: 时区下拉的选项。``""`` 是"跟随系统"，其余是本机 tzdata 里的全部 IANA 名。
+#:
+#: **给全量而不是一份精选清单**：精选清单挑不出"住在 Australia/Adelaide 的那个人"，而他
+#: 在设置页上就没有任何办法选到自己的时区（config.json 手改是唯一出路）。全量约 600 条、
+#: 序列化后 9 KB 上下，对一个只服务 127.0.0.1 的接口不值得省。前端按 ``Asia/``、``Europe/``
+#: 这一层分组画 optgroup，600 条因此仍然找得动。
+#:
+#: 兜底清单只在 tzdata 整个缺失时用到（打包漏了 tzdata 会是这种形状），那时至少还能选。
+_FALLBACK_ZONES: tuple[str, ...] = (
+    "Asia/Shanghai",
+    "Asia/Hong_Kong",
+    "Asia/Taipei",
+    "Asia/Tokyo",
+    "Asia/Singapore",
+    "Europe/London",
+    "Europe/Berlin",
+    "America/Los_Angeles",
+    "America/New_York",
+    "UTC",
+)
+
+
+@lru_cache(maxsize=1)
+def timezone_options() -> tuple[str, ...]:
+    """``("", *全部 IANA 时区名)``。缓存一次：``available_timezones()`` 要扫一遍 tzdata。"""
+    try:
+        from zoneinfo import available_timezones
+
+        names = sorted(available_timezones())
+    except Exception:  # pragma: no cover - tzdata 缺失
+        logger.debug("读不到 tzdata 的时区清单，改用兜底清单", exc_info=True)
+        names = []
+    return ("", *(names or _FALLBACK_ZONES))
 
 
 SPECS: tuple[SettingSpec, ...] = (
@@ -84,7 +124,13 @@ SPECS: tuple[SettingSpec, ...] = (
     ),
     SettingSpec("ui.theme", "enum", HOT, options=tuple(sorted(config_module.THEMES))),
     SettingSpec("ui.heat", "enum", HOT, options=tuple(sorted(config_module.HEATS))),
-    SettingSpec("ui.locale", "string", HOT),
+    SettingSpec(
+        "ui.locale",
+        "enum",
+        HOT,
+        options=("zh-CN",),
+        note="当前只提供中文；界面文案不随系统语言变",
+    ),
     SettingSpec(
         "ui.settings_surface",
         "enum",
@@ -99,6 +145,8 @@ SPECS: tuple[SettingSpec, ...] = (
         "ui.timezone",
         "string",
         RESTART,
+        options=timezone_options(),
+        nullable=True,
         note="日期桶按此时区切分，改动只影响之后写入的数据",
     ),
     SettingSpec(
@@ -172,6 +220,9 @@ class SettingsService:
                 entry["unavailable_reason"] = reason
             if spec.note:
                 entry["note"] = spec.note
+            effective = self._effective(spec)
+            if effective:
+                entry["effective"] = effective
             items[spec.path] = entry
         autostart_entry = self._autostart_entry()
         elevated_entry = self._autostart_elevated_entry()
@@ -189,6 +240,20 @@ class SettingsService:
             "categories": categories.catalog(),
             "config_path": str(self._config_path),
         }
+
+    def _effective(self, spec: SettingSpec) -> str | None:
+        """"此刻实际在用的那一个"。**只有留空的项需要它。**
+
+        这两项留空时由环境决定（时区跟随系统、数据目录按平台惯例），而设置页上一个空输入框
+        既说不出程序现在用的是哪个时区，也说不出数据落在哪个目录——那是用户最想从这一页读到
+        的两件事之一（18 文档 批 7）。
+        """
+        if spec.path == "ui.timezone":
+            return timezone_label(self._ctx.timezone)
+        if spec.path == "storage.data_dir":
+            database = getattr(self._ctx.database, "path", None)
+            return str(Path(database).parent) if database else None
+        return None
 
     def _availability(self, spec: SettingSpec) -> tuple[bool, str | None]:
         if spec.path == "ui.shell":
@@ -423,6 +488,9 @@ class CapabilityMissing(RuntimeError):
 
 def _coerce(spec: SettingSpec, value: Any) -> Any:
     """只做**形状**转换，取值范围交给 :func:`config.validate` —— 校验只该有一处。"""
+    if spec.nullable and (value is None or (isinstance(value, str) and not value.strip())):
+        # 下拉的"跟随系统"与输入框的清空都只能交出空串，而配置里那件事叫 null。
+        return None
     if spec.kind == "list":
         if isinstance(value, str):
             raise ConfigError(f"`{spec.path}` 必须是数组", spec.path)

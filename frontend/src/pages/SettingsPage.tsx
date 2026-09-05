@@ -21,10 +21,9 @@ import { emit, on as busOn } from '../core/bus.ts';
 import { setState } from '../core/store.ts';
 import { useSlice } from '../core/useStore.ts';
 import { setHeat, set as setTheme } from '../core/theme.ts';
-import { ActionToggle, Field, PauseField, labelOf } from './settings-fields.tsx';
+import { ActionToggle, Field, PathField, PauseField, TagsField, labelOf } from './settings-fields.tsx';
 import type { ApplyFn } from './settings-fields.tsx';
-import { AboutCard, CapabilityCard, DataCard } from './settings-sections.tsx';
-import { ProcessActions, restartApp } from './system-actions.tsx';
+import { AboutCard, CapabilityCard, DataCard, revealDirectory } from './settings-sections.tsx';
 import type { SettingsResponse, StatusResponse } from '../types/api.d.ts';
 
 interface Group {
@@ -43,7 +42,7 @@ const GROUPS: readonly Group[] = [
 ];
 
 /** 页顶那句话。两档共用同一份措辞：说两遍就会有一天只改了一遍。 */
-const LEAD = '改动即时保存；需重启的项会说明，并给出重启入口。';
+const LEAD = '改动即时保存；需重启的项会标出来，从托盘菜单重启后生效。';
 
 function groupFromHash(): string {
   const id = window.location.hash.replace(/^#\/?/, '');
@@ -165,6 +164,22 @@ export function SettingsPage({ surface = 'page' }: { surface?: Surface }) {
           keys.map((key) => {
             const spec = settings[key];
             if (key === 'capture.paused') return <PauseField key={key} spec={spec} />;
+            // 名单与路径各有一个专用控件（18 文档 批 7）：一个逗号分隔的长输入框改不动，
+            // 一个空着的路径框说不出数据现在落在哪儿。
+            if (key === 'privacy.excluded_processes') {
+              return <TagsField key={key} settingKey={key} spec={spec} onChange={apply} />;
+            }
+            if (key === 'storage.data_dir') {
+              return (
+                <PathField
+                  key={key}
+                  settingKey={key}
+                  spec={spec}
+                  onChange={apply}
+                  onReveal={() => void revealDirectory('data')}
+                />
+              );
+            }
             if (key === 'system.autostart' || key === 'system.autostart_elevated') {
               return (
                 <ActionToggle
@@ -191,19 +206,19 @@ export function SettingsPage({ surface = 'page' }: { surface?: Surface }) {
         <>
           <CapabilityCard />
           <AboutCard status={status} configPath={payload?.config_path || ''} />
-          <Card title="进程">
-            <p className="field__note">
-              重启会中断采集几秒；退出会一直停到你手动重新启动它。托盘菜单里是同两个入口。
-            </p>
-            <ProcessActions />
-          </Card>
         </>
       ) : null}
     </>
   );
 }
 
-/** 「有 N 项改动要重启后生效」。它是重启的第二个入口，另一个在「系统」段里。 */
+/**
+ * 「有 N 项改动要重启后生效」。
+ *
+ * **这里不给重启按钮**（18 文档 批 7）：重启与退出只从托盘走。重启会中断采集几秒，而它的
+ * 失败模式是"新实例起不来而旧实例已经退了"——那时页面上的按钮只会变成一个消失的标签页，
+ * 而托盘图标还在。
+ */
 function RestartNotice({ keys }: { keys: readonly string[] }) {
   return (
     <div className="banner" data-severity="warning" role="status">
@@ -212,11 +227,10 @@ function RestartNotice({ keys }: { keys: readonly string[] }) {
       </span>
       <div className="banner__body">
         <div className="banner__title">本次改动有 {keys.length} 项要重启后生效</div>
-        <div className="banner__detail">{keys.map(labelOf).join('、')}</div>
+        <div className="banner__detail">
+          {keys.map(labelOf).join('、')}——从托盘菜单的「重新启动」生效
+        </div>
       </div>
-      <button className="button" type="button" onClick={() => void restartApp()}>
-        立即重启…
-      </button>
     </div>
   );
 }

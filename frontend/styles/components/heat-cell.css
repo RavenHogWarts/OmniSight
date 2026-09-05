@@ -50,7 +50,9 @@
   color: var(--text-tertiary);
   margin-bottom: var(--space-1);
 }
-.heatgrid__month { grid-row: 1; }
+/* 一列只有 20px 上下，而"10 月"要 28px：不给 nowrap 它会折成两行。溢出无害——相邻标签之间
+   至少隔着 4 列（monthMarks 的抽稀规则）。 */
+.heatgrid__month { grid-row: 1; white-space: nowrap; }
 
 @media (forced-colors: active) {
   .heat-cell[data-level] {
@@ -64,6 +66,53 @@
   .heat-cell[data-level="0"] { background-image: none; }
 }
 
+/* 年历**铺满容器**（18 文档 批 7）。格子原先固定 12px：53 列在一张 760px 的卡里只占一半，
+   右边空一大片，而窄屏上又要横向滚。改成让列宽自己均分，格子用 aspect-ratio 保住方形；3px
+   的缝隙不变（它是"格子感"的来源）。
+   列数由组件下发（--columns = ceil(格子数 / 7)）：月份轴与格子网格必须用**同一个**列模板，
+   否则两者的 1fr 宽度不同，"6 月"那个标签就落不在六月那一列上。 */
+/* 不写 align-items: start —— 星期轴要**拉满**格子那一行的高度，它的七个 1fr 才会与七行格子
+   一一对齐（start 会让它按七行文字的自然高度收缩，于是标签越往下偏得越多）。 */
+.calendar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+/* 三个格位：月份轴在格子上方、星期轴在格子左侧。同一个网格因此保证"三"正对着周三那一行
+   ——星期轴原先是格子的兄弟节点，被月份轴那一行整体推上去了一行的高度。 */
+.calendar .heatgrid__months { grid-area: 1 / 2; }
+.calendar .weekday-axis { grid-area: 2 / 1; }
+.calendar .heatgrid { grid-area: 2 / 2; }
+.calendar .heatgrid,
+.calendar .heatgrid__months {
+  grid-template-columns: repeat(var(--columns, 53), minmax(0, 1fr));
+  grid-auto-flow: column;
+}
+/* 不再横向滚，因此那条给滚动条留的下内边距要去掉：它会让格子网格比七行格子高 4px，而星期轴
+   拉满的是这个更高的高度——于是七个标签又整体偏一点点（越往下越明显）。 */
+.calendar .heatgrid { overflow-x: visible; padding-bottom: 0; }
+.calendar .heat-cell { width: auto; height: auto; aspect-ratio: 1; }
+
+/* ── 一维格子条（components/HeatStrip.tsx）─────────────────────────────
+   小时 / 月 / 年的第二种形式。一行格子 + 一行抽稀过的标签，列宽均分铺满整卡。
+   高度固定而宽度自适应：24 个方格在一张通栏卡里会有 40px 高，那已经不是"一条"了。 */
+.heatstrip {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 3px;
+  align-items: end;
+}
+.heatstrip__slot { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.heatstrip .heat-cell { width: auto; height: 34px; }
+.heatstrip__label {
+  font-size: var(--text-2xs);
+  font-family: var(--font-small);
+  color: var(--text-tertiary);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
 .weekday-axis {
   display: grid;
   grid-template-rows: repeat(7, 1fr);
@@ -73,5 +122,3 @@
   margin-right: var(--space-1);
   align-items: center;
 }
-
-.calendar { display: flex; align-items: flex-start; }

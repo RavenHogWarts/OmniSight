@@ -9,16 +9,20 @@
 // 用户改不了。
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { AppGrid, BigMark } from '../components/AppGrid.tsx';
+import type { PickerApp } from '../components/AppGrid.tsx';
 import { AppRow } from '../components/AppRow.tsx';
 import type { AppRowData } from '../components/AppRow.tsx';
 import { Card, Section } from '../components/Card.tsx';
+import { ContextMenu } from '../components/ContextMenu.tsx';
+import type { MenuState } from '../components/ContextMenu.tsx';
 import { Updated } from '../components/PeriodNav.tsx';
 import { Quad } from '../components/Quad.tsx';
 import { Checkbox, Chip, SearchBox, Segmented, Switch } from '../components/controls.tsx';
 import { capabilityOf, noticeFor } from '../components/degraded.tsx';
 import { CapabilityNotice, EmptyState, ErrorState, SkeletonRows } from '../components/states.tsx';
 import { fail, ok } from '../components/toast.tsx';
-import { del, messageOf, patch, post } from '../core/api.ts';
+import { del, get as apiGet, messageOf, patch, post } from '../core/api.ts';
+import { emit } from '../core/bus.ts';
 import { fetchInto } from '../core/loader.ts';
 import { prefersReducedMotion } from '../core/theme.ts';
 import { getState, setState } from '../core/store.ts';
@@ -32,6 +36,7 @@ import type {
   CategoryOption,
   DataRequest,
   SessionsResponse,
+  SettingsResponse,
   UsagePeriodResponse,
 } from '../types/api.d.ts';
 
@@ -388,6 +393,79 @@ export function View() {
  * 四格摘要显示的是**选中应用的**读数（KeyTrace 同口径）；没选时显示整个周期的合计，
  * 而不是四个横杠——那一格空着的时候这块面板看起来像坏了。
  */
+/**
+ * 右键菜单里那两项**是两套不同的机制**，因此菜单里必须分成两行（18 文档 批 7）：
+ *
+ *   不再计入统计   `PATCH /apps/{id} {excluded}`——历史数据留着，只是不出现在列表与图表里，
+ *                  随时可以撤回。这与使用明细里那个应用编辑器的开关是同一条路径。
+ *   不再采集此进程 写 `privacy.excluded_processes`——**此后一个字节都不再记录**，撤回也补不回
+ *                  中间那段时间。
+ *
+ * 前者的措辞随当前状态变（"重新计入统计"），后者只有一个方向：加进名单容易，而把它撤回属于
+ * 设置页那一份名单的事（那里每一项自带删除位）。
+ */
+function excludeApp(app: PickerApp, excluded: boolean): void {
+  void (async () => {
+    try {
+      await patch(`/apps/${app.app_id}`, { excluded });
+      ok(excluded ? '已不再计入统计' : '已重新计入统计');
+      reload();
+    } catch (error) {
+      fail(messageOf(error));
+    }
+  })();
+}
+
+function banProcess(app: PickerApp): void {
+  const name = String(app.process_name || '').trim();
+  if (!name) {
+    fail('这个应用没有进程名，无法加入排除名单');
+    return;
+  }
+  void (async () => {
+    try {
+      // 现取一次而不是读 store：仪表盘手里那份 `/settings` 只用来读偏好，而这里要在**当前
+      // 名单**上追加——拿一份旧的去写会把别处刚加的那一项覆盖掉。
+      const payload = (await apiGet('/settings')) as SettingsResponse;
+      const field = payload.settings['privacy.excluded_processes'];
+      const list = (Array.isArray(field?.value) ? field.value : []).map(String);
+      if (list.some((item) => item.toLowerCase() === name.toLowerCase())) {
+        ok(`${name} 已经在排除名单里`);
+        return;
+      }
+      await patch('/settings', { settings: { 'privacy.excluded_processes': [...list, name] } });
+      ok(`已不再采集 ${name}`);
+      // 与设置页里改这一项走同一条广播：开着的设置抽屉会重读表单，仪表盘会重取当前视图。
+      emit('settings:changed', { key: 'privacy.excluded_processes' });
+      reload();
+    } catch (error) {
+      fail(messageOf(error));
+    }
+  })();
+}
+
+function menuFor(app: PickerApp, event: React.MouseEvent): MenuState {
+  return {
+    x: event.clientX,
+    y: event.clientY,
+    title: app.user_alias || app.display_name || app.process_name || `应用 ${app.app_id}`,
+    items: [
+      {
+        id: 'exclude',
+        label: app.excluded ? '重新计入统计' : '不再计入统计',
+        icon: 'hide',
+        onPick: () => excludeApp(app, !app.excluded),
+      },
+      {
+        id: 'ban',
+        label: '不再采集此进程',
+        icon: 'ban',
+        onPick: () => banProcess(app),
+      },
+    ],
+  };
+}
+
 function AppPanel({
   rows,
   periodPayload,
@@ -399,6 +477,7 @@ function AppPanel({
   const meta = useResource('appsMeta');
   const running = useResource('appsRunning');
   const detail = useResource('appDetail');
+  const [menu, setMenu] = useState<MenuState | null>(null);
   const current = rows.find((row) => row.app_id === selectedAppId) || null;
   const profile =
     detail.data && detail.data.app.app_id === selectedAppId
@@ -449,7 +528,9 @@ function AppPanel({
         onPick={(appId) =>
           setState('selectedAppId', getState().selectedAppId === appId ? null : appId)
         }
+        onMenu={(app, event) => setMenu(menuFor(app, event))}
       />
+      {menu ? <ContextMenu state={menu} onClose={() => setMenu(null)} /> : null}
     </>
   );
 }

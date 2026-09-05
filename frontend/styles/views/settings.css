@@ -12,5 +12,5 @@
    而不是一屏数据的口径。 */
 body[data-page="settings"] .section-heading--lead { margin-bottom: var(--space-4); }
 
-/* 「进程」那张卡里的说明与按钮之间要有一口气：它下面那两个按钮一个会重启、一个会退出。 */
-body[data-page="settings"] .card .field__note + .actions { margin-top: var(--space-3); }
+/* 进程动作（重启、退出）已经从这一页撤掉，只从托盘走（18 文档 批 7）——原先这里有一条
+   给那张卡的间距规则。 */

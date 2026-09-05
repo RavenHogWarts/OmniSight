@@ -1,0 +1,54 @@
+/* 右键菜单（18 文档 批 7）。应用网格上一格一格的动作走它。
+ *
+ * 几何与 .theme-menu__panel、.status-panel 同一套（浮层：1px 边 + shadow-lg + 4px 内边距 +
+ * 圆角 md），因此它不是一种新东西，只是位置不同：位置由指针给，且挂在 body 上——网格自己
+ * 有 overflow 与层叠上下文，留在原处会被裁掉半个菜单。
+ *
+ * z-index 95 在抽屉(90) 与遮罩(80) 之上：`position: fixed` 挂在 body 上时，只要低于遮罩
+ * 就会在任何浮层打开期间被压住，而那时它已经是"最后开的那一个"。
+ */
+.context-menu {
+  position: fixed;
+  z-index: 95;
+  min-width: 176px;
+  max-width: 280px;
+  padding: var(--space-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-lg);
+  animation: fade-in var(--duration-fast) var(--ease-out);
+}
+
+/* 顶上那行灰字：说清这些动作作用在谁身上。应用名可能很长，因此单行截断——它是标题而不是
+   内容，截掉尾巴不影响判断（真要看全名，网格那一格上有 title）。 */
+.context-menu__title {
+  padding: var(--space-1) var(--space-2) var(--space-2);
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: var(--space-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-menu__item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  text-align: left;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+/* 悬停只上底色、不浮起：这里已经在浮层内部，再叠一层影子会读成"卡里的卡"（同 .theme-menu__item）。 */
+.context-menu__item:hover { background: var(--surface-hover); }
+.context-menu__item[data-danger="true"] { color: var(--status-error-text); }
+
+.context-menu__label { flex: 1 1 auto; }
+.context-menu .icon { color: var(--text-tertiary); flex: none; }
+.context-menu__item:hover .icon { color: inherit; }

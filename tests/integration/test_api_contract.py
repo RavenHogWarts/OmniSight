@@ -646,6 +646,51 @@ def test_the_settings_surface_is_an_ordinary_hot_enum(seeded_client):
     assert rejected[0]["field"] == "ui.settings_surface"
 
 
+def test_the_timezone_is_a_dropdown_that_says_which_zone_is_in_use(seeded_client):
+    """留空的项必须说出"此刻用的是哪一个"（18 文档 批 7）。
+
+    时区留空 = 跟随系统，于是设置页上原先是一个**空**输入框：它既答不了"现在按哪个时区切日期
+    桶"，又要求用户默写一个 IANA 名。现在后端把本机 tzdata 的全部时区当 options 下发（前端画成
+    按地区分组的下拉），并给出 `effective`——那就是"跟随系统"这一档标签括号里的那个值。
+    """
+    entry = seeded_client.get("/api/v1/settings").get_json()["settings"]["ui.timezone"]
+    assert entry["options"][0] == "", "第一项是跟随系统，它的值是空串"
+    assert "Asia/Shanghai" in entry["options"]
+    assert entry["effective"], "留空时也必须说出实际在用的那一个"
+
+    body = seeded_client.patch(
+        "/api/v1/settings", json={"ui.timezone": "Asia/Tokyo"}
+    ).get_json()
+    assert body["requires_restart"] == ["ui.timezone"]
+    chosen = seeded_client.get("/api/v1/settings").get_json()["settings"]["ui.timezone"]
+    assert chosen["value"] == "Asia/Tokyo"
+
+    # 下拉里选回"跟随系统"交出来的是**空串**，而配置里那件事叫 null（`nullable`）。写成空串的
+    # 话 config.json 里会留下一个 `"timezone": ""`，而 effective 也就跟着变成空。
+    seeded_client.patch("/api/v1/settings", json={"ui.timezone": ""})
+    cleared = seeded_client.get("/api/v1/settings").get_json()["settings"]["ui.timezone"]
+    assert cleared["value"] is None
+    assert cleared["effective"]
+
+
+def test_the_data_dir_says_where_the_data_actually_is(seeded_client):
+    """数据目录留空 = 按平台惯例解析，而"数据落在哪儿"正是来看这一项的人要问的（18 文档 批 7）。"""
+    entry = seeded_client.get("/api/v1/settings").get_json()["settings"]["storage.data_dir"]
+    assert entry["kind"] == "path"
+    assert entry["effective"], "留空时要给出实际在用的目录"
+
+
+def test_the_locale_is_a_dropdown_with_the_only_language_we_ship(seeded_client):
+    """语言原先是一个自由文本框，而合法值只有一个——那种输入框只能用来打错字。"""
+    entry = seeded_client.get("/api/v1/settings").get_json()["settings"]["ui.locale"]
+    assert entry["kind"] == "enum"
+    assert entry["options"] == ["zh-CN"]
+    rejected = seeded_client.patch(
+        "/api/v1/settings", json={"ui.locale": "en-US"}
+    ).get_json()["rejected"]
+    assert rejected[0]["field"] == "ui.locale"
+
+
 def test_patching_a_hot_setting_applies_without_restart(seeded_client):
     response = seeded_client.patch(
         "/api/v1/settings", json={"ui.week_starts_on": 6}

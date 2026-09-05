@@ -27,6 +27,7 @@ import type { ScaleBarsData } from '../charts/scale-bars.ts';
 import { AppPicker } from '../components/AppPicker.tsx';
 import { Card, Section } from '../components/Card.tsx';
 import { hideChartTooltip, showChartTooltip } from '../components/chart-hover.ts';
+import { HeatStrip } from '../components/HeatStrip.tsx';
 import { Icon } from '../components/Icon.tsx';
 import { HeatLegend, KeyboardView } from '../components/KeyboardView.tsx';
 import { METRIC_SLOT_ID, Updated } from '../components/PeriodNav.tsx';
@@ -72,6 +73,23 @@ const DENSITIES = [
   { id: 'standard', name: '标准' },
   { id: 'compact', name: '紧凑' },
 ];
+
+/**
+ * 时间分布的两种形式（18 文档 批 7）。**同一份数据两种读法**：柱状回答"多与少"（要比较
+ * 具体数值时它更准），热力格回答"什么时候在打字"（一眼扫完形状）。
+ *
+ * 默认按尺度选：**日默认热力**（那是年历，365 根柱看不出星期与月份的位置——14 文档 §2.11），
+ * 其余默认柱状。用户显式选过之后就按他选的来，切尺度也不再改回去。
+ */
+type Form = 'bars' | 'heat';
+const FORMS = [
+  { id: 'bars', name: '柱状' },
+  { id: 'heat', name: '热力' },
+];
+
+function defaultForm(grain: Grain): Form {
+  return grain === 'days' ? 'heat' : 'bars';
+}
 
 /** 布局族：auto 时不传 family，让后端按平台默认值决定（05 文档 §7）。 */
 function familyParam(state: State): Record<string, string> {
@@ -135,6 +153,9 @@ export function View() {
   // 时间尺度**只改这一张图怎么画**，不改取哪一批数（四个粒度是同一次请求取回的），
   // 因此它是视图内部状态、留在卡头，不进 store 也不进 URL（14 文档 §4.1 的分界）。
   const [grain, setGrain] = useState<Grain>('days');
+  // 形式：null = 跟着尺度的默认值（见 defaultForm）。选过一次之后就一直按用户选的来。
+  const [form, setForm] = useState<Form | null>(null);
+  const shownForm = form ?? defaultForm(grain);
 
   const metricSlot = document.getElementById(METRIC_SLOT_ID);
   const error = heatmap.error || layout.error;
@@ -237,17 +258,34 @@ export function View() {
         title="时间分布"
         sub={`按${GRAIN_NAMES[grain]}聚合 · ${metricName(metric)}`}
         right={
-          <Segmented
-            items={TIMELINE_VIEWS}
-            active={grain}
-            onPick={(id) => setGrain(id as Grain)}
-            small
-            label="时间尺度"
-          />
+          <div className="keyboard-view__scope">
+            <Segmented
+              items={TIMELINE_VIEWS}
+              active={grain}
+              onPick={(id) => setGrain(id as Grain)}
+              small
+              label="时间尺度"
+            />
+            <Segmented
+              items={FORMS}
+              active={shownForm}
+              onPick={(id) => setForm(id as Form)}
+              small
+              label="展示形式"
+            />
+          </div>
         }
       >
         <div className="card">
-          {grain === 'days' ? <Calendar /> : <ScaleBars grain={grain} />}
+          {shownForm === 'heat' ? (
+            grain === 'days' ? (
+              <Calendar />
+            ) : (
+              <HeatScale grain={grain} />
+            )
+          ) : (
+            <ScaleBars grain={grain} />
+          )}
         </div>
       </Section>
 
@@ -337,6 +375,53 @@ function TopKeys({
 }
 
 /**
+ * 小时 / 月 / 年的热力格形式。与 :func:`ScaleBars` 读的是同一个 `timeline` 资源、同一个
+ * 指标、同一套缺口标记——**只有画法不同**，因此两种形式之间切换不会出现"两张图对不上"。
+ *
+ * 日尺度不走这里：那一档的热力形式就是年历（`Calendar`），它是二维的。
+ */
+function HeatScale({ grain }: { grain: Grain }) {
+  const metric = useSlice('metric');
+  const coverage = useSlice('coverage');
+  const { data: payload, loading } = useResource('timeline');
+  if (!payload) return loading ? <SkeletonRows count={1} /> : null;
+  const view = payload.views?.[grain];
+  if (!view || view.available === false) return <TimelineUnavailable payload={payload} />;
+
+  const gaps = gapSet(coverage, ['keyboard']);
+  const definition = metricOf(metric);
+  const marked = markGaps(view.buckets, GAP_GRAIN[grain], gaps, view.period);
+  return (
+    <div>
+      <HeatStrip
+        buckets={marked.map((bucket) => ({
+          bucket: bucket.bucket,
+          label: bucket.label,
+          value: Number((bucket as unknown as Record<string, unknown>)[metric]) || 0,
+          gap: bucket.gap,
+        }))}
+        scale={view.scale}
+        valueLabel={definition.name}
+        format={(value) => formatMetric(metric, value)}
+        label={`按${GRAIN_NAMES[grain]}的${definition.name}`}
+      />
+      <GapLegend count={gaps.size} />
+    </div>
+  );
+}
+
+/** 「该视图在当前设置下不可用」。两种形式共用一份措辞：说两遍就会有一天只改了一遍。 */
+function TimelineUnavailable({ payload }: { payload: { warnings?: readonly { message?: string }[] } }) {
+  return (
+    <CapabilityNotice
+      title="该视图在当前设置下不可用"
+      detail={payload.warnings?.[0]?.message || '按小时的分布需要保留原始按键事件。'}
+      hint='设置中开启"保存原始按键事件"后，此后的数据可用'
+    />
+  );
+}
+
+/**
  * 小时 / 月 / 年：一根轴上的一组柱。三个尺度共用这一个组件——它们都是一维序列，
  * 差别只在桶数（24 / 12 / 若干）与标签。
  *
@@ -350,15 +435,7 @@ function ScaleBars({ grain }: { grain: Grain }) {
   if (!payload) return loading ? <SkeletonRows count={1} /> : null;
 
   const view = payload.views?.[grain];
-  if (!view || view.available === false) {
-    return (
-      <CapabilityNotice
-        title="该视图在当前设置下不可用"
-        detail={payload.warnings?.[0]?.message || '按小时的分布需要保留原始按键事件。'}
-        hint='设置中开启"保存原始按键事件"后，此后的数据可用'
-      />
-    );
-  }
+  if (!view || view.available === false) return <TimelineUnavailable payload={payload} />;
 
   const gaps = gapSet(coverage, ['keyboard']);
   const definition = metricOf(metric);
