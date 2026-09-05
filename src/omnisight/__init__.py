@@ -8,6 +8,6 @@
 #: PEP 440 的规范化规则是同一个版本（``-`` 是合法的预发布分隔符，``alpha`` 是 ``a``
 #: 的合法拼写），因此 ``pyproject.toml`` 里的打包元数据写规范形式 ``0.1.0a1``，
 #: 并由 ``tests/unit/test_version.py`` 断言两者规范化后相等——两处字面量不可能悄悄漂移。
-__version__ = "0.1.0-alpha.1"
+__version__ = "0.1.0-alpha.2"
 
 APP_NAME = "OmniSight"
