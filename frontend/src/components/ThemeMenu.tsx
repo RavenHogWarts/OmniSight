@@ -11,11 +11,13 @@
 // 每行 menuitemradio），Tab 在菜单里的语义是"离开菜单"，不是"下一个选项"。
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
+import { messageOf, patch } from '../core/api.ts';
 import { THEMES, isTheme, set as setTheme } from '../core/theme.ts';
 import type { Theme } from '../core/theme.ts';
 import { useSlice } from '../core/useStore.ts';
 import { Icon } from './Icon.tsx';
 import type { IconName } from './Icon.tsx';
+import { fail } from './toast.tsx';
 
 /**
  * 三档的文案与图标。**写成 Record<Theme, …> 而不是数组**：core/theme.ts 的 THEMES 里多一档
@@ -69,6 +71,14 @@ export function ThemeMenu() {
   const pick = (value: Theme) => {
     setTheme(value);
     close();
+    // **双写配置**（18 文档 批 3）：localStorage 是本浏览器的偏好，`ui.theme` 是跨浏览器
+    // 一致的那一份，而服务端还要靠它渲染首屏的 `<html data-theme>`（15 文档 §11.3）。
+    // 只写本地的话，换个浏览器打开会看到用户三个月前设的那一档。
+    //
+    // **失败只提示，不回滚**：本地已经生效了，把界面拨回去只会让人以为自己没点中。
+    void patch('/settings', { settings: { 'ui.theme': value } }).catch((error) => {
+      fail(messageOf(error, '主题已在本机生效，但没能写入配置'));
+    });
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {

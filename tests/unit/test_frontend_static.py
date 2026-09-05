@@ -73,10 +73,14 @@ def test_layer_rules_cover_every_directory_under_js():
     )
 
 
-def test_only_the_entry_sits_at_the_source_root():
-    """源码根只能有入口一个文件。多出来的文件就是没归层的代码。"""
+def test_only_entries_sit_at_the_source_root():
+    """源码根只放**入口**：一页一个（18 文档 批 1）。多出来的文件就是没归层的代码。
+
+    三个入口都短得能一眼读完——接令牌、挂外壳、取这一页要的数据、画。共用的开场在
+    `pages/shell.tsx`，页面正文在 `pages/`，因此"根目录里的文件"与"页面"是一一对应的。
+    """
     files = sorted(path.name for path in JS.iterdir() if path.is_file())
-    assert files in (["main.js"], ["main.tsx"]), files
+    assert files == ["about.tsx", "main.tsx", "settings.tsx"], files
 
 
 def test_the_theme_is_rendered_server_side_and_static_js_is_gone():
@@ -89,13 +93,23 @@ def test_the_theme_is_rendered_server_side_and_static_js_is_gone():
 
     这条盯模板与目录那一半；"服务端真的按配置渲染"由
     `tests/integration/test_web.py::test_shell_renders_the_configured_theme` 验。
+
+    **三个页面共用一个模板基座**（`_shell.html`，18 文档 批 1），因此这几行只该出现在那里
+    ——每一处复制都是一个漏改点，而漏改的症状（某一页闪白、某一页没有脚本）只在那一页上
+    看得见。热力色同理（`data-heat`，18 文档 批 3）。
     """
-    template = (check_frontend.TEMPLATES / "dashboard.html").read_text(encoding="utf-8")
+    template = (check_frontend.TEMPLATES / "_shell.html").read_text(encoding="utf-8")
     assert '{% if theme %} data-theme="{{ theme }}"{% endif %}' in template
+    assert '{% if heat %} data-heat="{{ heat }}"{% endif %}' in template
     assert "/static/js/" not in template, "模板不该再引用 static/js"
     assert not (STATIC / "js").exists(), "static/js 整个目录应该已经删除"
     # 入口的文件名带内容哈希，所以模板里是 Jinja 变量而不是字面路径（15 文档 §3.1）。
     assert 'type="module" src="{{ bundle.entry }}"' in template
+    # 三个页面模板各自只填自己那部分，不许再自带 <html>/<head>/<script>。
+    for name in ("dashboard.html", "settings.html", "about.html"):
+        page = (check_frontend.TEMPLATES / name).read_text(encoding="utf-8")
+        assert page.startswith('{% extends "_shell.html" %}'), name
+        assert "<html" not in page and "<script" not in page, name
 
 
 def test_relative_imports_carry_a_real_extension():

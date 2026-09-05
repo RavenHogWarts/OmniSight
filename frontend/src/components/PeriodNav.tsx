@@ -112,7 +112,7 @@ export function DateBar() {
       </button>
 
       <button
-        className="pill-btn"
+        className="button"
         type="button"
         disabled={frozen || Boolean(periodMeta?.is_current)}
         onClick={goToday}

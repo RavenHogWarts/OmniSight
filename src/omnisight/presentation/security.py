@@ -42,8 +42,14 @@ CSP = (
     "form-action 'none'"
 )
 
-#: 无需令牌的端点：只有页面外壳与静态资源。它们不返回任何统计数据。
-PUBLIC_ENDPOINTS = frozenset({"static", "index", "favicon", "healthz"})
+#: 无需令牌的端点：只有**页面外壳**与静态资源。它们不返回任何统计数据。
+#:
+#: 三个外壳都在里面（18 文档 批 1）：令牌只在打开时经 URL 交接一次，而校验外壳会让用户
+#: 点托盘打开的链接被自己拦掉——那条路上令牌还没交接。缺令牌时页面自己显示一张说明卡
+#: （pages/shell.tsx 的 MissingToken），数据接口照旧一律要令牌。
+PUBLIC_ENDPOINTS = frozenset(
+    {"static", "index", "settings_page", "about_page", "favicon", "healthz"}
+)
 
 
 def _is_token_exempt(endpoint: str | None) -> bool:

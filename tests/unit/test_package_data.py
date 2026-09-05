@@ -80,7 +80,8 @@ def test_the_expansion_actually_found_files():
     resources = _resources()
     assert len(resources) >= 10, f"只找到 {len(resources)} 个前端文件，检查 RESOURCE_DIRS"
     assert len(covered) >= 10, f"通配只展开出 {len(covered)} 个文件，检查 package-data"
-    assert "presentation/templates/dashboard.html" in covered
+    for name in ("_shell.html", "dashboard.html", "settings.html", "about.html"):
+        assert f"presentation/templates/{name}" in covered
     # `static/css` 下现在只剩这一个文件：样式源码搬去了 `frontend/styles` 并进了产物，
     # 而它是产物缺失时的兜底，刻意留在外面（15 文档 §11.4）。
     assert "presentation/static/css/shell.css" in covered

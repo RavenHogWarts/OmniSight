@@ -137,6 +137,18 @@ class StreamHub:
             with self._lock:
                 self._clients.discard(client)
 
+    def publish_settings(self) -> None:
+        """配置落盘了：让别的标签页重读设置（18 文档 批 2）。
+
+        **推的是"变了"，不是新的配置**——与 ``invalidate`` 同一个口径：服务端不猜前端拿它
+        做什么，前端自己决定重读哪些偏好。也**不节流**：改设置是人手速率的动作，而
+        ``invalidate`` 要节流是因为落盘每秒都在发生。
+
+        设置页与仪表盘现在是两个标签页（18 文档 批 1）。少了这一条，在一边改「周起始日」
+        另一边会一直按旧的切周，而且不报错——那是最难被发现的一类不一致。
+        """
+        self._broadcast(_frame("settings", {}))
+
     def _broadcast(self, frame: str) -> None:
         with self._lock:
             clients = list(self._clients)

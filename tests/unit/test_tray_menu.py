@@ -88,16 +88,17 @@ def admin_item(entries: list[FakeMenuItem]) -> FakeMenuItem:
     return found[0]
 
 
-#: 10 文档 §5 的菜单清单。顺序也是内容：提权那一项紧跟「暂停记录」，因为两者回答的是
-#: 同一个问题——**此刻记录得全不全**；而「开机自启」那一组讲的是与系统的集成。
+#: 10 文档 §5 与 18 文档 批 4 的菜单清单。**顺序也是内容**：「打开设置」紧跟「打开
+#: OmniSight」（两条都是"去页面"），暂停/重启/提权是一组（都在回答"此刻记录得全不全"），
+#: 两个目录入口与退出是最后一组。
 EXPECTED_ORDER = [
     "打开 OmniSight",
+    "打开设置",
     "暂停记录",
+    "重新启动",
     ELEVATION_LABELS["available"],
-    "开机自启",
     "打开数据目录",
     "打开日志目录",
-    "关于与隐私说明",
     "退出",
 ]
 
@@ -106,6 +107,51 @@ def test_the_menu_lists_the_documented_items_in_that_order():
     tray = build(elevation_state=lambda: "available", on_elevate=lambda: None)
     _icon, entries = menu_of(tray)
     assert [item.label for item in entries] == EXPECTED_ORDER
+
+
+def test_the_menu_no_longer_carries_settings_that_belong_on_a_page():
+    """18 文档 批 4：开机自启与关于说明搬进页面了。
+
+    前者的真源是操作系统，而 Windows 上有两条互斥机制——一个勾选框只能显示并集，说不出
+    是哪一条开着（10 文档 §5.3 早已把提权那一条放在设置页）。后者现在是 `/about` 那一页。
+    托盘留下的是**进程级动作**与两个目录入口：页面打不开时它们是唯一的一键路径。
+    """
+    tray = build(elevation_state=lambda: "available", on_elevate=lambda: None)
+    _icon, entries = menu_of(tray)
+    labels = [item.label for item in entries]
+    assert "开机自启" not in labels
+    assert "关于与隐私说明" not in labels
+
+
+def test_the_settings_item_goes_through_the_composition_root():
+    """怎么打开由装配层决定（管理员模式下要降权，且地址要带令牌）。"""
+    calls: list[str] = []
+    tray = build(open_settings=lambda: calls.append("settings"))
+    icon, entries = menu_of(tray)
+    next(item for item in entries if item.label == "打开设置").click(icon)
+    assert calls == ["settings"]
+
+
+def test_the_restart_item_is_not_a_checkbox_and_calls_the_composition_root():
+    """重启不是一个状态：一个勾选框会让人以为"取消勾选"能回到重启前（提权那一项同理）。"""
+    calls: list[str] = []
+    tray = build(on_restart=lambda: calls.append("restart"))
+    icon, entries = menu_of(tray)
+    item = next(entry for entry in entries if entry.label == "重新启动")
+    assert "checked" not in item.options
+    item.click(icon)
+    assert calls == ["restart"]
+
+
+def test_a_failing_restart_does_not_escape_into_pystray():
+    """回调抛异常时 pystray 的菜单线程会整条死掉，托盘从此不响应右键。"""
+
+    def boom() -> None:
+        raise RuntimeError("起不来")
+
+    tray = build(on_restart=boom)
+    icon, entries = menu_of(tray)
+    next(item for item in entries if item.label == "重新启动").click(icon)
 
 
 @pytest.mark.parametrize(

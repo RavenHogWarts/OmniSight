@@ -66,6 +66,10 @@ LAYER_RULES: dict[str, tuple[str, ...]] = {
     "charts": ("charts/", "domain/", "core/bus.ts"),
     "components": ("components/", "charts/", "domain/", "core/"),
     "views": ("views/", "components/", "charts/", "domain/", "core/"),
+    # pages/ 是**页面装配层**（18 文档 批 1）：三个入口共用的外壳、设置页与关于页的正文。
+    # 与 views/ 同一档权限，且**同样不许 import views/**——视图是仪表盘那一页的内部结构，
+    # 设置页不该认识它们；反过来 views/ 也不许 import pages/（那会把两页绑在一起）。
+    "pages": ("pages/", "components/", "charts/", "domain/", "core/"),
 }
 
 FORBIDDEN_PATTERNS: tuple[tuple[str, str], ...] = (

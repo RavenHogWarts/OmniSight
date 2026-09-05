@@ -1,0 +1,63 @@
+/* 按钮与按钮组。**全站只有一种按钮**：`.button` 是它的形，`.actions` 是"一排按钮"那个盒子。
+ *
+ * 形制取自 17 文档 §4.1 那条控件语言——胶囊、1px 边、卡片底、shadow-sm，与它左右站着的
+ * `.viewbar__tab` / `.round-btn` / `.date-control` / `.chip` 同族。原先 `.button` 是
+ * radius-sm 的方角、没有影、字号也小一档，于是设置页「数据」那张卡里那六个按钮成了全页
+ * 唯一说另一种话的地方（18 文档 §8）。
+ *
+ * **两处必须写出来的重置**，否则 `<a class="button">` 与 `<button class="button">` 长得不
+ * 一样，而它们就并排站在同一个 `.actions` 里：base.css 给锚点配了 `--accent-text` 与
+ * hover 下划线，因此三个导出链接原先是蓝字、悬停带下划线，旁边三个真按钮是主文字色、
+ * 没有下划线。`color` 那一条靠 @import 顺序赢（base.css 在前），`text-decoration` 那一条
+ * 靠比 `a:hover` 多一个类赢。
+ *
+ * 它原先长在 components/app-row.css 里——那是"应用列表行"的样式文件，而设置页、关于页、
+ * 分页器、重启对话框、周期栏都在用它。搬出来只是让文件名说真话。
+ */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 30px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  text-decoration: none;
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out);
+}
+.button:hover:not(:disabled) { background: var(--surface-hover); }
+.button:hover { text-decoration: none; }
+.button:disabled { opacity: .4; cursor: default; box-shadow: none; }
+/* 焦点环写在最后：它与上面那条 box-shadow 同优先级，同级里谁在后面谁赢（.icon-button 同理）。 */
+.button:focus-visible { box-shadow: var(--shadow-focus); }
+
+.button--primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--text-inverse);
+}
+.button--primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+/* 危险动作只换字色，不换底色：一排里只有「退出」是红的，红底会让它比旁边的「重新启动」
+   抢眼一整档，而两者都只是"点之前要想一下"。 */
+.button--danger { color: var(--status-error-text); }
+
+/* 图标降一档灰，文字仍是主色——图标在这里是路牌，不是重点。 */
+.button .icon { color: var(--text-tertiary); }
+
+/* 一排按钮。**必须能换行**：设置页那三个导出按钮在 520px 的抽屉里放不进一行。 */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}

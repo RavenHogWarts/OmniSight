@@ -23,9 +23,18 @@ CONFIG_VERSION = 1
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 KEYBOARD_BACKENDS = frozenset({"auto", "raw_input", "pynput", "none"})
 THEMES = frozenset({"system", "light", "dark"})
+#: 键盘热力图与日历格子的色阶（14 文档 §3.1 的两档）。18 文档 批 3 之前它只存在于前端的
+#: localStorage 里——那意味着换一个浏览器打开，用户三个月前设的暖色就没了，而界面上没有
+#: 任何地方说得出为什么。设置页那一行现在与其余每一项一样由 ``/api/v1/settings`` 元数据生成。
+HEATS = frozenset({"blue", "warm"})
 DEFAULT_VIEWS = frozenset({"daily", "weekly", "monthly", "yearly", "total"})
 KEYBOARD_LAYOUTS = frozenset({"auto", "ansi104", "iso105", "tkl87", "mac_ansi", "mac_iso"})
 UI_SHELLS = frozenset({"browser", "webview"})
+#: 设置界面的落脚处（18 文档 §2.1）：仪表盘右侧的抽屉，或者 `/settings` 那一页。
+#: **两条都在**，进配置的只是"点齿轮时走哪一条"——抽屉让人改完立刻看见仪表盘跟着变，
+#: 独立页面有地址（托盘那一项、文档里的深链、以及"我想一次看完所有设置"）。原先它写死
+#: 在前端且只有"新标签页打开独立页面"这一种，而那是三种取向里唯一没人选得掉的一种。
+UI_SETTINGS_SURFACES = frozenset({"drawer", "page"})
 
 
 class ConfigError(Exception):
@@ -70,10 +79,15 @@ class StorageConfig:
 @dataclass(frozen=True, slots=True)
 class UiConfig:
     theme: str = "system"
+    #: 色阶（蓝 / 暖）。与 ``theme`` 一样由服务端渲染进 ``<html data-heat>``，因此不闪。
+    heat: str = "blue"
     locale: str = "zh-CN"
     default_view: str = "daily"
     timezone: str | None = None
     keyboard_layout: str = "auto"
+    #: 点齿轮是开抽屉还是跳到 `/settings`（18 文档 §2.1）。默认抽屉：改设置时仪表盘还在
+    #: 原地，而"改完看效果"是绝大多数改动的下一步。
+    settings_surface: str = "drawer"
     shell: str = "browser"
     #: 一周从哪天开始：0 = 周一（ISO / 中国大陆），6 = 周日（美国习惯）。
     #: 05 文档 §1.2 要求"周"统一为自然周且起始日可配置，§9 的示例直接引用了
@@ -114,12 +128,27 @@ class Config:
         data.update(unknown)
         return data
 
-    def dashboard_url(self, token: str | None = None) -> str:
+    def page_url(self, path: str = "", token: str | None = None) -> str:
+        """本机某一页的地址。``path`` 是 ``""`` / ``"settings"`` / ``"about"``。
+
+        **令牌一律经查询串交接**（08 文档 §3.2b）：页面收下它就从地址栏抹掉。托盘的三个
+        入口与前端的跨页链接都走这里，因此"新标签页拿不到 sessionStorage"这件事只有一处
+        需要记得——`0.0.0.0` 这类监听地址也只在这里翻译成回环地址。
+        """
         host = "127.0.0.1" if self.server.host in {"0.0.0.0", "::"} else self.server.host
         if ":" in host and not host.startswith("["):
             host = f"[{host}]"
-        url = f"http://{host}:{self.server.port}/"
+        url = f"http://{host}:{self.server.port}/{path}"
         return f"{url}?token={token}" if token else url
+
+    def dashboard_url(self, token: str | None = None) -> str:
+        return self.page_url("", token)
+
+    def settings_url(self, token: str | None = None) -> str:
+        return self.page_url("settings", token)
+
+    def about_url(self, token: str | None = None) -> str:
+        return self.page_url("about", token)
 
 
 _SECTIONS: dict[str, type] = {
@@ -237,6 +266,7 @@ def validate(cfg: Config) -> Config:
         )
 
     _require(cfg.ui.theme in THEMES, f"`ui.theme` 只能是 {sorted(THEMES)}", "ui.theme")
+    _require(cfg.ui.heat in HEATS, f"`ui.heat` 只能是 {sorted(HEATS)}", "ui.heat")
     _require(
         cfg.ui.default_view in DEFAULT_VIEWS,
         f"`ui.default_view` 只能是 {sorted(DEFAULT_VIEWS)}",
@@ -248,6 +278,11 @@ def validate(cfg: Config) -> Config:
         "ui.keyboard_layout",
     )
     _require(cfg.ui.shell in UI_SHELLS, f"`ui.shell` 只能是 {sorted(UI_SHELLS)}", "ui.shell")
+    _require(
+        cfg.ui.settings_surface in UI_SETTINGS_SURFACES,
+        f"`ui.settings_surface` 只能是 {sorted(UI_SETTINGS_SURFACES)}",
+        "ui.settings_surface",
+    )
     week_start = _as_int(cfg.ui.week_starts_on, "ui.week_starts_on")
     _require(
         0 <= week_start <= 6,

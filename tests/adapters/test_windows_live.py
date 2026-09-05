@@ -119,6 +119,79 @@ def test_raw_input_backend_can_actually_register():
     assert source.running is False
 
 
+@pytest.mark.windows_only
+def test_window_cleanup_survives_an_interpreter_that_is_already_shutting_down():
+    """清窗口那一步失败不许变成崩溃报告（2026-09-06 现场四份报告全是它）。
+
+    ``_run`` 的 finally 跑在守护线程上，与进程退出赛跑；解释器开始收尾后 ``ctypes`` 上的
+    argtypes 可能已经不在，没有原型的默认转换按 C int 走，而模块基址被 ASLR 有一半机会
+    推到 2^31 以上——那时这行会抛 ``argument 2: OverflowError: int too long to convert``。
+    这个用例带 ``windows_only`` 不是因为它调 Win32（它一个真调用都没有），而是因为
+    ``raw_input`` 模块本身 import 就需要 ``ctypes.wintypes``。
+    """
+    import ctypes
+
+    from omnisight.adapters.windows.raw_input import _release_window
+
+    class _Angry:
+        """把两个调用都做成收尾阶段那副样子：一碰就炸。"""
+
+        def DestroyWindow(self, hwnd):
+            raise ctypes.ArgumentError("argument 1: OverflowError: int too long to convert")
+
+        def UnregisterClassW(self, name, instance):
+            raise ctypes.ArgumentError("argument 2: OverflowError: int too long to convert")
+
+    _release_window(_Angry(), 0x1234, 0xABCD, "OmniSightRawInput_1_2", 0x7FFB00000000)
+
+    seen: list[object] = []
+
+    class _Recorder:
+        def DestroyWindow(self, hwnd):
+            seen.append(hwnd)
+
+        def UnregisterClassW(self, name, instance):
+            seen.extend((name, instance))
+
+    _release_window(_Recorder(), 0x1234, 0xABCD, "OmniSightRawInput_1_2", 0x7FFB00000000)
+    # HWND 与 HINSTANCE 都是 c_void_p；关键是"是个 ctypes 对象"，那样不看 argtypes 也转得对
+    assert [type(value) for value in seen] == [
+        ctypes.c_void_p,
+        ctypes.c_wchar_p,
+        ctypes.c_void_p,
+    ], "参数必须自带类型：收尾阶段 argtypes 可能已经不在了"
+    assert [value.value for value in seen] == [
+        0x1234,
+        "OmniSightRawInput_1_2",
+        0x7FFB00000000,
+    ]
+
+    seen.clear()
+    _release_window(_Recorder(), 0x1234, 0, "OmniSightRawInput_1_2", None)
+    assert len(seen) == 1, "没注册成窗口类时不许去注销它"
+
+
+def test_the_message_pump_only_uses_the_dll_objects_it_configured():
+    """原型写在哪个 WinDLL 上就必须用哪一个（不需要真调 Win32，因此不打标记）。
+
+    ``ctypes.windll.user32`` 的缓存不是原子的：两个线程同时第一次取它会各拿到一个不同的
+    对象（实测 200 次并发里 188 次），而原型只写在其中一个身上。消息泵若自己再去取一次，
+    就有机会拿到那个空的——``CreateWindowExW`` 的 hInstance 是 64 位模块基址，没有 argtypes
+    按 C int 转，于是 ``argument 11: OverflowError``，Raw Input 注册失败，**那一次运行一个
+    按键都不记**（2026-09-06 01:07:53 现场：keyboard=False、backend=none，而前台监控在
+    2 毫秒前刚启动，它每秒都取一次同一个 ``ctypes.windll.user32``）。
+    """
+    from pathlib import Path
+
+    body = (
+        Path(__file__).resolve().parents[2] / "src/omnisight/adapters/windows/raw_input.py"
+    ).read_text(encoding="utf-8")
+    assert "user32, kernel32 = _configure_win32()" in body, "消息泵要用配置过的那两个对象"
+    for method in ("_run", "stop", "_window_proc", "_read_keyboard"):
+        section = body.split(f"    def {method}(")[1].split("\n    def ")[0]
+        assert "ctypes.windll" not in section, f"{method} 不许自己去 ctypes.windll 取"
+
+
 def test_windows_only_marker_count_stays_small():
     """标记数量本身就是一个指标：它增长意味着平台依赖在向上层泄漏（11 文档 §1）。"""
     source = __import__("pathlib").Path(__file__).read_text(encoding="utf-8")

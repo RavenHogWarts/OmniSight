@@ -17,7 +17,6 @@ from types import SimpleNamespace
 import pytest
 
 from omnisight.core.config import default_config
-from omnisight.core.lifecycle import Lifecycle
 from omnisight.services.context import ServiceContext
 from omnisight.services.settings import CapabilityMissing, SettingsService
 
@@ -193,56 +192,3 @@ def test_the_elevated_switch_needs_the_port(build):
     assert caught.value.capability == "autostart_elevated"
 
 
-# ── 托盘：一个勾选框，两条机制 ──────────────────────────────────────────
-def _runtime(plain: object, task: object, *, services: object = None):
-    return SimpleNamespace(
-        adapter_set=SimpleNamespace(autostart=plain, autostart_elevated=task),
-        services=services,
-    )
-
-
-@pytest.mark.parametrize(
-    ("plain_on", "task_on", "checked"),
-    [(False, False, False), (True, False, True), (False, True, True), (True, True, True)],
-)
-def test_the_tray_checkbox_follows_either_mechanism(plain_on, task_on, checked):
-    """只看注册表项会在登录任务开着时显示未勾选，而程序每次登录都照常起来。"""
-    runtime = _runtime(FakePlain(plain_on), FakeTask(task_on))
-    assert Lifecycle()._autostart_enabled(runtime) is checked
-
-
-def test_unchecking_the_tray_switch_clears_both_mechanisms():
-    """取消勾选后程序还是每次登录都起来，那这个勾选框就是个装饰。"""
-    log: list = []
-    plain, task = FakePlain(True, log=log), FakeTask(True, log=log)
-    Lifecycle()._toggle_autostart(_runtime(plain, task), False)
-    assert (plain.enabled, task.enabled) == (False, False)
-
-
-def test_checking_the_tray_switch_does_not_create_a_logon_task():
-    """从托盘勾一下不该顺带建一个每次登录静默提权的计划任务：那个决定要连同它的代价
-    一起摆在设置页上。"""
-    plain, task = FakePlain(False), FakeTask(False)
-    Lifecycle()._toggle_autostart(_runtime(plain, task), True)
-    assert (plain.enabled, task.enabled) == (True, False)
-
-
-def test_a_blocked_logon_task_still_lets_the_registry_entry_go(caplog):
-    """关不掉任务时至少把能关的关掉，并把原因写进日志——托盘没有说话的地方。"""
-    plain, task = FakePlain(True), FakeTask(True, reason="需要管理员权限")
-    Lifecycle()._toggle_autostart(_runtime(plain, task), False)
-    assert plain.enabled is False
-    assert task.enabled is True
-    assert "需要管理员权限" in caplog.text
-
-
-def test_the_tray_switch_goes_through_the_settings_service_when_there_is_one():
-    """与设置页同一条路径：互斥、写配置、清缓存都只有一处实现（``_set_paused`` 同理）。"""
-    calls: list = []
-    services = SimpleNamespace(
-        settings=SimpleNamespace(set_autostart=lambda enabled: calls.append(enabled))
-    )
-    plain = FakePlain(False)
-    Lifecycle()._toggle_autostart(_runtime(plain, FakeTask(False), services=services), True)
-    assert calls == [True]
-    assert plain.enabled is False, "服务层负责写，装配层不该再写一遍"

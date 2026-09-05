@@ -25,13 +25,21 @@ DIST = PRESENTATION / "static" / "dist"
 #: `shell.css`（产物缺失时的兜底）。
 CSS = ROOT / "frontend" / "styles"
 SHELL_CSS = PRESENTATION / "static" / "css" / "shell.css"
-TEMPLATE = PRESENTATION / "templates" / "dashboard.html"
 
-#: main.js / components 用 getElementById 找的挂载点。少一个就是一块界面消失。
-MOUNT_POINTS = (
-    "app", "banners", "tabs", "status-host",
-    "periodbar", "view-root", "toasts", "overlays",
-)
+#: 三个页面共用的挂载点（模板基座 `_shell.html`，18 文档 批 1）。少一个就是一块界面消失。
+SHELL_MOUNTS = ("app", "banners", "status-host", "toasts", "overlays")
+
+#: 每一页独有的挂载点。**取错入口的症状是"设置页画出了仪表盘"**，而那只有分页验才看得出来。
+PAGE_MOUNTS: dict[str, tuple[str, ...]] = {
+    "/": ("tabs", "periodbar", "rangebar", "metricbar", "view-root"),
+    "/settings": ("settings-root",),
+    "/about": ("about-root",),
+}
+
+#: 前端会直接导航到、或直接 fetch 的**非 API 地址**：三个页面外壳与免令牌探针
+#: （`/healthz`，重启时轮询它，18 文档 批 5）。它们不带 `/api/v1` 前缀，因此不能与端点
+#: 一起归一化——但同样必须存在，所以下面有一条单独验 url_map 的用例。
+PAGE_PATHS = ("/", "/settings", "/about", "/healthz")
 
 #: 路由标签的 id 约定（syncTabs 按 `tab-<route>` 拼）。
 ROUTES = ("overview", "apps", "keyboard", "insights")
@@ -59,6 +67,9 @@ def _js_api_paths() -> set[str]:
         for match in _API_LITERAL.finditer(text):
             raw = match.group(1)
             if raw.startswith("/static/") or raw.startswith("/favicon"):
+                continue
+            # 页面地址与探针不是端点（18 文档 批 1、批 5）：它们由 PAGE_PATHS 单独验。
+            if raw in PAGE_PATHS:
                 continue
             # api.js 里的 BASE 常量本身不是端点。
             if raw.rstrip("/") in {"/api/v1", "/api"}:
@@ -95,9 +106,22 @@ def test_the_extractor_actually_finds_paths():
     assert "/keyboard/layout" in paths
 
 
-@pytest.mark.parametrize("element_id", MOUNT_POINTS)
-def test_shell_has_every_mount_point(api_client, element_id: str):
-    body = api_client.get("/").get_data(as_text=True)
+@pytest.mark.parametrize("path", PAGE_PATHS)
+def test_page_paths_referenced_by_the_frontend_exist(api_client, path: str):
+    """前端导航到的三个页面地址与它轮询的探针都要真的在 url_map 里。"""
+    assert path in _rule_patterns(api_client.application)
+
+
+@pytest.mark.parametrize(
+    ("page", "element_id"),
+    [
+        (page, element_id)
+        for page, mounts in PAGE_MOUNTS.items()
+        for element_id in (*SHELL_MOUNTS, *mounts)
+    ],
+)
+def test_shell_has_every_mount_point(api_client, page: str, element_id: str):
+    body = api_client.get(page).get_data(as_text=True)
     assert f'id="{element_id}"' in body
 
 
@@ -109,17 +133,19 @@ def test_shell_has_a_tab_per_route(api_client, route: str):
 
 
 def test_shell_is_reachable_without_a_token(api_client):
-    """外壳免令牌（08 文档 §3.2b）：否则托盘打开的链接会被自己拦掉。"""
+    """三个外壳都免令牌（08 文档 §3.2b）：否则托盘打开的链接会被自己拦掉。"""
     fresh = api_client.application.test_client()
-    assert fresh.get("/").status_code == 200
+    for page in PAGE_MOUNTS:
+        assert fresh.get(page).status_code == 200, page
     assert fresh.get("/favicon.svg").status_code == 200
     # 但数据一律要令牌。
     assert fresh.get("/api/v1/status").status_code == 401
 
 
-def test_shell_carries_no_statistics(api_client):
+@pytest.mark.parametrize("page", list(PAGE_MOUNTS))
+def test_shell_carries_no_statistics(api_client, page: str):
     """模板零数据（06 文档 §14）。注入一份 capabilities 就等于多一个会过期的副本。"""
-    body = api_client.get("/").get_data(as_text=True)
+    body = api_client.get(page).get_data(as_text=True)
     for leak in ("press_count", "capabilities", "total_seconds", "app_id"):
         assert leak not in body
 
@@ -197,8 +223,11 @@ def test_the_smoke_markers_match_the_real_shell(api_client):
         _sys.path.insert(0, str(ROOT / "tools"))
     import smoke
 
+    for page, extra in smoke.SHELL_PAGES:
+        body = api_client.get(page).get_data()
+        problems = smoke._check_shell(body, page=page, extra=extra)
+        assert not problems, problems
     body = api_client.get("/").get_data()
-    assert not smoke._check_shell(body), smoke._check_shell(body)
     # 固定地址的那几个（产物缺失时的兜底样式、favicon）——它们平时不被页面引用，
     # 因此只有主动探一次才知道还在。
     for asset in smoke.SHELL_ASSETS:

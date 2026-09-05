@@ -18,8 +18,29 @@ from flask import Flask, jsonify
 
 from ... import __version__
 from ...core import paths
+from ..errors import ApiError
+from ..validators import json_body, require_same_site
+from . import envelope
 
 logger = logging.getLogger(__name__)
+
+#: 「打开目录」允许的两个目标。**白名单里的两个词，不是路径参数**：接受路径就等于把"用文件
+#: 管理器打开任意位置"开放给页面，而页面上的内容并不全由我们决定（窗口标题来自操作系统）。
+REVEAL_TARGETS = ("data", "logs")
+
+
+def _system(context: Any):
+    """进程级动作的入口（18 文档 批 5）。
+
+    装配层没给（测试里的应用工厂、以库的方式用它）时**如实回 503**，而不是 500：那不是一次
+    失败的操作，是这个实例根本没有这条能力。
+    """
+    actions = getattr(context, "system", None)
+    if actions is None:
+        raise ApiError(
+            "本实例没有进程控制入口", code="capability_unavailable", status=503
+        )
+    return actions
 
 
 def register(app: Flask, context: Any) -> None:
@@ -38,6 +59,55 @@ def register(app: Flask, context: Any) -> None:
         端点，冒烟测试也据此验证打包产物（11 文档 §5）。
         """
         return jsonify(aggregate_integrity(context))
+
+    @app.post("/api/v1/system/restart")
+    def system_restart():
+        """重新启动（18 文档 批 5）。
+
+        **202 而不是 200**：动作还没做完——接班实例已经在启动，本实例马上停机。停机刻意排在
+        响应之后（``lifecycle.stop_soon``），否则浏览器只看到连接被切断，而那一刻"正在重启"
+        与"它崩了"分不开，该给用户看的东西却完全不同。
+
+        接班实例沿用同一个访问令牌（``lifecycle._session_token``），因此页面等 ``/healthz``
+        通了之后原地刷新就能接着用，不必让用户回托盘重开一遍。
+
+        起不来就 500 且**本实例什么都不改**：先起后停这个顺序是这条路上唯一要紧的事。
+        """
+        require_same_site()
+        if not _system(context).restart():
+            raise ApiError(
+                "没能启动接班实例，本实例仍在运行（原因见日志）",
+                code="restart_failed",
+                status=500,
+            )
+        return jsonify({**envelope(context), "restarting": True}), 202
+
+    @app.post("/api/v1/system/quit")
+    def system_quit():
+        """退出。10 文档 §5.1 记着"没有托盘时退出依赖设置页的按钮"，这是那条路。
+
+        托盘可用时它与菜单里的「退出」是同一条路径（都走 ``Lifecycle.shutdown``），因此不会
+        出现"两个退出入口，行为不一样"。
+        """
+        require_same_site()
+        _system(context).quit()
+        return jsonify({**envelope(context), "stopping": True}), 202
+
+    @app.post("/api/v1/system/reveal")
+    def system_reveal():
+        """打开数据目录或日志目录。
+
+        浏览器里的页面开不了文件管理器，而"管理员模式下要降权打开"这件事后端本来就要负责
+        （``lifecycle._open_external``：URL 与目录的处理方式还不一样，10 文档 §5.2 那段实测）。
+        托盘那两项与设置页「数据」段因此是同一条路径。
+        """
+        require_same_site()
+        target = str(json_body().get("target") or "data")
+        if target not in REVEAL_TARGETS:
+            raise ApiError(f"target 只能是 {list(REVEAL_TARGETS)}", field="target")
+        if not _system(context).reveal(target):
+            raise ApiError("没能打开那个目录（原因见日志）", code="internal_error", status=500)
+        return jsonify({**envelope(context), "opened": target})
 
 
 def build_status(context: Any) -> dict[str, Any]:

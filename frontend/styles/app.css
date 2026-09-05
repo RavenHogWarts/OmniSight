@@ -6,6 +6,7 @@
 @import url("base.css");
 @import url("layout.css");
 
+@import url("components/button.css");
 @import url("components/card.css");
 @import url("components/section.css");
 @import url("components/switcher.css");
@@ -34,8 +35,11 @@
 @import url("components/table.css");
 @import url("components/import.css");
 @import url("components/onboarding.css");
+@import url("components/confirm.css");
 
 @import url("views/overview.css");
 @import url("views/apps.css");
 @import url("views/keyboard.css");
 @import url("views/insights.css");
+@import url("views/settings.css");
+@import url("views/about.css");

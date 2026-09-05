@@ -141,6 +141,54 @@ def test_shell_renders_the_configured_theme(client: FlaskClient, context):
         assert f'<html lang="zh-CN" data-theme="{theme}">' in body
 
 
+def test_shell_renders_the_configured_heat_scale(client: FlaskClient, context):
+    """``<html data-heat>`` 按 ``ui.heat`` 渲染（18 文档 批 3）。
+
+    热力色原先只存在前端的 localStorage 里：换一个浏览器打开，用户设的暖色就没了，而界面上
+    没有任何地方说得出为什么。它现在与主题同一条路——配置是真源、服务端渲染那一档、前端切换
+    时双写。``blue`` 是默认值，因此**不渲染属性**（tokens.css 里只有 ``[data-heat="warm"]``
+    一个选择器）。
+    """
+    from dataclasses import replace
+
+    body = client.get("/").get_data(as_text=True)
+    assert "data-heat" not in body, "默认 ui.heat 是 blue，不该渲染属性"
+
+    context.config = replace(context.config, ui=replace(context.config.ui, heat="warm"))
+    body = client.get("/").get_data(as_text=True)
+    assert 'data-heat="warm"' in body
+
+
+def test_every_page_shell_renders_its_own_entry(client: FlaskClient):
+    """三个页面各取自己的 Vite 入口（18 文档 批 1）。
+
+    `read_bundle` 原先按 `isEntry` 取**第一条**——多入口之后那等于随构建顺序挑一份，而症状是
+    "设置页画出了仪表盘"：页面 200、控制台安静，只是内容完全不对。
+    """
+    import json
+
+    from omnisight.presentation import web
+
+    manifest = json.loads(
+        (web.paths.resource_dir() / "presentation" / "static" / "dist" / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    wanted = {
+        "/": web.ENTRY_DASHBOARD,
+        "/settings": web.ENTRY_SETTINGS,
+        "/about": web.ENTRY_ABOUT,
+    }
+    for path, key in wanted.items():
+        body = client.get(path).get_data(as_text=True)
+        entry = manifest[key]["file"]
+        assert f'src="/static/dist/{entry}"' in body, f"{path} 应当加载 {key}"
+        for other, other_key in wanted.items():
+            if other_key == key:
+                continue
+            assert manifest[other_key]["file"] not in body, f"{path} 同时加载了 {other} 的入口"
+
+
 def test_favicon_is_served_without_a_token(client: FlaskClient):
     """``<link rel="icon">`` 发出的请求带不了自定义头，因此这个端点必须免令牌。"""
     response = client.get("/favicon.svg")

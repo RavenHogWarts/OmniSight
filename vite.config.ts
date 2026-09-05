@@ -40,16 +40,27 @@ export default defineConfig({
     // 本机加载，压缩省下的字节没有意义；可读的产物在排查"页面白屏"时值钱得多。
     minify: false,
     cssMinify: false,
-    // **一份 CSS，不按视图分包。** 默认的 true 会把 keyboard/insights 的样式挂到各自的
-    // 动态 chunk 上，于是首次进某个视图时样式比 DOM 晚到一帧——本机加载省下的那几 KB
-    // 换来一次可见的重排，不值。整份也只有 2451 行。
+    // **一份 CSS，不按视图分包，也不按页面分包。** 默认的 true 会把 keyboard/insights 的
+    // 样式挂到各自的动态 chunk 上，于是首次进某个视图时样式比 DOM 晚到一帧——本机加载省下
+    // 的那几 KB 换来一次可见的重排，不值。三个入口因此共用产物里的同一份样式表，`read_bundle`
+    // 那半条"扫所有 .css 记录"的兜底路径也仍然成立（入口记录上没有 `css` 字段）。
     cssCodeSplit: false,
     // **不产 sourcemap**：产物提交进版本库并随 EXE 分发，而 map 比 JS 本身还大
     // （1.28 MB vs 0.71 MB）。既然没压缩，产物本身就是可读的；而 map 指回的
     // frontend/src/*.tsx 只有开发者手上有——他随时能自己开着 map 重新构建。
     sourcemap: false,
     rollupOptions: {
-      input: { main: here('frontend/src/main.tsx') },
+      // **三个页面各一个入口**（18 文档 批 1）：仪表盘、设置、关于。设置与关于是真的页面
+      // （`/settings`、`/about`）而不是仪表盘里的一个 hash 路由——理由见 pages/shell.tsx。
+      //
+      // 键名（main / settings / about）只影响产物文件名；后端按**清单里的源码路径**取入口
+      // （`src/settings.tsx` 这样的键，见 `web.py:read_bundle`），因此改这里的键名不会让
+      // 后端找不到它，而改文件路径会——那一处也有一条注释指着这里。
+      input: {
+        main: here('frontend/src/main.tsx'),
+        settings: here('frontend/src/settings.tsx'),
+        about: here('frontend/src/about.tsx'),
+      },
     },
   },
 });

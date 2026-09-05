@@ -25,7 +25,7 @@ body[data-route="apps"] {
  *
  * **条不画，钮组要画。** 原先右段是三个直接浮在页底色上的裸图标，加一个凹陷灰的状态胶囊；
  * 而这一页其余每一个控件都是"半透明底 + 1px 边 + shadow-sm"（.viewbar / .round-btn /
- * .date-control / .pill-btn）——工具条于是成了全页唯一说另一种话的地方。这里把右段收进一条
+ * .date-control / .button）——工具条于是成了全页唯一说另一种话的地方。这里把右段收进一条
  * 胶囊托盘：形制与它正下方 38px 的 .viewbar 同族、只小一档，四个功能钮因此是"托盘里的四个
  * 槽"，槽在悬停与浮层展开时浮起成卡片色（.viewbar__tab 选中态那个手法）。
  */
@@ -84,6 +84,9 @@ body[data-route="apps"] {
   place-items: center;
   border-radius: var(--radius-full);
   color: var(--text-secondary);
+  /* 它现在也当 <a> 用（工具条里的页面跳转，18 文档 批 1），而 base.css 给锚点配了
+     hover 下划线——那条线在这里没有意义，且只在 display 被改回 inline 时才会真的画出来。 */
+  text-decoration: none;
   transition: background var(--duration-fast) var(--ease-out),
               color var(--duration-fast) var(--ease-out),
               box-shadow var(--duration-fast) var(--ease-out);
@@ -135,19 +138,6 @@ body[data-route="apps"] {
   box-shadow: var(--shadow-sm);
 }
 .round-btn:disabled { opacity: .4; cursor: default; }
-
-.pill-btn {
-  height: 30px;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--border-default);
-  background: var(--surface-card);
-  color: var(--text-primary);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  box-shadow: var(--shadow-sm);
-}
-.pill-btn:hover:not(:disabled) { background: var(--surface-hover); }
-.pill-btn:disabled { opacity: .4; cursor: default; }
 
 /* 日期控件。原生 `<input type="date">`（前身就是这个）——它自带日历弹层与键盘输入，
    我们原先的「自定义…」按钮 + 两个日期框要点两次才能改一天。 */
@@ -228,6 +218,20 @@ body[data-route="apps"] {
 }
 .view__title { font-size: var(--text-xl); }
 .view__title:focus-visible { box-shadow: none; }
+
+/* 设置页与关于页的内容列（18 文档 批 1）。与 `.view` 平级而不是同一个类：`.view` 排的是
+   一串等宽卡片，`.page` 排的是"标题 + 段导航 + 一列内容"。
+ *
+ * **760px 居中。** 在 1080 的外壳里让一行设置从最左拉到最右，标签与它的控件会被一片空白
+ * 隔开到读不出配对关系；760 这个数字与 420px 日期条、480px 视图带出自同一个手法——居中
+ * 定宽，而不是撑满。段导航（`.settings-nav.viewbar`，600px）在这一列里再居中一次。 */
+.page {
+  width: min(100%, 760px);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
 
 /* 双列网格。窄窗口自动落回单列，不需要每个面板各写一次断点。 */
 .grid { display: grid; gap: var(--space-4); }

@@ -8,20 +8,39 @@
 * 新增：**托盘不可用时的无托盘运行路径**。托盘是唯一退出入口的设计会让任何一次
   失败都变成"进程杀不掉"的投诉（10 文档 §5.1）。
 
-菜单项按 10 文档 §5 的清单，M6 补齐其中三项：
+菜单项按 10 文档 §5 的清单，M6 补齐其中三项，18 文档 批 4 又重排了一次：
 
-* **暂停记录**（勾选态）：08 文档 §5 要求的一键停止。需要暂停的时候用户往往不想
-  先开浏览器，托盘是它唯一合理的位置；图标同时切成灰度，让"还在记录吗"在托盘上
-  直接有答案。
-* **打开日志目录**：崩溃报告与运行日志都在那里（10 文档 §8），出问题时这是让用户
-  自己拿到材料的最短路径。
-* **关于与隐私说明**：把首启说明重新打开一次（08 文档 §6.1），而不是只在第一次
-  运行时出现一次就再也找不到。
+```
+打开 OmniSight            （默认项，双击图标）
+打开设置                  （18 批 4 新增 → /settings?token=）
+─────────────
+暂停记录                  （勾选态，对应 capture.paused）
+重新启动                  （18 批 5 新增）
+以管理员身份重启          （文字随状态变，不是勾选框）
+─────────────
+打开数据目录
+打开日志目录
+退出
+```
 
-M7 追加 **以管理员身份重启**（10 文档 §5.2）：以管理员身份运行的程序（管理员模式的
-VS Code、终端、任务管理器）里敲的键，普通权限的进程一个也收不到，而"那个应用的按键数
-一直是 0"这种症状几乎不可能被用户自己归因。这一项刻意**不做成勾选框**——提权只能靠
-重启成一个新进程，勾掉它并不会回到普通权限，而一个勾不掉的勾选框是在说谎。
+**这一版删掉了两项，各有去处**（18 文档 批 4）：
+
+* **开机自启** → 设置页「系统」段。它的真源是操作系统（注册表项 / 登录计划任务），而
+  Windows 上有两条互斥的机制——托盘那个勾选框只能显示两者的并集，说不出是哪一条开着，
+  也说不出为什么另一条改不了。10 文档 §5.3 早就把"持久化提权那个决定"放在设置页，这一步
+  只是让普通那一条跟过去。
+* **关于与隐私说明** → `/about` 那一页。它原先只能重新打开首启那个模态；现在它有地址，
+  托盘少一项，而"随时找得到"这条要求（08 文档 §6.1）反而更硬。
+
+留下的两个目录入口不动：**页面打不开的时候，它们是用户拿到材料的唯一一键路径**，而那正是
+托盘存在的场景（10 文档 §5.1）。
+
+**暂停记录**（勾选态）：08 文档 §5 要求的一键停止。需要暂停的时候用户往往不想先开浏览器，
+托盘是它唯一合理的位置；图标同时切成灰度，让"还在记录吗"在托盘上直接有答案。
+
+**重新启动**与**以管理员身份重启**（10 文档 §5.2）并排：两者回答同一个问题"要不要换一个
+进程接着记"，只是后者顺带换权限。两项都刻意**不做成勾选框**——重启不是一个状态，而提权
+勾不掉（勾不掉的勾选框是在说谎）。
 """
 
 from __future__ import annotations
@@ -94,15 +113,14 @@ class TrayIcon:
         dashboard_url: Callable[[], str],
         open_dashboard: Callable[[], None],
         on_quit: Callable[[], None],
-        autostart_state: Callable[[], bool] | None = None,
-        on_toggle_autostart: Callable[[bool], None] | None = None,
+        open_settings: Callable[[], None] | None = None,
         paused_state: Callable[[], bool] | None = None,
         on_toggle_pause: Callable[[bool], None] | None = None,
+        on_restart: Callable[[], None] | None = None,
         elevation_state: Callable[[], str] | None = None,
         on_elevate: Callable[[], None] | None = None,
         open_data_dir: Callable[[], None] | None = None,
         open_logs_dir: Callable[[], None] | None = None,
-        on_about: Callable[[], None] | None = None,
         asset: Path | None = None,
         available: bool = True,
     ) -> None:
@@ -110,15 +128,14 @@ class TrayIcon:
             "dashboard_url": dashboard_url,
             "open_dashboard": open_dashboard,
             "on_quit": on_quit,
-            "autostart_state": autostart_state,
-            "on_toggle_autostart": on_toggle_autostart,
+            "open_settings": open_settings,
             "paused_state": paused_state,
             "on_toggle_pause": on_toggle_pause,
+            "on_restart": on_restart,
             "elevation_state": elevation_state,
             "on_elevate": on_elevate,
             "open_data_dir": open_data_dir,
             "open_logs_dir": open_logs_dir,
-            "on_about": on_about,
         }
         self.available = available
         self._asset = asset
@@ -165,12 +182,22 @@ class TrayIcon:
 
         menu = pystray.Menu(
             pystray.MenuItem("打开 OmniSight", self._open_dashboard, default=True),
+            pystray.MenuItem(
+                "打开设置",
+                self._open_settings,
+                enabled=self.actions["open_settings"] is not None,
+            ),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(
                 "暂停记录",
                 self._toggle_pause,
                 checked=lambda _item: self._paused,
                 enabled=self.actions["on_toggle_pause"] is not None,
+            ),
+            pystray.MenuItem(
+                "重新启动",
+                self._restart,
+                enabled=self.actions["on_restart"] is not None,
             ),
             pystray.MenuItem(
                 # 文字随状态变，因此传的是可调用对象而不是字符串（pystray 支持）。
@@ -185,12 +212,6 @@ class TrayIcon:
             ),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(
-                "开机自启",
-                self._toggle_autostart,
-                checked=lambda _item: self._autostart_checked(),
-                enabled=self.actions["on_toggle_autostart"] is not None,
-            ),
-            pystray.MenuItem(
                 "打开数据目录",
                 self._open_data_dir,
                 enabled=self.actions["open_data_dir"] is not None,
@@ -199,12 +220,6 @@ class TrayIcon:
                 "打开日志目录",
                 self._open_logs_dir,
                 enabled=self.actions["open_logs_dir"] is not None,
-            ),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem(
-                "关于与隐私说明",
-                self._about,
-                enabled=self.actions["on_about"] is not None,
             ),
             pystray.MenuItem("退出", self._quit),
         )
@@ -243,16 +258,6 @@ class TrayIcon:
     def _elevation_label(self, _item: object = None) -> str:
         return ELEVATION_LABELS[self._elevation_state()]
 
-    def _autostart_checked(self) -> bool:
-        getter = self.actions["autostart_state"]
-        if getter is None:
-            return False
-        try:
-            return bool(getter())
-        except Exception:
-            logger.exception("读取开机自启状态失败")
-            return False
-
     # ── 回调 ────────────────────────────────────────────────────────────
     def _open_dashboard(self, *_args: object) -> None:
         """怎么打开由装配层决定：管理员模式下要降权，否则浏览器会继承管理员令牌
@@ -260,15 +265,28 @@ class TrayIcon:
         """
         self.actions["open_dashboard"]()
 
-    def _toggle_autostart(self, icon, _item) -> None:
-        toggle = self.actions["on_toggle_autostart"]
-        if toggle is None:
+    def _open_settings(self, *_args: object) -> None:
+        """打开设置页。**在浏览器里新开一个标签页**，与「打开 OmniSight」同一条路径
+        （怎么打开由装配层决定，管理员模式下要降权）。
+        """
+        opener = self.actions["open_settings"]
+        if opener is not None:
+            opener()
+
+    def _restart(self, _icon, _item) -> None:
+        """重新启动（18 文档 批 5）。
+
+        成功就意味着**本进程马上要退出了**（装配层确认接班实例活着之后安排停机），因此这里
+        不刷新菜单；失败时装配层已经写了日志，而托盘没有说话的地方——设置页那个入口会把
+        同一件事说给用户听。
+        """
+        handler = self.actions["on_restart"]
+        if handler is None:
             return
         try:
-            toggle(not self._autostart_checked())
+            handler()
         except Exception:
-            logger.exception("切换开机自启失败")
-        icon.update_menu()
+            logger.exception("重新启动失败")
 
     def _toggle_pause(self, icon, _item) -> None:
         """暂停/恢复。**先让服务层真的改状态，再按结果更新图标**。
@@ -311,11 +329,6 @@ class TrayIcon:
         opener = self.actions["open_logs_dir"]
         if opener is not None:
             opener()
-
-    def _about(self, *_args: object) -> None:
-        handler = self.actions["on_about"]
-        if handler is not None:
-            handler()
 
     def _quit(self, *_args: object) -> None:
         self.actions["on_quit"]()

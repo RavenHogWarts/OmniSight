@@ -69,6 +69,13 @@ API_MODULES = (
 #: 而这份清单必须进 wheel——少了它页面就只有"产物缺失"那张卡。
 BUNDLE_MANIFEST = ("dist", "manifest.json")
 
+#: 三个页面的入口在清单里的键，也就是**相对 Vite root（`frontend/`）的源码路径**
+#: （见 vite.config.ts 的 rollupOptions.input）。写在这里而不是散在三个视图函数里：
+#: 改了源码路径就要同时改这三行，而它们挨着放，漏改一行会立刻看得出来。
+ENTRY_DASHBOARD = "src/main.tsx"
+ENTRY_SETTINGS = "src/settings.tsx"
+ENTRY_ABOUT = "src/about.tsx"
+
 
 @dataclass(frozen=True, slots=True)
 class Bundle:
@@ -89,8 +96,12 @@ class Bundle:
         return not self.entry
 
 
-def read_bundle(static_dir: Path) -> Bundle:
-    """从 Vite 清单里取入口与它的直接依赖。
+def read_bundle(static_dir: Path, entry: str = ENTRY_DASHBOARD) -> Bundle:
+    """从 Vite 清单里取**某一页**的入口与它的直接依赖。
+
+    ``entry`` 是清单里的键（``ENTRY_*`` 那三个常量之一）。18 文档 批 1 之前这里按
+    ``isEntry`` 取第一条——那时只有一个入口，而现在有三个："第一条"取到哪一页取决于
+    Rollup 的输出顺序，也就是**三页可能都拿到同一个入口**，而症状是"设置页画出了仪表盘"。
 
     失败一律退化成 ``Bundle()``（``missing`` 为真）而不是抛：API 与静态资源仍然可用，
     只有页面外壳换成说明卡。构建产物缺失是**部署问题**，不该让进程起不来。
@@ -101,18 +112,9 @@ def read_bundle(static_dir: Path) -> Bundle:
     except (OSError, ValueError):
         logger.warning("读不到前端产物清单 %s——页面外壳会显示构建缺失说明", path)
         return Bundle()
-    # 按 `isEntry` 找入口，不写死键名：键是源码路径，`main.js` 改名成 `main.tsx` 时
-    # 写死的那份就会静默失配，症状是"页面说产物缺失"而产物其实在。
-    record = next(
-        (
-            value
-            for value in manifest.values()
-            if isinstance(value, dict) and value.get("isEntry") and value.get("file")
-        ),
-        None,
-    )
-    if record is None:
-        logger.warning("产物清单 %s 里没有入口（isEntry）", path)
+    record = manifest.get(entry)
+    if not isinstance(record, dict) or not record.get("isEntry") or not record.get("file"):
+        logger.warning("产物清单 %s 里没有入口 %s——那一页会显示构建缺失说明", path, entry)
         return Bundle()
     # 入口的静态依赖用 modulepreload 提前拉，省掉"下载入口 → 解析 → 再下载依赖"这一跳。
     # 只取一层：更深的依赖由浏览器在解析 import 时自然发现，全铺开反而挤占首屏带宽。
@@ -128,8 +130,9 @@ def read_bundle(static_dir: Path) -> Bundle:
     #   * `cssCodeSplit: true`——每个 chunk 的样式挂在自己那条记录的 `css` 数组上。
     #
     # 先读入口的 `css`（那是有序且权威的一份），没有就退回扫所有 .css 记录。不写死
-    # `"style.css"` 这个键名：它是 Vite 的实现细节，而"清单里的 css 就是这一页要的
-    # css"在两种配置下都成立——只有一个入口，没有第二个页面来分。
+    # `"style.css"` 这个键名：它是 Vite 的实现细节。三个入口共用同一份样式表
+    # （`cssCodeSplit: false`，见 vite.config.ts），因此"清单里的 css 就是这一页要的 css"
+    # 在多入口下仍然成立——那份 CSS 本来就是三页合并出来的。
     styles = [name for name in record.get("css", []) if isinstance(name, str)]
     if not styles:
         styles = sorted(
@@ -166,6 +169,10 @@ class AppContext:
     capture: Any = None
     services: Services | None = None
     stream: Any = None
+    #: 进程级动作（重启 / 退出 / 打开目录，18 文档 批 5）。与 ``capture`` 同理用 ``Any``
+    #: 持有：它的实现在 ``core.lifecycle``，而表现层导入那一层会形成环。为 ``None`` 时
+    #: 对应的三个端点如实回 503——测试里的应用工厂就没有它。
+    system: Any = None
 
 
 #: 静态资源的 MIME 类型**显式注册**，不靠系统猜。
@@ -207,37 +214,65 @@ def create_app(context: AppContext) -> Flask:
 
 
 def _register_routes(app: Flask, context: AppContext) -> None:
-    @app.get("/")
-    def index():
-        """页面外壳。**零数据、零内联脚本**——数据一律经 API 取（06 文档 §14）。
+    def shell(template: str, entry: str):
+        """三个页面共用的外壳渲染（18 文档 批 1）。**零数据、零内联脚本**——数据一律经
+        API 取（06 文档 §14）。
 
         令牌通过 URL 交给页面，页面存进 sessionStorage 后续用请求头带上
-        （08 文档 §3.2b）。这里不校验，否则用户点托盘打开的链接会被自己拦掉。
+        （08 文档 §3.2b）。这里不校验，否则用户点托盘打开的链接会被自己拦掉；三个外壳
+        因此都在 ``security.PUBLIC_ENDPOINTS`` 里。
 
         模板里不注入 capabilities：前端只信 ``/api/v1/status``，注入一份就等于
         多一个可能过期的副本（07 文档 §10）。
 
-        ``bundle`` 是 Vite 产物的入口（15 文档 §3.1）。**每次请求都重读清单**：开发期
+        ``bundle`` 是这一页的 Vite 入口（15 文档 §3.1）。**每次请求都重读清单**：开发期
         `pnpm dev` 会在后台重新构建并换掉哈希，缓存住清单就得重启进程才能看到改动。
-        清单是个 3 KB 的本地文件，这一次读远比"为什么我的改动没生效"便宜。
+        清单是个 4 KB 的本地文件，这一次读远比"为什么我的改动没生效"便宜。
 
-        ``theme`` **由服务端渲染进 ``<html data-theme>``**（15 文档 §11.3）。这一档原先由
-        一个阻塞的普通脚本 ``static/js/theme.js`` 设置：深色偏好用户否则会看到一帧白底
-        （06 文档 §3.2），而 Vite 的产物一律是 ``type="module"``——模块天然 defer，放进
-        构建图就等于放弃防闪白。配置里本来就有 ``ui.theme``（前端切换时双写，见
-        ``core/theme.ts``），因此让模板直接渲染它：那个文件、以及它与前端重复的两个
-        localStorage 键名，一起消失了。
+        ``theme`` 与 ``heat`` **由服务端渲染进 ``<html>`` 的属性**（15 文档 §11.3、18 文档
+        批 3）。这两档原先由一个阻塞的普通脚本 ``static/js/theme.js`` 设置：深色偏好用户
+        否则会看到一帧白底（06 文档 §3.2），而 Vite 的产物一律是 ``type="module"``——模块
+        天然 defer，放进构建图就等于放弃防闪白。配置里本来就有 ``ui.theme``，18 批 3 起
+        又有了 ``ui.heat``（前端切换时双写，见 ``core/theme.ts``），因此让模板直接渲染
+        它们：那个文件、以及它与前端重复的两个 localStorage 键名，一起消失了。
         """
         theme = context.config.ui.theme
+        heat = context.config.ui.heat
         return render_template(
-            "dashboard.html",
+            template,
             # 只有显式的 light/dark 才渲染属性。``system`` 那一档由 tokens.css 的
             # ``@media (prefers-color-scheme: dark)`` 处理——写成属性反而会把它钉死在
-            # 某一色，而那正是"跟随系统"要避免的。
+            # 某一色，而那正是"跟随系统"要避免的。热力色同理：``blue`` 是默认值，
+            # 只有 ``warm`` 需要属性（tokens.css 里 ``[data-heat="warm"]`` 是唯一选择器）。
             theme=theme if theme in ("light", "dark") else "",
+            heat="warm" if heat == "warm" else "",
             token=request.args.get("token", ""),
-            bundle=read_bundle(Path(app.static_folder or ".")),
+            bundle=read_bundle(Path(app.static_folder or "."), entry),
         )
+
+    @app.get("/")
+    def index():
+        """仪表盘。"""
+        return shell("dashboard.html", ENTRY_DASHBOARD)
+
+    @app.get("/settings")
+    def settings_page():
+        """设置页（18 文档 批 1）。
+
+        原先是仪表盘上的一个右侧抽屉。做成独立页面之后它有了地址：托盘能直接打开它、
+        段落能深链（``/settings#privacy``），而仪表盘那四条居中控件带不必为一个不看数据的
+        表单让位——一个顶着日期导航的设置页正是抽屉方案换成页面的原因。
+        """
+        return shell("settings.html", ENTRY_SETTINGS)
+
+    @app.get("/about")
+    def about_page():
+        """关于与隐私说明（18 文档 批 4、08 文档 §6.1）。
+
+        首次运行那一次仍然是仪表盘上的模态（必须点「开始使用」才算确认）；这一页是"之后
+        仍然找得到"那一半，托盘与设置页都指向它。两者共用同一份正文。
+        """
+        return shell("about.html", ENTRY_ABOUT)
 
     @app.get("/favicon.svg")
     def favicon():

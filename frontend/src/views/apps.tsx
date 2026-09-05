@@ -666,7 +666,7 @@ function Editor({
   );
 
   return (
-    <div className="app-actions">
+    <div className="actions">
       <label className="row">
         <span className="text-sm muted">别名</span>
         <input
@@ -679,8 +679,11 @@ function Editor({
           onChange={(event) => setAlias(event.target.value)}
         />
       </label>
+      {/* **不是主按钮**：这一排里「保存别名」「保存分类」「合并」三件事同等重要，把其中
+          一个染成主色只会把视线拉到一个并不特殊的地方。主色留给"这个对话框只有一个动作"
+          那种场合（确认框、导入向导、首启说明）。 */}
       <button
-        className="button button--primary"
+        className="button"
         type="button"
         onClick={() => write({ user_alias: alias.trim() || null }, '已更新名称')}
       >
@@ -721,7 +724,7 @@ function Editor({
         <span className="text-xs dim">已合并 {app.merged_members.length} 个来源</span>
       ) : null}
       {!app.merged_into ? (
-        <div className="app-actions__merge">
+        <div className="app-merge">
           <span className="text-sm muted">合并到…</span>
           <select
             className="control"

@@ -21,12 +21,12 @@ import ctypes
 import logging
 import os
 import subprocess
-import sys
-from collections.abc import Sequence
 from ctypes import wintypes
-from pathlib import Path, PureWindowsPath
+from pathlib import PureWindowsPath
 from typing import ClassVar
 from urllib.parse import unquote, urlparse
+
+from ...core import relaunch
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,9 @@ logger = logging.getLogger(__name__)
 #: （由 :meth:`omnisight.core.lifecycle.Lifecycle._acquire_instance_lock` 实现）。
 #: 与 ``autostart.AUTOSTART_FLAG`` 一样，这个字面量与 ``app.py`` 的 argparse 各写一遍，
 #: 由 ``tests/adapters/test_elevation.py`` 钉住两处一致。
-TAKEOVER_FLAG = "--takeover"
+#: 接班标志。真源在 ``core/relaunch``（提权重启与普通重启共用一条命令行）；这里保留一个
+#: 别名，因为 ``tests/adapters/test_elevation.py`` 与既有调用点都从这个模块读它。
+TAKEOVER_FLAG = relaunch.TAKEOVER_FLAG
 
 TOKEN_QUERY = 0x0008
 #: ``TOKEN_INFORMATION_CLASS``：18 = ``TokenElevationType``，20 = ``TokenElevation``。
@@ -165,32 +167,10 @@ def elevation_type() -> int:
     return ELEVATION_TYPE_DEFAULT if value is None else value
 
 
-def relaunch_arguments(
-    argv: Sequence[str] | None = None,
-    *,
-    frozen: bool | None = None,
-    executable: str | None = None,
-) -> tuple[str, list[str]]:
-    """提权重启要执行的 ``(程序, 参数列表)``。
-
-    刻意做成纯函数：``ShellExecuteExW`` 那一半没法自动测（它要么弹 UAC 要么什么都不
-    做），而"命令行拼错了"是这里唯一会真正伤人的错误——参数错一个字，用户点下去就只
-    看到程序没了。
-
-    **不带上本次运行的其他参数。** 目前只有 ``--autostart``，而它的语义是"我是被自启项
-    拉起来的"；用户从托盘手动提权重启显然不是那回事。
-    """
-    argv = list(sys.argv if argv is None else argv)
-    frozen = getattr(sys, "frozen", False) if frozen is None else frozen
-    program = str(Path(executable or sys.executable).resolve())
-    if frozen:
-        return program, [TAKEOVER_FLAG]
-    script = argv[0] if argv else ""
-    if not script or Path(script).name == "__main__.py":
-        # ``python -m omnisight``：argv[0] 是包内 ``__main__.py`` 的路径，而直接执行
-        # 那个文件会因为相对导入失败（理由见仓库根 ``main.py`` 的说明）。
-        return program, ["-m", "omnisight", TAKEOVER_FLAG]
-    return program, [str(Path(script).resolve()), TAKEOVER_FLAG]
+#: 提权重启与普通重启拼的是**同一条命令行**，因此构造只有一处：``core/relaunch``
+#: （18 文档 批 5 把它从这里搬了过去——那件事没有任何平台特有的部分，只有下面那半个
+#: ``ShellExecuteExW`` 有）。这个别名保住既有的调用点与 ``tests/adapters/test_elevation.py``。
+relaunch_arguments = relaunch.arguments
 
 
 def _explorer_path() -> str:
@@ -311,6 +291,11 @@ class WindowsElevation:
             return False
         program, arguments = relaunch_arguments()
         parameters = subprocess.list2cmdline(arguments)
+        # ``ShellExecuteExW`` 没有 env 参数：新进程拿的是**本进程的环境块**。因此这里只能
+        # 先把 PyInstaller 引导器那几个变量从自己身上摘掉，否则提权后的接班实例会复用本
+        # 进程解包出来的临时目录，而本进程退出时那个目录会被删掉（见 core/relaunch.py 的
+        # ``BOOTLOADER_ENV``）。用户在 UAC 上点取消时本进程照常继续跑，摘掉它们无副作用。
+        relaunch.scrub_process_env()
         info = SHELLEXECUTEINFOW()
         info.cbSize = ctypes.sizeof(info)
         info.fMask = SEE_MASK_NOASYNC

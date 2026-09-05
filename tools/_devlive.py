@@ -100,7 +100,9 @@ def install(app: Flask, *, token: str) -> None:
 
     @app.after_request
     def _inject_live_script(response):
-        if request.path != "/" or response.mimetype != "text/html":
+        # 三个页面外壳都要注入（18 文档 批 1）：改设置页的样式时也该自动刷新，否则那一页
+        # 会安静地停在上一次构建上，而"改了没生效"是这条工具存在的全部理由。
+        if request.path not in ("/", "/settings", "/about") or response.mimetype != "text/html":
             return response
         html = response.get_data(as_text=True)
         if "</body>" not in html:  # pragma: no cover - 模板结构变了才会走到

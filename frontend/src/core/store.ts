@@ -43,6 +43,8 @@ export interface Prefs {
   defaultRange: string;
   keyboardLayout: string;
   titlesRecorded: boolean;
+  /** 点 ⚙ 是开抽屉还是跳到 `/settings`（`ui.settings_surface`，18 文档 §2.1）。 */
+  settingsSurface: string;
 }
 
 /** 实时状态。`mode` 是 stream / polling / offline 三者之一。 */
@@ -93,7 +95,13 @@ const state: State = {
   theme: 'system',
   heat: 'blue',
   // 由 GET /api/v1/settings 填充。周起始日与默认周期是**后端配置**，前端不猜。
-  prefs: { weekStartsOn: 0, defaultRange: 'day', keyboardLayout: 'auto', titlesRecorded: false },
+  prefs: {
+    weekStartsOn: 0,
+    defaultRange: 'day',
+    keyboardLayout: 'auto',
+    titlesRecorded: false,
+    settingsSurface: 'drawer',
+  },
   settings: null,
   status: null,
   capabilities: null,

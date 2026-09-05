@@ -60,6 +60,14 @@ export function connect(): void {
     emit('data:invalidated', payload || {});
   });
 
+  // 配置落盘了（18 文档 批 2）。**推的是"变了"，不是新的配置**——与 invalidate 同一个
+  // 口径：服务端不猜前端拿它做什么，前端自己决定要重读哪些偏好。设置页与仪表盘现在是两个
+  // 标签页，少了这一条，在一边改「周起始日」另一边会一直按旧的切周，而且不报错。
+  source.addEventListener('settings', () => {
+    invalidate();
+    emit('settings:changed', {});
+  });
+
   source.addEventListener('bye', () => {
     // 服务端正在关闭：别让 EventSource 立刻重连去敲一个正在退出的进程。
     close();
@@ -103,6 +111,14 @@ export function startPolling(): void {
       setState('degraded', status.degraded || []);
       invalidate();
       emit('data:invalidated', { data_version: status.data_version });
+      // 设置可能在**另一个标签页**里被改了（18 文档 批 2）。SSE 那条路有专门的 `settings`
+      // 事件；这条路上没有推送，因此顺带说一声"重读偏好"——`/settings` 是一个几 KB 的本地
+      // 响应，30 秒一次可以忽略，而"在设置页改了周起始日、仪表盘一直按旧的切周"是一种
+      // 不报错的错。
+      //
+      // **这一声分不清变没变**（那正是它与 SSE 的 `settings` 帧的区别），因此订阅者那边
+      // 按"读回来的设置与上一份一样吗"决定要不要重取（main.tsx:loadPrefs）。
+      emit('settings:changed', {});
     } catch {
       // 轮询失败不弹提示：进程可能正在重启，下一轮会自己恢复。
     }

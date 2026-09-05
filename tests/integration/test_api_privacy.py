@@ -134,8 +134,19 @@ def test_every_api_endpoint_requires_the_token(api_context, paths):
 
 
 def test_no_endpoint_name_slips_into_the_public_allowlist():
-    """免鉴权清单是一个白名单，且必须短到可以人工审阅。"""
-    assert set(security.PUBLIC_ENDPOINTS) <= {"index", "healthz", "static", "favicon"}
+    """免鉴权清单是一个白名单，且必须短到可以人工审阅。
+
+    三个页面外壳都在里面（18 文档 批 1）：它们零数据、零内联脚本，而校验它们会把
+    用户从托盘点开的链接拦在门外——那条路上令牌还没交接（08 文档 §3.2b）。
+    """
+    assert set(security.PUBLIC_ENDPOINTS) <= {
+        "index",
+        "settings_page",
+        "about_page",
+        "healthz",
+        "static",
+        "favicon",
+    }
 
 
 def test_write_operations_need_a_same_site_request(api_context, seeded):

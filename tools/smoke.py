@@ -6,9 +6,13 @@
 * **打包后写到了 ``_MEIPASS`` 临时目录** —— 数据"每次重启都清零"，用户报的是
   "统计不准"，而真正原因在打包参数里。
 
+**它要独占本会话的单实例锁**，因此跑之前得先退出正在运行的 OmniSight（托盘 →「退出」，
+或设置页「系统」段那个按钮）。锁是会话级命名互斥体（``Local\\OmniSight.Instance``，
+10 文档 §3），换端口绕不开它——``--port`` 解决的是另一件事，见 :data:`SMOKE_PORT`。
+
 用法::
 
-    python tools/smoke.py dist/OmniSight.exe [--keep]
+    python tools/smoke.py dist/OmniSight.exe [--keep] [--port 6102]
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ import contextlib
 import json
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -29,19 +34,42 @@ ROOT = Path(__file__).resolve().parents[1]
 STARTUP_TIMEOUT = 30.0
 TOKEN_HEADER = "X-OmniSight-Token"
 
+#: 冒烟实例监听的端口。**刻意不是默认的 6100**：那一个多半正被用户自己装的那份占着，
+#: 而端口撞了是**硬失败**——``lifecycle`` 里没有回退，只有一句"请改 server.port"
+#: （见 core/lifecycle.py 绑定失败那一段）。于是这里在启动前往产物同级写一份只有
+#: ``server.port`` 的 ``config.json``，便携模式会读它（``paths.app_root``：有
+#: portable.marker 时就是 exe 所在目录）。
+#:
+#: 6101 = 默认端口旁边一个。它也被占着时用 ``--port`` 换。
+SMOKE_PORT = 6101
+
+#: ``core/lifecycle.py`` 的 ``EXIT_ALREADY_RUNNING``。**刻意在这里重抄一份**而不是
+#: import 那个包：这个工具验的是打包产物，一旦它开始 import 源码，"源码好而包坏"
+#: 这一整类事故就从它眼皮底下漏出去了。
+EXIT_ALREADY_RUNNING = 2
+
 #: 页面外壳必须带的挂载点。模板改了 id 而 JS 没跟着改，症状是整页空白且控制台安静
 #: （getElementById 返回 null 不报错），因此这条要在产物上验一次。
 #:
 #: 入口脚本的文件名带内容哈希（15 文档 §3.1），所以这里不写死它——查的是
 #: `type="module"` 那一段前缀（产物确实被引到了）。
+#:
+#: **这一组是三个页面共有的**（18 文档 批 1：仪表盘、设置、关于各自 extends `_shell.html`）。
+#: 每一页独有的挂载点在 `SHELL_PAGES` 里，两组都要过——少了后者，"设置页画出了仪表盘"
+#: 这种 read_bundle 取错入口的事故完全无声。
 SHELL_MARKERS = (
-    b'id="view-root"',
-    b'id="periodbar"',
+    b'id="status-host"',
     b'id="banners"',
     b'id="toasts"',
-    b'id="tab-overview"',
     b'<link rel="stylesheet" href="/static/dist/',
     b'<script type="module" src="/static/dist/',
+)
+
+#: 三个页面各自的地址与独有标记。
+SHELL_PAGES: tuple[tuple[str, tuple[bytes, ...]], ...] = (
+    ("/", (b'id="view-root"', b'id="periodbar"', b'id="tab-overview"', b'data-page="dashboard"')),
+    ("/settings", (b'id="settings-root"', b'data-page="settings"')),
+    ("/about", (b'id="about-root"', b'data-page="about"')),
 )
 
 #: 抽查的固定地址资源。**带哈希的产物不在这里逐个列**——名字每次构建都变，改成从页面里
@@ -69,12 +97,13 @@ def _bundle_assets(body: bytes) -> list[str]:
     return [match.decode() for match in _BUNDLE_REFERENCE.findall(body)]
 
 
-def _check_shell(body: bytes) -> list[str]:
+def _check_shell(body: bytes, *, page: str = "/", extra: tuple[bytes, ...] = ()) -> list[str]:
     """外壳自检：挂载点齐全，且**不含任何统计数据**（06 文档 §14 的模板零数据）。"""
-    problems = [f"首页缺少 {marker.decode()}" for marker in SHELL_MARKERS if marker not in body]
+    wanted = (*SHELL_MARKERS, *extra)
+    problems = [f"{page} 缺少 {marker.decode()}" for marker in wanted if marker not in body]
     for leak in (b"press_count", b"total_seconds", b"capabilities"):
         if leak in body:
-            problems.append(f"首页注入了数据（{leak.decode()}），模板应当零数据")
+            problems.append(f"{page} 注入了数据（{leak.decode()}），模板应当零数据")
     return problems
 
 
@@ -118,9 +147,34 @@ def _wait_for_runtime(data_dir: Path, process: subprocess.Popen) -> dict:
                 pass  # 正在写，下一轮再读
         code = process.poll()
         if code is not None:
+            if code == EXIT_ALREADY_RUNNING:
+                # 这条最常见，而"退出码 2"本身最难猜。它也不会留 STARTUP_ERROR.txt——
+                # 那不是一次启动失败，是它按设计让位给了已经在跑的那一个。
+                raise RuntimeError(
+                    "已有一个实例在跑（退出码 2）。单实例锁是会话级命名互斥体"
+                    "（Local\\OmniSight.Instance），换端口也绕不开它"
+                    "——先从托盘退出正在跑的那一个，再跑一次"
+                )
             raise RuntimeError(f"进程已退出（退出码 {code}）{_startup_error_hint(data_dir.parent)}")
         time.sleep(0.25)
     raise TimeoutError(f"{STARTUP_TIMEOUT:.0f} 秒内未出现 {runtime_file}")
+
+
+def _port_free(port: int) -> bool:
+    """连得上就说明有人在听。**先探一次再启动**：否则症状是一个退出码 1，而真正的原因
+    （端口被占）只写在那个产物的弹框里，而无控制台的产物根本弹不出来给我们看。"""
+    with socket.socket() as probe:
+        probe.settimeout(0.5)
+        return probe.connect_ex(("127.0.0.1", port)) != 0
+
+
+def _write_port_config(directory: Path, port: int) -> bytes | None:
+    """把端口写进产物同级的 ``config.json``。@returns 原文件内容（没有则 None）"""
+    path = directory / "config.json"
+    previous = path.read_bytes() if path.exists() else None
+    body = {"version": 1, "server": {"host": "127.0.0.1", "port": port}}
+    path.write_text(json.dumps(body, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return previous
 
 
 def _startup_error_hint(directory: Path) -> str:
@@ -179,9 +233,15 @@ def _check_payload(endpoint: str, data: dict) -> list[str]:
     return problems
 
 
-def run(executable: Path, *, keep: bool = False) -> int:
+def run(executable: Path, *, keep: bool = False, port: int = SMOKE_PORT) -> int:
     if not executable.exists():
         print(f"找不到产物：{executable}", file=sys.stderr)
+        return 2
+    if not _port_free(port):
+        print(
+            f"端口 {port} 已被占用，换一个再跑：python tools/smoke.py --port {port + 1}",
+            file=sys.stderr,
+        )
         return 2
 
     # 便携模式：产物同级放 portable.marker，数据落在 dist/data，便于检查与清理。
@@ -189,6 +249,9 @@ def run(executable: Path, *, keep: bool = False) -> int:
     marker = executable.parent / "portable.marker"
     marker_was_ours = not marker.exists()
     marker.touch()
+    # 端口写进配置（见 SMOKE_PORT）。原来那份如果不是我们的，最后一定要放回去——
+    # 下面的 _cleanup 会无条件删掉这个文件。
+    previous_config = _write_port_config(executable.parent, port)
     data_dir = executable.parent / "data"
 
     process = subprocess.Popen([str(executable)], cwd=executable.parent)
@@ -198,13 +261,19 @@ def run(executable: Path, *, keep: bool = False) -> int:
         base = f"http://127.0.0.1:{runtime['port']}/"
         token = runtime["token"]
 
-        status_code, body = _get(urljoin(base, "/"), token)
-        if status_code != 200 or b"OmniSight" not in body:
-            failures.append("首页未正常返回（可能漏了 --add-data 的模板）")
-        failures.extend(_check_shell(body))
+        # 三个页面都要验（18 文档 批 1）：它们共用一份模板基座与一份样式表，但各有一个
+        # Vite 入口，而"取错入口"的症状是页面画出了另一页的内容——只查首页看不出来。
+        assets: set[str] = set()
+        for page, extra in SHELL_PAGES:
+            status_code, body = _get(urljoin(base, page), token)
+            if status_code != 200 or b"OmniSight" not in body:
+                failures.append(f"{page} 未正常返回（可能漏了 --add-data 的模板）")
+                continue
+            failures.extend(_check_shell(body, page=page, extra=extra))
+            assets.update(_bundle_assets(body))
         # `--add-data` 收的是整棵目录树，漏就是整层都漏，所以样式抽查各层一个；
-        # 前端产物则把页面里引到的地址全部实测一遍（15 文档 §3.1）。
-        for asset in (*SHELL_ASSETS, *_bundle_assets(body)):
+        # 前端产物则把三页引到的地址全部实测一遍（15 文档 §3.1）。
+        for asset in (*SHELL_ASSETS, *sorted(assets)):
             code, _ = _get(urljoin(base, asset))
             if code != 200:
                 failures.append(f"静态资源 404：{asset}（--add-data 未收进 static/）")
@@ -237,13 +306,16 @@ def run(executable: Path, *, keep: bool = False) -> int:
             if marker_was_ours:
                 marker.unlink(missing_ok=True)
             _cleanup(executable.parent)
+        if previous_config is not None:
+            # 那不是我们的文件（有人手工跑过 --keep）。放回去，且不管 keep 与否。
+            (executable.parent / "config.json").write_bytes(previous_config)
 
     if failures:
         print("冒烟测试失败：", file=sys.stderr)
         for failure in failures:
             print(f"  - {failure}", file=sys.stderr)
         return 1
-    print("冒烟测试通过")
+    print(f"冒烟测试通过（端口 {port}）")
     return 0
 
 
@@ -323,9 +395,21 @@ def _cleanup(directory: Path, attempts: int = 5) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
-    positional = [arg for arg in argv if not arg.startswith("--")]
+    port = SMOKE_PORT
+    positional: list[str] = []
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "--port" and index + 1 < len(argv):
+            index += 1
+            port = int(argv[index])
+        elif arg.startswith("--port="):
+            port = int(arg.split("=", 1)[1])
+        elif not arg.startswith("--"):
+            positional.append(arg)
+        index += 1
     target = Path(positional[0]) if positional else ROOT / "dist" / "OmniSight.exe"
-    return run(target, keep="--keep" in argv)
+    return run(target, keep="--keep" in argv, port=port)
 
 
 if __name__ == "__main__":

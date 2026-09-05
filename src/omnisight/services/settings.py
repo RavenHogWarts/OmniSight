@@ -83,7 +83,15 @@ SPECS: tuple[SettingSpec, ...] = (
         "storage.checkpoint_interval_seconds", "int", HOT, minimum=30, maximum=3600
     ),
     SettingSpec("ui.theme", "enum", HOT, options=tuple(sorted(config_module.THEMES))),
+    SettingSpec("ui.heat", "enum", HOT, options=tuple(sorted(config_module.HEATS))),
     SettingSpec("ui.locale", "string", HOT),
+    SettingSpec(
+        "ui.settings_surface",
+        "enum",
+        HOT,
+        options=tuple(sorted(config_module.UI_SETTINGS_SURFACES)),
+        note="抽屉开在仪表盘右侧，改完就能看见图表跟着变；独立页面有地址，托盘那一项去的是它",
+    ),
     SettingSpec(
         "ui.default_view", "enum", HOT, options=tuple(sorted(config_module.DEFAULT_VIEWS))
     ),

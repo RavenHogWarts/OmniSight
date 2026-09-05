@@ -625,6 +625,27 @@ def test_settings_describe_every_option_with_availability(seeded_client):
     assert all("value" in item and "applies" in item for item in settings.values())
 
 
+def test_the_settings_surface_is_an_ordinary_hot_enum(seeded_client):
+    """点 ⚙ 是开抽屉还是跳到 `/settings`，由配置决定（18 文档 §2.1）。
+
+    钉住的是"它是一条**普通的配置项**"：写死在前端的那一版只有"新标签页打开独立页面"
+    一种，而那是三种取向里唯一没人选得掉的一种。热生效——改完下一次点击就该按新的走，
+    没有任何理由要重启。
+    """
+    entry = seeded_client.get("/api/v1/settings").get_json()["settings"]["ui.settings_surface"]
+    assert entry["applies"] == "hot"
+    assert set(entry["options"]) == {"drawer", "page"}
+    assert entry["value"] == "drawer", "默认开抽屉：改设置时仪表盘还在原地"
+    applied = seeded_client.patch(
+        "/api/v1/settings", json={"ui.settings_surface": "page"}
+    ).get_json()
+    assert applied["applied"] == ["ui.settings_surface"]
+    rejected = seeded_client.patch(
+        "/api/v1/settings", json={"ui.settings_surface": "popup"}
+    ).get_json()["rejected"]
+    assert rejected[0]["field"] == "ui.settings_surface"
+
+
 def test_patching_a_hot_setting_applies_without_restart(seeded_client):
     response = seeded_client.patch(
         "/api/v1/settings", json={"ui.week_starts_on": 6}

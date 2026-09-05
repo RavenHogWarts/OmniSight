@@ -59,17 +59,19 @@ export function setHeat(heat: string): Heat {
  * 少了中间那一档，换一个浏览器首次打开时会从深色闪回跟随系统——服务端刚渲染对的
  * 东西被前端第一件事擦掉，比不渲染更糟。
  *
- * `data-heat` 没有对应的配置字段，所以它只有 localStorage 一个来源。这不会闪：
- * 热力色令牌只被 `.heat-cell` 与键帽用（tokens.css 里 `[data-heat="warm"]` 是唯一
- * 的选择器），而那些元素本来就要等 JS 才存在。
+ * **热力色现在与主题同一条路**（18 文档 批 3）：它有了配置键 `ui.heat`，服务端也一并
+ * 渲染 `<html data-heat>`，因此三档优先级对它同样成立。原先它只有 localStorage 一个来源
+ * ——那时换一个浏览器打开，色阶就回到蓝色，而用户以为自己已经把它设成暖色了。
  */
 export function restore(): void {
-  const rendered = document.documentElement.dataset.theme || 'system';
-  let theme = rendered;
-  let heat = 'blue';
+  const rendered = document.documentElement.dataset;
+  const renderedTheme = rendered.theme || 'system';
+  const renderedHeat = rendered.heat || 'blue';
+  let theme = renderedTheme;
+  let heat = renderedHeat;
   try {
-    theme = localStorage.getItem(THEME_KEY) || rendered;
-    heat = localStorage.getItem(HEAT_KEY) || 'blue';
+    theme = localStorage.getItem(THEME_KEY) || renderedTheme;
+    heat = localStorage.getItem(HEAT_KEY) || renderedHeat;
   } catch {
     // 读不到就沿用服务端渲染的那一档。
   }

@@ -132,27 +132,17 @@
 .key-chip b { font-family: var(--font-mono); font-weight: var(--weight-semibold); }
 .key-chip span { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 
-.app-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
-.app-actions__merge { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; width: 100%; }
-.app-actions__merge .control { min-width: 12em; }
-
-.button {
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-default);
-  background: var(--surface-card);
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-  transition: background var(--duration-fast) var(--ease-out);
+/* 「合并到…」那一行。它自己占满一行（前面那些按钮是一排，这一行是"标签 + 下拉 + 按钮
+   + 一句口径说明"），因此不是通用的 `.actions`。按钮本身与全站同一个 `.button`
+   （components/button.css）。 */
+.app-merge {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  width: 100%;
 }
-.button:hover { background: var(--surface-hover); }
-.button--primary {
-  background: var(--accent);
-  border-color: transparent;
-  color: #fff;
-}
-.button--primary:hover { background: var(--accent-hover); }
-.button--danger { color: var(--status-error-text); }
+.app-merge .control { min-width: 12em; }
 
 @media (max-width: 899px) {
   .app-row { grid-template-columns: 28px minmax(0, 1fr); }

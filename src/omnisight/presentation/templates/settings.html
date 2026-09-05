@@ -1,0 +1,18 @@
+{% extends "_shell.html" %}
+{#
+  设置页（18 文档 批 2）。原方案是右侧抽屉（06 文档 §9），改成独立页面之后它：
+
+  * 有地址，因此托盘能直接打开它，段落还能深链（`/settings#privacy`）；
+  * 不必与仪表盘那四条控件带共处一屏——一个顶着日期导航的设置页是那条路走不通的原因；
+  * 表单列 760px 居中（views/settings.css），手法与 420px 日期条、480px 视图带同族。
+
+  这一页**没有周期、没有 SSE、也不抢 1–4 那几个快捷键**：那些都留在 main.tsx。
+#}
+{% block title %}设置 · OmniSight{% endblock %}
+{% block body_attrs %}data-page="settings"{% endblock %}
+{% block skip_href %}#settings-root{% endblock %}
+
+{% block main %}
+      {# 由 pages/SettingsPage.tsx 填充。`class="page"` 是外壳的排版规则，不是那个组件的选择。 #}
+      <div class="page" id="settings-root"></div>
+{% endblock %}

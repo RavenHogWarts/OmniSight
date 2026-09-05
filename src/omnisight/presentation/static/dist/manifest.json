@@ -1,83 +1,178 @@
 {
-  "_Quad-CHKOixmJ.js": {
-    "file": "assets/Quad-CHKOixmJ.js",
+  "_AboutContent-DWlW-QB_.js": {
+    "file": "assets/AboutContent-DWlW-QB_.js",
+    "name": "AboutContent",
+    "imports": [
+      "_degraded-qMnijys5.js"
+    ]
+  },
+  "_Card-CwX6lTXj.js": {
+    "file": "assets/Card-CwX6lTXj.js",
+    "name": "Card",
+    "imports": [
+      "_degraded-qMnijys5.js"
+    ]
+  },
+  "_Quad-1An0_H8C.js": {
+    "file": "assets/Quad-1An0_H8C.js",
     "name": "Quad",
     "imports": [
-      "src/main.tsx"
+      "_degraded-qMnijys5.js",
+      "_controls-CacwHgpC.js"
     ]
   },
-  "_axis-B9TjIDv1.js": {
-    "file": "assets/axis-B9TjIDv1.js",
+  "_SettingsPage-C_ET1OP0.js": {
+    "file": "assets/SettingsPage-C_ET1OP0.js",
+    "name": "SettingsPage",
+    "imports": [
+      "_degraded-qMnijys5.js",
+      "_shell-8ge_e5M8.js",
+      "_controls-CacwHgpC.js",
+      "_Card-CwX6lTXj.js"
+    ]
+  },
+  "_axis-J_X4OlX3.js": {
+    "file": "assets/axis-J_X4OlX3.js",
     "name": "axis",
     "imports": [
-      "src/main.tsx"
+      "_degraded-qMnijys5.js"
     ]
   },
-  "_states-VXV8MaG2.js": {
-    "file": "assets/states-VXV8MaG2.js",
+  "_controls-CacwHgpC.js": {
+    "file": "assets/controls-CacwHgpC.js",
+    "name": "controls",
+    "imports": [
+      "_degraded-qMnijys5.js",
+      "_shell-8ge_e5M8.js"
+    ]
+  },
+  "_degraded-qMnijys5.js": {
+    "file": "assets/degraded-qMnijys5.js",
+    "name": "degraded"
+  },
+  "_shell-8ge_e5M8.js": {
+    "file": "assets/shell-8ge_e5M8.js",
+    "name": "shell",
+    "imports": [
+      "_degraded-qMnijys5.js"
+    ]
+  },
+  "_states-BInd1nRj.js": {
+    "file": "assets/states-BInd1nRj.js",
     "name": "states",
     "imports": [
-      "src/main.tsx"
+      "_degraded-qMnijys5.js"
+    ]
+  },
+  "src/about.tsx": {
+    "file": "assets/about-Bj2O4WA2.js",
+    "name": "about",
+    "src": "src/about.tsx",
+    "isEntry": true,
+    "imports": [
+      "_degraded-qMnijys5.js",
+      "_shell-8ge_e5M8.js",
+      "_AboutContent-DWlW-QB_.js",
+      "_Card-CwX6lTXj.js"
     ]
   },
   "src/main.tsx": {
-    "file": "assets/main-DULowGlx.js",
+    "file": "assets/main-BgBdqxK5.js",
     "name": "main",
     "src": "src/main.tsx",
     "isEntry": true,
+    "imports": [
+      "_degraded-qMnijys5.js",
+      "_shell-8ge_e5M8.js",
+      "_controls-CacwHgpC.js",
+      "_AboutContent-DWlW-QB_.js"
+    ],
     "dynamicImports": [
       "src/views/overview.tsx",
       "src/views/apps.tsx",
       "src/views/keyboard.tsx",
-      "src/views/insights.tsx"
+      "src/views/insights.tsx",
+      "src/pages/SettingsDrawer.tsx"
+    ]
+  },
+  "src/pages/SettingsDrawer.tsx": {
+    "file": "assets/SettingsDrawer-C-p9mpcQ.js",
+    "name": "SettingsDrawer",
+    "src": "src/pages/SettingsDrawer.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_degraded-qMnijys5.js",
+      "_shell-8ge_e5M8.js",
+      "_SettingsPage-C_ET1OP0.js"
+    ]
+  },
+  "src/settings.tsx": {
+    "file": "assets/settings-DGRCjF4V.js",
+    "name": "settings",
+    "src": "src/settings.tsx",
+    "isEntry": true,
+    "imports": [
+      "_degraded-qMnijys5.js",
+      "_shell-8ge_e5M8.js",
+      "_SettingsPage-C_ET1OP0.js"
     ]
   },
   "src/views/apps.tsx": {
-    "file": "assets/apps-B_rZ-2el.js",
+    "file": "assets/apps-CGks4WV6.js",
     "name": "apps",
     "src": "src/views/apps.tsx",
     "isDynamicEntry": true,
     "imports": [
+      "_degraded-qMnijys5.js",
+      "_controls-CacwHgpC.js",
       "src/main.tsx",
-      "_Quad-CHKOixmJ.js",
-      "_states-VXV8MaG2.js"
+      "_Card-CwX6lTXj.js",
+      "_Quad-1An0_H8C.js",
+      "_states-BInd1nRj.js"
     ]
   },
   "src/views/insights.tsx": {
-    "file": "assets/insights-DMzo4QmG.js",
+    "file": "assets/insights-De0n-EFR.js",
     "name": "insights",
     "src": "src/views/insights.tsx",
     "isDynamicEntry": true,
     "imports": [
+      "_degraded-qMnijys5.js",
       "src/main.tsx",
-      "_states-VXV8MaG2.js",
-      "_axis-B9TjIDv1.js"
+      "_Card-CwX6lTXj.js",
+      "_states-BInd1nRj.js",
+      "_axis-J_X4OlX3.js"
     ]
   },
   "src/views/keyboard.tsx": {
-    "file": "assets/keyboard-xiaIe6TQ.js",
+    "file": "assets/keyboard-CjK-Hsor.js",
     "name": "keyboard",
     "src": "src/views/keyboard.tsx",
     "isDynamicEntry": true,
     "imports": [
+      "_degraded-qMnijys5.js",
+      "_controls-CacwHgpC.js",
       "src/main.tsx",
-      "_Quad-CHKOixmJ.js",
-      "_states-VXV8MaG2.js",
-      "_axis-B9TjIDv1.js"
+      "_Card-CwX6lTXj.js",
+      "_Quad-1An0_H8C.js",
+      "_states-BInd1nRj.js",
+      "_axis-J_X4OlX3.js"
     ]
   },
   "src/views/overview.tsx": {
-    "file": "assets/overview-DV70mCTS.js",
+    "file": "assets/overview-BYWlsM4v.js",
     "name": "overview",
     "src": "src/views/overview.tsx",
     "isDynamicEntry": true,
     "imports": [
+      "_degraded-qMnijys5.js",
       "src/main.tsx",
-      "_states-VXV8MaG2.js"
+      "_Card-CwX6lTXj.js",
+      "_states-BInd1nRj.js"
     ]
   },
   "style.css": {
-    "file": "assets/style-DvZddAlx.css",
+    "file": "assets/style-D1VyetFB.css",
     "src": "style.css"
   }
 }

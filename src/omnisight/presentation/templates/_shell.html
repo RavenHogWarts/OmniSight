@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+{#
+  三个页面共用的外壳（18 文档 批 1）。仪表盘、设置页、关于页各自 `{% extends %}` 它，只填
+  三样东西：标题、`<body>` 上的属性、`<main>` 里的内容。
+
+  **为什么是模板继承而不是三份复制**：`<head>` 那五件事（charset / viewport / favicon /
+  样式表 / modulepreload）、noscript 提示、产物缺失说明卡、工具条、三个浮层挂载点、以及末尾
+  那个带令牌的 `<script>`，每一处改动都必须同时落在三个页面上——复制一份就等于给每一条埋一个
+  漏改点，而漏改的症状（少一个挂载点 = 整页空白且控制台安静）恰好是最难查的那种。
+
+  `data-theme` / `data-heat` 由服务端按配置渲染（`web.py` 那三个视图共用 `_shell_context`）。
+  这一档原先由 `static/js/theme.js` 这个阻塞脚本设置，15 文档 §11.3 换掉了它：Vite 的产物一律
+  `type="module"`（天然 defer），防不住闪白，而服务端本来就知道 `ui.theme`。热力色同理
+  （`ui.heat`，18 文档 批 3 起它是一条真的配置而不是只存 localStorage 的前端偏好）。
+
+  只有显式的 light/dark 才渲染 `data-theme`：`system` 那一档由 tokens.css 的
+  `@media (prefers-color-scheme: dark)` 处理，而媒体查询在首次绘制前就已生效。
+#}
+<html lang="zh-CN"{% if theme %} data-theme="{{ theme }}"{% endif %}{% if heat %} data-heat="{{ heat }}"{% endif %}>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}OmniSight{% endblock %}</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  {#
+    样式表与入口脚本一样带内容哈希，因此地址由后端从 Vite 清单里读（web.py:read_bundle）。
+    **仍然是 `<link>` 而不是由 JS 注入**：它必须在首次绘制前到位，而产物是 `type="module"`
+    （天然 defer）。顺序也是刻意的——样式在 modulepreload 之前，浏览器因此先拿能决定首屏
+    长相的那个文件。
+  #}
+  {% for href in bundle.styles %}
+  <link rel="stylesheet" href="{{ href }}">
+  {% endfor %}
+  {#
+    产物缺失时的兜底样式，**只在那一种情况下加载**。样式表现在也在产物里，缺的时候一起缺
+    ——而下面那张说明卡存在的全部理由就是让人读到为什么白屏，一段裸文字读起来像程序崩了。
+  #}
+  {% if bundle.missing %}
+  <link rel="stylesheet" href="/static/css/shell.css">
+  {% endif %}
+  {% for href in bundle.preload %}
+  <link rel="modulepreload" href="{{ href }}">
+  {% endfor %}
+</head>
+<body {% block body_attrs %}{% endblock %}>
+  <div class="app" id="app">
+    {# 键盘用户的第一个停靠点：不必 Tab 过整条导航才能到内容（14 文档 §6）。 #}
+    <a class="skip-link" href="{% block skip_href %}#page-main{% endblock %}">跳到内容</a>
+    <noscript>
+      <div class="banner" data-severity="error">
+        {#
+          **整个模板树里唯一一处内联图标几何**。这一块只在 JS 被禁时渲染，React 到不了，
+          所以它不能走 components/Icon.tsx。路径取自 lucide 的 triangle-alert（ISC，
+          许可义务由 lucide-react 那条清单覆盖，见 THIRD_PARTY_NOTICES.md）。
+        #}
+        <span class="banner__mark" aria-hidden="true">
+          <svg class="icon" viewBox="0 0 24 24">
+            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/>
+            <path d="M12 9v4"/><path d="M12 17h.01"/>
+          </svg>
+        </span>
+        <div class="banner__body">
+          <div class="banner__title">本页需要 JavaScript</div>
+          <div class="banner__detail">
+            数据采集不受影响，仍在后台运行。请在浏览器中允许本页面执行脚本后刷新。
+          </div>
+        </div>
+      </div>
+    </noscript>
+
+    {#
+      工具条（17 文档 §4.1）。**不 sticky、无底色、无下边框**：两个前身都没有顶栏，而
+      sticky + backdrop-filter + 下边框正是"像网页"与"像原生面板"的分界。
+
+      右段整块交给 React（`#status-host`）：状态点要读 store，主题菜单要写配置，而中间那个
+      槽按页而变（仪表盘上是 ⚙ 去设置，设置页与关于页上是 ⌂ 回仪表盘）——都没有留在模板里
+      的理由。
+    #}
+    <header class="utility-bar">
+      <div class="brand">
+        <span class="brand__dot" aria-hidden="true"></span>
+        <span>OmniSight</span>
+      </div>
+      <div class="utility-bar__end" id="status-host"></div>
+    </header>
+
+    <main class="shell">
+      {# 全局降级横幅（06 文档 §4.2 第一级）。由 components/degraded.tsx 填充。 #}
+      <div id="banners" aria-live="polite"></div>
+
+      {#
+        产物缺失时这是页面上唯一有内容的地方（下面那个 <script> 也不会出现）。白屏是最难查的
+        失败，而它的成因往往只是忘了 `pnpm build`（15 文档 §3.1）。注意不能用内联 style
+        ——CSP 的 style-src 'self' 会拒掉 style 属性。
+      #}
+      {% if bundle.missing %}
+      <div class="card">
+        <h2>前端产物缺失</h2>
+        <p class="muted">
+          找不到 <code>static/dist</code> 下的构建产物。开发环境请运行
+          <code>pnpm install</code> 与 <code>pnpm build</code>；如果这是安装版或
+          便携版，说明打包时漏了前端产物，请重新下载。
+        </p>
+      </div>
+      {% endif %}
+
+      {% block main %}{% endblock %}
+    </main>
+  </div>
+
+  <div class="toast-host" id="toasts" aria-live="polite" aria-atomic="false"></div>
+  <div id="overlays"></div>
+
+  {#
+    令牌只从 URL 交接一次，随后存进 sessionStorage 并从地址栏抹掉（08 文档 §3.2b）。
+    入口文件名来自 Vite 清单（15 文档 §3.1），每一页各有一个入口；产物缺失时不给
+    `<script>`，页面里那张说明卡就是用户看到的全部。
+  #}
+  {% if not bundle.missing %}
+  <script type="module" src="{{ bundle.entry }}" data-token="{{ token }}"></script>
+  {% endif %}
+</body>
+</html>

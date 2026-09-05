@@ -19,11 +19,14 @@
   },
   "ui": {
     "theme": "system",
+    "heat": "blue",
     "locale": "zh-CN",
     "default_view": "daily",
     "timezone": null,
     "keyboard_layout": "auto",
-    "shell": "browser"
+    "settings_surface": "drawer",
+    "shell": "browser",
+    "week_starts_on": 0
   },
   "privacy": {
     "record_window_titles": false,

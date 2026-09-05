@@ -29,17 +29,23 @@ def test_the_bundle_is_present_and_complete():
     assert not problems, "前端产物不完整：\n  " + "\n  ".join(problems)
 
 
-def test_the_manifest_names_exactly_one_entry():
-    """入口只能有一个。`web.py:read_bundle` 按 `isEntry` 取第一个——有两个就会
-    随字典顺序挑一个，页面加载哪一份取决于构建顺序。
+def test_the_manifest_names_exactly_the_three_page_entries():
+    """三个页面，三个入口，一个不多一个不少（18 文档 批 1）。
+
+    这一条原先写的是"入口只能有一个"，因为那时 `read_bundle` 按 `isEntry` 取**第一条**
+    ——多一个就会随构建顺序挑一份，而症状是"设置页画出了仪表盘"。现在它按清单里的键取
+    （`web.py` 的 `ENTRY_*` 三个常量），于是这里改成核对那三个键真的都在：漏一个的症状
+    是那一页只剩"产物缺失"那张卡。
     """
+    from omnisight.presentation import web
+
     manifest = json.loads((check_bundle.MANIFEST).read_text(encoding="utf-8"))
-    entries = [
+    entries = {
         key
         for key, record in manifest.items()
         if isinstance(record, dict) and record.get("isEntry")
-    ]
-    assert len(entries) == 1, f"清单里有 {len(entries)} 个入口：{entries}"
+    }
+    assert entries == {web.ENTRY_DASHBOARD, web.ENTRY_SETTINGS, web.ENTRY_ABOUT}, entries
 
 
 def test_the_manifest_is_not_inside_a_dot_directory():
@@ -57,8 +63,9 @@ def test_the_entry_is_a_module_not_a_classic_script():
     那件事原先由 `static/js/theme.js` 这个普通脚本做，15 文档 §11.3 换成了服务端渲染
     `<html data-theme>`——"产物是模块"这条性质没变，只是不再有第二个脚本受它约束。
     """
+    # 三个页面共用的模板基座（18 文档 批 1）：那个 <script> 只在这一处。
     template = (
-        ROOT / "src" / "omnisight" / "presentation" / "templates" / "dashboard.html"
+        ROOT / "src" / "omnisight" / "presentation" / "templates" / "_shell.html"
     ).read_text(encoding="utf-8")
     assert 'type="module" src="{{ bundle.entry }}"' in template
 

@@ -11,7 +11,8 @@ r"""读仪表盘页面：截图 + 可量化的版面报告（14 文档 §8.3）�
 
     python tools/page.py                              # 总览 @1440 浅色
     python tools/page.py --view keyboard --width 1024 --theme dark
-    python tools/page.py --all                        # 四视图 × 四宽度 × 深浅 = 32 张
+    python tools/page.py --page settings --theme dark  # 设置页（18 文档 批 1）
+    python tools/page.py --all                        # 三页/四视图 × 四宽度 × 深浅
     python tools/page.py --view overview --forced-colors --reduced-motion
     python tools/page.py --preset no-keyboard --view keyboard   # 降级态
 """
@@ -101,8 +102,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--theme", action="append", default=[], choices=["light", "dark"], help="可重复"
     )
     parser.add_argument("--range", default="week", help="周期（day / week / month / year / total）")
-    parser.add_argument("--all", action="store_true", help="四视图 × 1024/1280/1440/1920 × 深浅")
-    parser.add_argument("--settings", action="store_true", help="打开设置抽屉后再截")
+    parser.add_argument(
+        "--page",
+        action="append",
+        default=[],
+        choices=["dashboard", "settings", "about"],
+        help="哪一页（18 文档 批 1）。默认 dashboard；--view 只对它有意义",
+    )
+    parser.add_argument(
+        "--all", action="store_true", help="三页/四视图 × 1024/1280/1440/1920 × 深浅"
+    )
     parser.add_argument(
         "--onboarding", action="store_true", help="保留首启说明那张模态（默认点掉）"
     )
@@ -151,11 +160,13 @@ def main(argv: list[str] | None = None) -> int:
     forward = ["--range", args.range, "--out", args.out]
     for view in args.view:
         forward += ["--view", view]
+    for page in args.page:
+        forward += ["--page", page]
     for width in args.width:
         forward += ["--width", str(width)]
     for theme in args.theme:
         forward += ["--theme", theme]
-    for flag in ("all", "settings", "onboarding", "forced_colors", "reduced_motion", "full_page"):
+    for flag in ("all", "onboarding", "forced_colors", "reduced_motion", "full_page"):
         if getattr(args, flag):
             forward.append("--" + flag.replace("_", "-"))
 

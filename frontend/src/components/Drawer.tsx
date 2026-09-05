@@ -4,8 +4,11 @@
 // 看不到自己在哪。归还焦点同理——关掉抽屉后焦点必须回到打开它的那个按钮。
 //
 // **打开方式仍然是命令式的**（`openOverlay(<SettingsDrawer/>)`）：设置、导入向导、
-// 首启说明分别由托盘链接、横幅按钮、后端的 `required` 触发，它们不在同一棵子树里，
+// 首启说明分别由工具条、横幅按钮、后端的 `required` 触发，它们不在同一棵子树里，
 // 让每一处都往上抬一个 `open` 状态只会把这三件事的开关散到三个地方。
+//
+// 设置抽屉是**两种落脚处之一**（`ui.settings_surface`，18 文档 §2.1）：另一种是 `/settings`
+// 那一页。正文是同一个组件（pages/SettingsPage.tsx），因此没有"抽屉版设置"这种东西。
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
 import { Icon } from './Icon.tsx';
@@ -49,9 +52,11 @@ export interface DrawerProps {
   children?: ReactNode;
   footer?: ReactNode;
   onClose?: (() => void) | null;
+  /** 宽一档（560px）。设置抽屉要它：一行设置是"标签 + 控件"两栏，420px 里两栏会挤成一栏。 */
+  wide?: boolean;
 }
 
-export function Drawer({ title, children, footer, onClose = null }: DrawerProps) {
+export function Drawer({ title, children, footer, onClose = null, wide = false }: DrawerProps) {
   const panel = useRef<HTMLElement | null>(null);
   const closeButton = useRef<HTMLButtonElement | null>(null);
   // 打开它的那个元素。**在挂载前读**：挂载后 activeElement 已经变了。
@@ -105,7 +110,13 @@ export function Drawer({ title, children, footer, onClose = null }: DrawerProps)
   return (
     <>
       <div className="scrim" onClick={close} />
-      <aside className="drawer" role="dialog" aria-modal="true" aria-label={title} ref={panel}>
+      <aside
+        className={wide ? 'drawer drawer--wide' : 'drawer'}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        ref={panel}
+      >
         <div className="drawer__head">
           <h2>{title}</h2>
           <span className="spacer" />

@@ -1,0 +1,16 @@
+{% extends "_shell.html" %}
+{#
+  关于与隐私说明页（18 文档 批 4、08 文档 §6.1）。
+
+  首次运行那一次仍然是**模态**（components/Onboarding.tsx）：那一步必须点「开始使用」才算
+  确认，而一个页面允许用户关掉标签页跳过。两者共用同一份正文（components/AboutContent.tsx），
+  于是"这程序记录什么"只有一处真源，而"之后仍然找得到"从一个模态升级成一个有地址的页面。
+#}
+{% block title %}关于与隐私说明 · OmniSight{% endblock %}
+{% block body_attrs %}data-page="about"{% endblock %}
+{% block skip_href %}#about-root{% endblock %}
+
+{% block main %}
+      {# 由 pages/AboutPage.tsx 填充。 #}
+      <div class="page" id="about-root"></div>
+{% endblock %}

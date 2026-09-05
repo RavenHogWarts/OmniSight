@@ -1,0 +1,16 @@
+/* 设置页（18 文档 批 2）。**只有三处几何**，其余全部沿用已有组件：一行一项是
+ * components/form.css 的 `.field`，每一段是 components/card.css 的 `.card`，段导航是
+ * components/switcher.css 的 `.viewbar`（同一个控件、同一个位置——设置页因此不需要用户
+ * 学任何新东西）。
+ */
+
+/* 段导航比视图切换器宽一档：五档中文标签在 480px 里挤，600px 刚好。**只覆盖宽度**，
+   形制（38px 高、胶囊、半透明底 + 1px 边 + 浮起影）与仪表盘那一条完全相同。 */
+.settings-nav.viewbar { width: min(100%, 600px); }
+
+/* 设置页的段标题下面那行说明比仪表盘的略宽松：它解释的是"改动什么时候生效"这件事，
+   而不是一屏数据的口径。 */
+body[data-page="settings"] .section-heading--lead { margin-bottom: var(--space-4); }
+
+/* 「进程」那张卡里的说明与按钮之间要有一口气：它下面那两个按钮一个会重启、一个会退出。 */
+body[data-page="settings"] .card .field__note + .actions { margin-top: var(--space-3); }

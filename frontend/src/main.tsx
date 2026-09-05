@@ -1,11 +1,16 @@
-// 唯一入口（07 文档 §3）。做五件事，别的都不做：
-//   1. 交接令牌、恢复主题、把 React 挂到模板给的几个挂载点上。
-//   2. 路由：按 route 动态 import 视图模块，取数、渲染。
-//   3. 统一事件委托：模板里的 `data-action` 由这里分发（彻底移除内联 onclick）。
-//   4. 键盘快捷键（06 文档 §4.1）。
-//   5. SSE 连接与失效重取。
+// 仪表盘的入口（07 文档 §3）。做五件事，别的都不做：
+//   1. 路由：按 route 动态 import 视图模块，取数、渲染。
+//   2. 统一事件委托：模板里的 `data-action` 由这里分发（彻底移除内联 onclick）。
+//   3. 键盘快捷键（06 文档 §4.1）。
+//   4. SSE 连接与失效重取。
+//   5. 首启说明（08 文档 §6.1 要求的那一次模态确认）。
 //
-// **为什么是多个 React root 而不是一个**：页面外壳（顶栏、标签、周期栏、挂载点）是
+// **它不再是唯一入口**（18 文档 批 1）：设置与关于各自是一张独立页面，各有一个入口
+// （`settings.tsx` / `about.tsx`）。三者共用的开场——接令牌、恢复主题、工具条与三个浮层
+// ——收在 pages/shell.tsx，因此这个文件里只剩仪表盘独有的东西。设置另有一档是**就地开在
+// 抽屉里**（`ui.settings_surface`，18 文档 §2.1）：那一份按需 `import()`，见 SettingsEntry。
+//
+// **为什么是多个 React root 而不是一个**：页面外壳（工具条、标签、周期栏、挂载点）是
 // Jinja 模板渲染的，它承担三件 React 给不了的事——`noscript` 提示、CSP 下不必等
 // JS 的骨架、以及 `tools/smoke.py` 能在产物上验证挂载点齐全。所以 React 挂进模板
 // 给的那几个洞里；跨 root 的状态共享由 core/store.ts 负责（它本来就是外部 store）。
@@ -17,27 +22,30 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
 import { Icon } from './components/Icon.tsx';
-import { Banners } from './components/degraded.tsx';
-import { OverlayHost } from './components/Drawer.tsx';
 import { ImportBanner, openImportWizard } from './components/ImportWizard.tsx';
-import { maybeShowOnboarding, openAbout } from './components/Onboarding.tsx';
+import { maybeShowOnboarding } from './components/Onboarding.tsx';
 import { DateBar, RangeBar, goToday, step as stepPeriod } from './components/PeriodNav.tsx';
-import { StatusDot } from './components/StatusDot.tsx';
-import { ThemeMenu } from './components/ThemeMenu.tsx';
-import { Veil } from './components/Veil.tsx';
-import { ToastHost, fail } from './components/toast.tsx';
-import { TooltipHost, hide as hideTooltip, show as showTooltip } from './components/tooltip.tsx';
-import { adoptToken, get as apiGet } from './core/api.ts';
+import { fail } from './components/toast.tsx';
+import { hide as hideTooltip, show as showTooltip } from './components/tooltip.tsx';
+import { get as apiGet } from './core/api.ts';
 import { on as busOn } from './core/bus.ts';
 import { abortPending, fetchInto } from './core/loader.ts';
 import { ROUTES, go, start as startRouter } from './core/router.ts';
 import { getState, setState, subscribe } from './core/store.ts';
 import { connect as connectStream, startPolling } from './core/stream.ts';
-import { restore as restoreTheme, set as setTheme, watchSystem } from './core/theme.ts';
+import { set as setTheme, setHeat } from './core/theme.ts';
+import { useSlice } from './core/useStore.ts';
 import { rangeFromDefaultView } from './domain/metrics.ts';
-import { openSettingsDrawer } from './views/settings.tsx';
+import {
+  MissingToken,
+  PageLink,
+  adopt,
+  loadStatus,
+  mountChrome,
+  mountPoint,
+} from './pages/shell.tsx';
 import type { ViewModule } from './views/types.ts';
-import type { SettingField, SettingValue, SettingsResponse, StatusResponse } from './types/api.d.ts';
+import type { SettingField, SettingValue, SettingsResponse } from './types/api.d.ts';
 
 const VIEW_MODULES: Record<string, () => Promise<ViewModule>> = {
   overview: () => import('./views/overview.tsx'),
@@ -45,13 +53,6 @@ const VIEW_MODULES: Record<string, () => Promise<ViewModule>> = {
   keyboard: () => import('./views/keyboard.tsx'),
   insights: () => import('./views/insights.tsx'),
 };
-
-/** 模板里的挂载点。少一个就是一块界面消失，所以拿不到时直接抛（core/dom 的老规矩）。 */
-function mountPoint(id: string): HTMLElement {
-  const node = document.getElementById(id);
-  if (!node) throw new Error(`挂载点 #${id} 不在模板里`);
-  return node;
-}
 
 let viewRoot: Root | null = null;
 let activeRoute: string | null = null;
@@ -109,21 +110,13 @@ function refresh({ abort = true }: { abort?: boolean } = {}): void {
 /**
  * data-action 分发表。声明式意图写在模板的标记上，处理集中在这里（07 文档 §7）。
  *
- * React 化之后它只服务**模板里那些标记**（顶栏标签、设置页里的两个按钮）——React
- * 组件里的按钮直接写 onClick，不必绕这一圈。
+ * React 化之后它只服务**模板里那些标记**（视图标签栏）——React 组件里的按钮直接写
+ * onClick，不必绕这一圈。设置与关于原先也在这张表里（`settings:open` / `about:open`），
+ * 18 文档 批 1 之后它们各有一个地址，由工具条右段那个槽负责（PageLink / SettingsEntry）。
  */
 const ACTIONS: Record<string, (dataset: DOMStringMap) => void> = {
   'route:go': (dataset) => go(dataset.route || 'overview'),
-  'settings:open': () => {
-    void openSettingsDrawer(() => {
-      void loadStatus();
-      refresh({ abort: false });
-    });
-  },
   'import:open': () => openImportWizard(),
-  'about:open': () => {
-    void openAbout();
-  },
   'period:prev': () => stepPeriod(-1),
   'period:next': () => stepPeriod(1),
   'period:today': () => goToday(),
@@ -178,30 +171,6 @@ function showShortcutHelp(): void {
   window.setTimeout(hideTooltip, 4000);
 }
 
-async function loadStatus(): Promise<StatusResponse | null> {
-  try {
-    const status = (await apiGet('/status')) as StatusResponse;
-    setState('status', status);
-    setState('capabilities', status.capabilities || null);
-    setState('degraded', status.degraded || []);
-    return status;
-  } catch {
-    // 状态取不到时不要把整页变成错误：各面板自己的错误态更有用。
-    setState('degraded', [
-      {
-        code: 'status_unreachable',
-        severity: 'error',
-        title: '无法读取运行状态',
-        detail: '采集进程可能已退出，或访问令牌已失效。图表显示的可能是缓存数据。',
-        hint: '从托盘菜单重新打开仪表盘',
-        // 后端的 DegradedNotice 一定带 docs（可为 null）。这条是前端造的，也得对齐。
-        docs: null,
-      },
-    ]);
-    return null;
-  }
-}
-
 /** 读一条设置的当前值。 */
 function valueOf(
   settings: Record<string, SettingField>,
@@ -212,25 +181,47 @@ function valueOf(
   return spec && spec.value !== null && spec.value !== undefined ? spec.value : fallback;
 }
 
-/** 首屏读一次设置：周起始日、默认周期、键盘布局都是**后端配置**，前端不猜。 */
-async function loadPrefs(): Promise<void> {
+/**
+ * 最近一次读到的设置全文。**判据是"这一份与上一份一样吗"，不是"有人喊了一声"**：轮询
+ * 那一路每 30 秒都会喊一次（它分不清变没变，见 core/stream.ts 的说明），而每喊一次就要
+ * 重取当前视图那四五个请求，只为了发现什么都没改。
+ */
+let settingsFingerprint = '';
+
+/**
+ * 读一次设置：周起始日、默认周期、键盘布局、设置的打开方式都是**后端配置**，前端不猜。
+ *
+ * @returns 与上一次读到的相比变了吗（第一次总是变）
+ */
+async function loadPrefs(): Promise<boolean> {
   try {
     const payload = (await apiGet('/settings')) as SettingsResponse;
-    setState('settings', payload);
     const settings = payload.settings || {};
+    // 键序由后端的 SPECS 决定，因此同一份配置的字符串是稳定的。
+    const fingerprint = JSON.stringify(settings);
+    const changed = fingerprint !== settingsFingerprint;
+    settingsFingerprint = fingerprint;
+    setState('settings', payload);
     setState('prefs', {
       weekStartsOn: Number(valueOf(settings, 'ui.week_starts_on', 0)),
       defaultRange: rangeFromDefaultView(String(valueOf(settings, 'ui.default_view', 'daily'))),
       keyboardLayout: String(valueOf(settings, 'ui.keyboard_layout', 'auto')),
       titlesRecorded: Boolean(valueOf(settings, 'privacy.record_window_titles', false)),
+      settingsSurface: String(valueOf(settings, 'ui.settings_surface', 'drawer')),
     });
     const theme = String(valueOf(settings, 'ui.theme', 'system'));
     // 静态导入。原先这里 `await import('./core/theme.ts')`，而同一个模块在文件顶部
     // 已经静态导入过——Rollup 会为此报 INEFFECTIVE_DYNAMIC_IMPORT：模块本来就在入口
     // 分包里，动态导入省不下任何字节，只是让这一行多等一个微任务。
     if (theme !== getState().theme) setTheme(theme);
+    // 热力色同理（18 文档 批 3 起它是 `ui.heat`）。在另一个标签页里改了色阶，这一页
+    // 经 `settings:changed` 走到这里就跟着换。
+    const heat = String(valueOf(settings, 'ui.heat', 'blue'));
+    if (heat !== getState().heat) setHeat(heat);
+    return changed;
   } catch {
     // 设置读不到就用默认值，界面照常可用。
+    return false;
   }
 }
 
@@ -253,24 +244,36 @@ function installSubscriptions(): void {
     const meta = getState().periodMeta;
     if (!meta || meta.is_current) refresh({ abort: false });
   });
+
+  // 设置被改了（18 文档 §2.1）。三个来源同一条总线：**这一页的设置抽屉**（改完就在
+  // 旁边，"周起始日改了而图表还按旧的切周"会当场被看见）、**另一个标签页**（服务端在
+  // 配置落盘后广播 `settings` 帧，presentation/stream.py）、以及轮询那一路的兜底。
+  //
+  // 重取按"真的变了"来（loadPrefs 的返回值）：轮询每 30 秒喊一次，而无条件重取意味着
+  // 一个空闲的仪表盘每半分钟把整屏数据重来一遍。
+  busOn('settings:changed', () => {
+    void loadPrefs().then((changed) => {
+      if (changed) refresh({ abort: false });
+    });
+  });
 }
 
-/** 挂进模板给的那几个洞。它们互不嵌套，状态经 core/store.ts 共享。 */
+/**
+ * 挂进模板给的那几个洞。它们互不嵌套，状态经 core/store.ts 共享。
+ *
+ * 工具条与三个浮层由 pages/shell.tsx 统一挂（三页共用）；这里只剩仪表盘独有的两条控件带
+ * 与视图根。工具条右段那个槽在这一页是 ⚙，它去哪儿由配置决定（见 SettingsEntry）。
+ */
 function mountShell(): void {
-  createRoot(mountPoint('banners')).render(
-    <StrictMode>
-      <Banners />
-      <ImportBanner />
-    </StrictMode>,
-  );
-  createRoot(mountPoint('status-host')).render(
-    <StrictMode>
-      <StatusDot />
-      <ImportButton />
-      <ThemeMenu />
-      <SettingsButton />
-    </StrictMode>,
-  );
+  mountChrome({
+    nav: (
+      <>
+        <ImportButton />
+        <SettingsEntry />
+      </>
+    ),
+    banners: <ImportBanner />,
+  });
   // 两条居中控件带（17 文档 §4.1）。`#periodbar` 的 id 沿用，类名换成 `.datebar`
   // ——smoke 与契约测试验的是 id。
   createRoot(mountPoint('periodbar')).render(
@@ -283,22 +286,16 @@ function mountShell(): void {
       <RangeBar />
     </StrictMode>,
   );
-  createRoot(mountPoint('toasts')).render(
-    <StrictMode>
-      <ToastHost />
-    </StrictMode>,
-  );
-  createRoot(mountPoint('overlays')).render(
-    <StrictMode>
-      <OverlayHost />
-      <TooltipHost />
-      <Veil />
-    </StrictMode>,
-  );
   viewRoot = createRoot(mountPoint('view-root'));
 }
 
-/** 导入向导（17 文档 §4.1 的第四个功能钮）。它原先只有横幅那一个入口。 */
+/**
+ * 导入向导的入口（17 文档 §4.1 的第四个功能钮）。
+ *
+ * 它有三个入口，各自的场合不同：这个钮（随时想导入）、`ImportBanner`（首次发现旧数据时
+ * 主动提示一次）、以及设置页「数据」段里那个按钮（在"数据"这件事的语境里）。三者调的是
+ * 同一个 `openImportWizard()`。
+ */
 function ImportButton() {
   return (
     <button
@@ -313,24 +310,35 @@ function ImportButton() {
   );
 }
 
-function SettingsButton() {
+/**
+ * ⚙。**它去哪儿由配置决定**（`ui.settings_surface`，18 文档 §2.1）：抽屉开在仪表盘右侧，
+ * 或者跳到 `/settings` 那一页。原先它一律 `target="_blank"`，而"每点一次设置就多攒一个
+ * 标签页"没有任何设置关得掉——这是这次改动的起点。
+ *
+ * 两档下它都是**一个真链接**（`href` 始终指向 `/settings`），抽屉只接管不带修饰键的左键
+ * 点击，因此 Ctrl+点击、中键、右键「在新标签页打开」仍然有效（pages/shell.tsx:PageLink）。
+ *
+ * 读 store 里的 prefs 而不是渲染时算好的常量：这一项在抽屉里就能改，改完**下一次点击**
+ * 必须已经按新的走（`settings:changed` -> loadPrefs -> 这里重渲染）。
+ */
+function SettingsEntry() {
+  const prefs = useSlice('prefs');
+  const drawer = prefs.settingsSurface === 'drawer';
   return (
-    <button
-      className="icon-button"
-      type="button"
-      title="设置"
-      aria-label="打开设置"
-      onClick={() => ACTIONS['settings:open']({} as DOMStringMap)}
-    >
-      <Icon name="gear" />
-    </button>
+    <PageLink href="/settings" icon="gear" label="设置" onActivate={drawer ? openSettings : null} />
   );
 }
+
+/** 抽屉那一份按需加载：首屏不为一个可能不点的面板付表单代码的钱（与四个视图同一个手法）。 */
+function openSettings(): void {
+  void import('./pages/SettingsDrawer.tsx')
+    .then((module) => module.openSettingsDrawer())
+    .catch(() => fail('设置面板加载失败，请刷新页面'));
+}
+
 async function main(): Promise<void> {
-  const script = document.querySelector<HTMLScriptElement>('script[data-token]');
-  const token = adoptToken(script ? script.dataset.token : '');
-  restoreTheme();
-  watchSystem();
+  // 接令牌、恢复主题、看系统深浅——三页共用的开场（pages/shell.tsx）。
+  const token = adopt();
 
   mountShell();
   installDelegation();
@@ -338,23 +346,12 @@ async function main(): Promise<void> {
   installSubscriptions();
 
   if (!token) {
-    viewRoot?.render(
-      <div className="card">
-        <h2>缺少访问令牌</h2>
-        <p className="muted">
-          请从托盘菜单重新打开仪表盘。令牌只在打开时经 URL 交接一次，刷新后仍然有效。
-        </p>
-      </div>,
-    );
+    viewRoot?.render(<MissingToken />);
     return;
   }
 
   // 顺序是刻意的：先读状态与配置，再让路由填 store，最后才装 route 订阅并挂载视图。
   // 这时 activeModule 还是 null，所以中间几次 setState 触发的 refresh() 都是空转。
-  //
-  // `#about` 必须在 startRouter() 之前读走：路由不认识它，会把 hash 改写成
-  // `#/overview?range=day`，之后就再也看不出用户是从托盘的「关于与隐私说明」进来的。
-  const wantsAbout = window.location.hash.replace(/^#\/?/, '') === 'about';
   await Promise.all([loadStatus(), loadPrefs()]);
   startRouter();
   // 首次进入且 URL 没带 range 时，用配置里的默认周期（ui.default_view）。
@@ -375,9 +372,9 @@ async function main(): Promise<void> {
   }
 
   // 首启说明放在最后：仪表盘已经画完，说明浮在它上面。它自己判断要不要出现
-  // （后端的 `required`），不在这里猜（08 文档 §6.1）。
-  if (wantsAbout) void openAbout();
-  else void maybeShowOnboarding();
+  // （后端的 `required`），不在这里猜（08 文档 §6.1）。**只有首启那一次是模态**——
+  // 随时查看的那一份是 `/about` 那一页（18 文档 批 4），托盘与设置页都指向它。
+  void maybeShowOnboarding();
 }
 
 void main();

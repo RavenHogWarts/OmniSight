@@ -1,0 +1,12 @@
+/* 关于与隐私说明页（18 文档 批 4）。
+ *
+ * 正文的排版类名全部来自 components/onboarding.css（`.onboarding__lists` / `__notice` /
+ * `__section` / `__path`）——**同一份内容在首启模态与这一页上共用一套样式**。那些块自己不带
+ * 外边距（模态用 flex 的 gap 排开它们），因此这一页要做的只有一件事：在卡里也给它们同一档
+ * 节奏。少了这一条，四段说明会紧贴成一堵字墙。
+ */
+.about-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}

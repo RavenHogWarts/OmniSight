@@ -137,6 +137,23 @@ def test_invalidate_announces_a_version_not_the_data(hub):
     stream.close()
 
 
+def test_a_settings_change_is_announced_so_other_tabs_can_catch_up(hub):
+    """设置页与仪表盘现在是**两个标签页**（18 文档 批 1）。
+
+    推的是"变了"，不是新的配置——与 invalidate 同一个口径：服务端不猜前端拿它做什么。少了
+    这一条，在设置页改「周起始日」，仪表盘会一直按旧的切周，而且不报错。
+    """
+    hub.start()
+    stream = hub.stream()
+    next(stream)
+    next(stream)
+    hub.publish_settings()
+    event, payload = _events([next(stream)])[0]
+    assert event == "settings"
+    assert payload == {}, "配置本身不进帧：前端自己决定重读哪些偏好"
+    stream.close()
+
+
 def test_counters_are_only_sent_when_they_change(hub, seeded):
     """每秒重发同一组数字就是换了个形式的轮询。"""
     hub.start()

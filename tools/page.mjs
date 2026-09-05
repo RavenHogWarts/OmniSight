@@ -13,7 +13,8 @@
 // 用法（一般由 tools/page.py 调起，它会先把开发服务器准备好）::
 //
 //     node tools/page.mjs --view keyboard --width 1280 --theme dark
-//     node tools/page.mjs --all                      # 四视图 × 四宽度 × 深浅
+//     node tools/page.mjs --page settings --theme dark     # 设置页（18 文档 批 1）
+//     node tools/page.mjs --all                      # 三页/四视图 × 四宽度 × 深浅
 //     node tools/page.mjs --view overview --forced-colors --reduced-motion
 
 import { chromium } from 'playwright-core';
@@ -29,6 +30,17 @@ const DEV_DIR = path.join(ROOT, '.dev');
 const rel = (target) => path.relative(ROOT, target).split(path.sep).join('/');
 
 const VIEWS = ['overview', 'apps', 'keyboard', 'insights'];
+/**
+ * 三个页面（18 文档 批 1）。`--view` 只对仪表盘有意义（它内部才有四个视图）；设置页与
+ * 关于页各自只有一屏，因此按 `--page` 取。
+ *
+ * `root` 是那一页的挂载点 id：等它有孩子才算画完，而三页的挂载点各不相同。
+ */
+const PAGES = {
+  dashboard: { path: '/', root: 'view-root' },
+  settings: { path: '/settings', root: 'settings-root' },
+  about: { path: '/about', root: 'about-root' },
+};
 /** 14 文档 §8.3 点名的四档，外加 2560（§2.20 P3-5 的超宽屏判据）。 */
 const WIDTHS = [1024, 1280, 1440, 1920];
 /** 14 文档 §2.5 P1-2：键面数字在常见窗口宽度下只有 7–9px，判据是"≥11px 或不印"。 */
@@ -39,20 +51,20 @@ const MAX_MAIN_PX = 1244;
 
 function parseArgs(argv) {
   const args = {
-    views: [], widths: [], themes: [], range: 'week',
+    views: [], pages: [], widths: [], themes: [], range: 'week',
     all: false, forcedColors: false, reducedMotion: false,
     fullPage: false, outDir: path.join(DEV_DIR, 'shots'),
-    settings: false, onboarding: false, timeout: 15000, quiet: false,
+    onboarding: false, timeout: 15000, quiet: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const next = () => argv[i += 1];
     if (arg === '--view') args.views.push(next());
+    else if (arg === '--page') args.pages.push(next());
     else if (arg === '--width') args.widths.push(Number(next()));
     else if (arg === '--theme') args.themes.push(next());
     else if (arg === '--range') args.range = next();
     else if (arg === '--all') args.all = true;
-    else if (arg === '--settings') args.settings = true;
     else if (arg === '--onboarding') args.onboarding = true;
     else if (arg === '--forced-colors') args.forcedColors = true;
     else if (arg === '--reduced-motion') args.reducedMotion = true;
@@ -64,14 +76,21 @@ function parseArgs(argv) {
   }
   if (args.all) {
     args.views = VIEWS;
+    args.pages = Object.keys(PAGES);
     args.widths = WIDTHS;
     args.themes = ['light', 'dark'];
   }
   if (!args.views.length) args.views = ['overview'];
+  if (!args.pages.length) args.pages = ['dashboard'];
   if (!args.widths.length) args.widths = [1440];
   if (!args.themes.length) args.themes = ['light'];
   for (const view of args.views) {
     if (!VIEWS.includes(view)) throw new Error(`--view 只能是 ${VIEWS.join(' / ')}，收到 ${view}`);
+  }
+  for (const page of args.pages) {
+    if (!PAGES[page]) {
+      throw new Error(`--page 只能是 ${Object.keys(PAGES).join(' / ')}，收到 ${page}`);
+    }
   }
   return args;
 }
@@ -252,21 +271,22 @@ function auditInPage({ minFontPx, maxMainPx }) {
   };
 }
 
-/** 等页面真正画完。骨架屏消失 + 视图根有内容，比 networkidle 可靠（30 秒轮询会让它永不静默）。 */
-async function waitForRender(page, timeout) {
+/** 等页面真正画完。骨架屏消失 + 挂载点有内容，比 networkidle 可靠（30 秒轮询会让它永不静默）。 */
+async function waitForRender(page, timeout, root = 'view-root') {
   await page.waitForFunction(
-    () => {
-      const root = document.getElementById('view-root');
-      return !!root && root.children.length > 0 && document.querySelectorAll('.skeleton').length === 0;
+    (id) => {
+      const node = document.getElementById(id);
+      return !!node && node.children.length > 0 && document.querySelectorAll('.skeleton').length === 0;
     },
-    null,
+    root,
     { timeout },
   );
   // canvas 的绘制合并在 rAF 里（07 文档 §6.5），骨架屏没了不等于图画完了。
   await page.waitForTimeout(300);
 }
 
-async function capture(context, { base, view, width, theme, args }) {
+async function capture(context, { base, page: pageName, view, width, theme, args }) {
+  const target = PAGES[pageName];
   const page = await context.newPage();
   const console_ = [];
   const failed = [];
@@ -282,9 +302,13 @@ async function capture(context, { base, view, width, theme, args }) {
   });
 
   await page.setViewportSize({ width, height: Math.round(width * 0.6) });
-  const url = `${base}/?token=${args.token}#/${view}?range=${args.range}`;
+  // 仪表盘的 hash 决定看哪个视图与哪个周期；另外两页只有一屏，地址里只需要令牌
+  // （新标签页拿不到 sessionStorage 里那一份，见 pages/shell.tsx 的说明）。
+  const url = pageName === 'dashboard'
+    ? `${base}/?token=${args.token}#/${view}?range=${args.range}`
+    : `${base}${target.path}?token=${args.token}`;
   await page.goto(url, { waitUntil: 'load', timeout: args.timeout });
-  await waitForRender(page, args.timeout);
+  await waitForRender(page, args.timeout, target.root);
   // 首启说明是必须点掉的模态（08 文档 §6.1：不能随手划掉）。devserver.py 默认已经替它
   // 按过"我看过了"，这里再兜一次——page.mjs 也可能被指向一个手工起的服务器。
   if (!args.onboarding) {
@@ -295,22 +319,17 @@ async function capture(context, { base, view, width, theme, args }) {
       await page.waitForTimeout(200);
     }
   }
-  if (args.settings) {
-    await page.click('[data-action="settings:open"]');
-    await page.waitForSelector('.drawer', { timeout: args.timeout });
-    await page.waitForTimeout(200);
-  }
-
   const report = await page.evaluate(auditInPage, { minFontPx: MIN_FONT_PX, maxMainPx: MAX_MAIN_PX });
   const media = [args.forcedColors && 'forced', args.reducedMotion && 'motion'].filter(Boolean);
-  const stem = [view, width, theme, ...media, args.settings && 'settings',
+  // 文件名里仪表盘用视图名（overview-1440-light），另外两页用页面名（settings-1440-light）。
+  const stem = [pageName === 'dashboard' ? view : pageName, width, theme, ...media,
     args.onboarding && 'onboarding'].filter(Boolean).join('-');
   const shot = path.join(args.outDir, `${stem}.png`);
   await page.screenshot({ path: shot, fullPage: args.fullPage });
   await page.close();
 
   return {
-    view, width, theme, url,
+    page: pageName, view: pageName === 'dashboard' ? view : pageName, width, theme, url,
     screenshot: rel(shot),
     media: { forcedColors: args.forcedColors, reducedMotion: args.reducedMotion },
     console: console_,
@@ -386,11 +405,15 @@ async function main(argv) {
         reducedMotion: args.reducedMotion ? 'reduce' : 'no-preference',
       });
       try {
-        for (const view of args.views) {
-          for (const width of args.widths) {
-            const result = await capture(context, { base, view, width, theme, args });
-            results.push(result);
-            if (!args.quiet) console.log(summarize(result));
+        for (const pageName of args.pages) {
+          // 只有仪表盘有"四个视图"这回事；另外两页各自只跑一次。
+          const views = pageName === 'dashboard' ? args.views : [null];
+          for (const view of views) {
+            for (const width of args.widths) {
+              const result = await capture(context, { base, page: pageName, view, width, theme, args });
+              results.push(result);
+              if (!args.quiet) console.log(summarize(result));
+            }
           }
         }
       } finally {

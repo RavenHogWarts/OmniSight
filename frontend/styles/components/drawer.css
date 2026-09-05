@@ -20,6 +20,11 @@
   animation: drawer-in var(--duration-normal) var(--ease-out);
 }
 
+/* 宽一档。设置抽屉用它（18 文档 §2.1）：一行设置是"标签 + 控件"两栏，420px 里
+   132–200px 的控件会把标签挤到换行。仍然明显窄于 `/settings` 那一页的 760px 列——
+   抽屉的价值是"仪表盘还在旁边"，不是"再来一个整页"。 */
+.drawer--wide { width: min(560px, 100vw); }
+
 .drawer__head {
   display: flex;
   align-items: center;
