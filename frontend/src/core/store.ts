@@ -57,8 +57,10 @@ export interface State {
   route: string;
   period: PeriodState;
   metric: string;
-  timelineView: string;
   scopeAppId: number | null;
+  /** 图标网格的三分组（最近使用 / 最多使用 / 正在运行）。**跨视图共享**：应用面板与
+   *  键盘视图的范围弹层是同一份网格，在一处切了分组，另一处不该退回默认。 */
+  appsGroup: string;
   selectedAppId: number | null;
   selectedKeyId: string | null;
   theme: string;
@@ -84,8 +86,8 @@ const state: State = {
   route: 'overview',
   period: { range: 'day', date: null, start: null, end: null },
   metric: 'press_count',
-  timelineView: 'hours',
   scopeAppId: null,
+  appsGroup: 'recent',
   selectedAppId: null,
   selectedKeyId: null,
   theme: 'system',

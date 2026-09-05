@@ -993,8 +993,8 @@ export interface ErrorResponse {
 // 加一个新请求时必须在这里登记，否则 `fetchInto` 的 key 参数不接受它。
 
 export interface DataMap {
-  overview: OverviewResponse;
-  overviewIntensity: AppKeyboardResponse;
+  overviewAll: UsagePeriodResponse;
+  overviewTimeline: UsageTimelineResponse;
   appsPeriod: UsagePeriodResponse;
   appsMeta: AppsResponse;
   appsRunning: RunningAppsResponse;
@@ -1005,6 +1005,7 @@ export interface DataMap {
   timeline: KeyboardTimelineResponse;
   ergonomics: ErgonomicsResponse;
   keyDetail: KeyDetailResponse;
+  insightOverview: OverviewResponse;
   insightKeyboard: AppKeyboardResponse;
   insightRhythm: RhythmResponse;
   insightTimeline: UsageTimelineResponse;

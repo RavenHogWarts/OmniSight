@@ -7,20 +7,26 @@
 @import url("layout.css");
 
 @import url("components/card.css");
-@import url("components/pill-tabs.css");
+@import url("components/section.css");
+@import url("components/switcher.css");
 @import url("components/segmented.css");
 @import url("components/metric.css");
 @import url("components/bar.css");
 @import url("components/app-row.css");
+@import url("components/usage-list.css");
+@import url("components/app-grid.css");
 @import url("components/app-picker.css");
 @import url("components/key-cap.css");
+@import url("components/keyboard-tray.css");
 @import url("components/heat-cell.css");
 @import url("components/chart.css");
 @import url("components/hour-band.css");
 @import url("components/tooltip.css");
 @import url("components/toast.css");
+@import url("components/veil.css");
 @import url("components/banner.css");
 @import url("components/status-dot.css");
+@import url("components/theme-menu.css");
 @import url("components/empty-state.css");
 @import url("components/skeleton.css");
 @import url("components/drawer.css");

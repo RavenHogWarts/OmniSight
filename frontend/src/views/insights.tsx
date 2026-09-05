@@ -10,16 +10,16 @@
 //
 // **"结论"与"时间去向"归总览**：两个视图各画一份同源数据，用户不知道该看哪一个
 // （14 文档 §2.9）。总览回答"这段时间发生了什么"，洞察只做交叉分析。
-import { createPortal } from 'react-dom';
 import { Chart } from '../charts/Chart.tsx';
 import { hideChartTooltip, showChartTooltip } from '../components/chart-hover.ts';
 import { describePanelPair, drawPanelPair } from '../charts/panel-pair.ts';
 import type { PanelPairData } from '../charts/panel-pair.ts';
 import { describeStackedBar, drawStackedBar } from '../charts/stacked-bar.ts';
 import type { StackedBarData } from '../charts/stacked-bar.ts';
-import { Card } from '../components/Card.tsx';
-import { HourBand } from '../components/HourBand.tsx';
-import { FILTERS_SLOT_ID } from '../components/PeriodNav.tsx';
+import { Card, Section } from '../components/Card.tsx';
+import { Highlights } from '../components/Highlights.tsx';
+import { Updated } from '../components/PeriodNav.tsx';
+import { StackBar } from '../components/StackBar.tsx';
 import { capabilityOf, noticeFor } from '../components/degraded.tsx';
 import { CapabilityNotice, EmptyState, ErrorState, SkeletonRows } from '../components/states.tsx';
 import { fetchInto } from '../core/loader.ts';
@@ -30,8 +30,10 @@ import { gapSet, periodParams } from '../domain/period.ts';
 import type { State } from '../core/store.ts';
 import type {
   AppKeyboardResponse,
+  CategoryShare,
   DataRequest,
   KeyDetailResponse,
+  OverviewResponse,
   RhythmResponse,
 } from '../types/api.d.ts';
 
@@ -52,8 +54,14 @@ function keyIdFor(state: State): string {
 
 export function needs(state: State): DataRequest[] {
   const period = periodParams(state.period);
-  // "结论"归总览独占，因此这里不再取 /overview（14 文档 §2.9）——少一个请求。
   return [
+    // 「构成」与「结论」从总览下沉到这里（17 文档 §4.2 第 3 点）。只要这两段，
+    // 因此 include 精确到两个名字——不必为它把整份 /overview 再算一遍。
+    {
+      key: 'insightOverview',
+      path: '/overview',
+      params: { ...period, include: 'categories,highlights' },
+    },
     { key: 'insightKeyboard', path: '/insights/app-keyboard', params: { ...period, limit: 20 } },
     { key: 'insightRhythm', path: '/insights/rhythm', params: period },
     // top=10：图标带一行装得下十来个，取 5 会让 `+N` 把大半个下午都吞掉。
@@ -119,6 +127,32 @@ export function View() {
       <h1 className="view__title sr-only" tabIndex={-1} id="view-title">
         洞察
       </h1>
+      {/* 「构成」与「结论」从总览下沉到这里（17 文档 §4.2 第 3 点）。总览回答"这段时间
+          发生了什么"，洞察做交叉分析——而这两块本来在两个视图里各画了一份同源数据，
+          用户不知道该看哪一个（14 文档 §2.9）。 */}
+      <Section title="构成与结论" right={<Updated />} lead>
+        <div className="grid grid--2">
+          <Card title="构成">
+            <div className="stacks">
+              <div>
+                <div className="stacks__label">时间去了哪些类别</div>
+                <Categories />
+              </div>
+              <div>
+                <div className="stacks__label">其中多少是在真的输入</div>
+                <Intensity />
+              </div>
+            </div>
+          </Card>
+          <Card title="结论">
+            {/* 每条结论可点开看计算口径（M4 判据 4），渲染实现与总览共用一份。 */}
+            <div className="highlights">
+              <Conclusions />
+            </div>
+          </Card>
+        </div>
+      </Section>
+
       <Card
         title="输入强度排行"
         footer={<div className="card__hint">{rankNote(keyboard.data)}</div>}
@@ -137,9 +171,7 @@ export function View() {
         </div>
       </Card>
 
-      <Card title="键位与应用">
-        <KeySplit />
-      </Card>
+      <KeySplitCard />
 
       <Card title="节奏对比">
         <RhythmContrast rhythm={rhythm.data} loading={rhythm.loading} />
@@ -284,7 +316,6 @@ function Hourly() {
 
   const hours = payload.hours || [];
   const gaps = gapSet(coverage, ['foreground']);
-  const period = payload.period;
   const data: StackedBarData = {
     buckets: hours.map((hour) => ({
       bucket: String(hour.hour),
@@ -319,15 +350,8 @@ function Hourly() {
       {gaps.size ? (
         <div className="card__hint">{gaps.size} 天无应用归因，这些天的时长未计入各小时</div>
       ) : null}
-      {/* 堆叠柱答"哪一类"，图标带答"是哪一个"——同一张卡两层，不再是两个面板
-          （16 文档 §A1；前身把后者藏在另一张卡的背面）。 */}
-      <div className="text-sm muted">这些小时里用的是哪些应用</div>
-      {/* 图标带的缺口只在"看的就是这一天、而这一天测不到"时才成立：多天聚合里某天
-          缺失不该让 24 行全画斜纹，那种情况由上面那行注记说明。 */}
-      <HourBand
-        hours={hours}
-        gap={(period?.days || 0) <= 1 && gaps.has(period?.start || '')}
-      />
+      {/* 堆叠柱答"哪一类"。**图标带（答"是哪一个"）搬去了总览**（17 文档 §6）：它在
+          前身属于屏时屏，而两个视图各画一份同源数据时用户不知道该看哪一个。 */}
     </div>
   );
 }
@@ -465,13 +489,13 @@ function Rhythm({ rhythm, loading }: { rhythm: RhythmResponse | undefined; loadi
 /**
  * 键位 × 应用。选择器按当前周期的高频键动态生成（M3-6），不再硬编码 6 个键。
  *
- * 选择器 portal 到周期栏：它改的是请求参数（14 文档 §4.1）。
+ * 选择器长在**这张卡的卡头**上（17 文档 §4.1）：它只决定这一块看哪个键，不影响别的
+ * 面板。原先它 portal 到周期栏右段，读起来像是一个整屏筛选。
  */
-function KeySplit() {
+function KeySplitCard() {
   const selectedKeyId = useSlice('selectedKeyId');
   const heatmap = useResource('insightHeatmap');
   const detail = useResource('insightKey');
-  const slot = document.getElementById(FILTERS_SLOT_ID);
 
   const ranked = (heatmap.data?.keys || [])
     .filter((key) => (Number(key.press_count) || 0) > 0)
@@ -488,40 +512,132 @@ function KeySplit() {
   }
   const current = selectedKeyId || choices[0]?.id || '';
 
-  const selector =
-    slot && choices.length
-      ? createPortal(
-          <select
-            className="control"
-            aria-label="选择键位"
-            value={current}
-            onChange={(event) => {
-              setState('selectedKeyId', event.target.value);
-              fetchInto(
-                'insightKey',
-                `/keyboard/keys/${event.target.value}`,
-                periodParams(getState().period),
-              );
-            }}
-          >
-            {choices.map((choice) => (
-              <option value={choice.id} key={choice.id}>
-                {choice.label}
-              </option>
-            ))}
-          </select>,
-          slot,
-        )
-      : null;
+  const selector = choices.length ? (
+    <select
+      className="control"
+      aria-label="选择键位"
+      value={current}
+      onChange={(event) => {
+        setState('selectedKeyId', event.target.value);
+        fetchInto(
+          'insightKey',
+          `/keyboard/keys/${event.target.value}`,
+          periodParams(getState().period),
+        );
+      }}
+    >
+      {choices.map((choice) => (
+        <option value={choice.id} key={choice.id}>
+          {choice.label}
+        </option>
+      ))}
+    </select>
+  ) : null;
 
   return (
-    <>
-      {selector}
+    <Card title="键位与应用" controls={selector}>
       <div className="key-app-split">
         <KeyAppRows payload={detail.data} loading={detail.loading} />
       </div>
+    </Card>
+  );
+}
+
+/**
+ * 类别构成（从总览下沉）。槽位顺序 = 后端下发的顺序，不按大小排：相邻关系因此确定、
+ * 可事先校验，且同一个类别在每个周期都在同一个位置（14 文档 §2.10）。
+ */
+function Categories() {
+  const { data, loading } = useResource('insightOverview');
+  if (!data) return loading ? <SkeletonRows count={3} /> : null;
+  const categories: readonly CategoryShare[] = data.categories || [];
+  return (
+    <>
+      <StackBar
+        label="类别构成"
+        segments={categories.map((item) => ({
+          id: item.id,
+          name: item.name,
+          percent: item.percent,
+          formatted: item.seconds_formatted,
+        }))}
+      />
+      <div className="category-list">
+        {categories.map((item) => (
+          <CategoryRow key={item.id} item={item} percent={item.percent} />
+        ))}
+        {categories.length ? null : (
+          <EmptyState title="这段时间没有应用记录" detail="换一个日期，或确认采集正在运行" />
+        )}
+      </div>
     </>
   );
+}
+
+/** 输入强度构成：与类别构成上下对齐、共用同一条 100% 宽度基准（14 文档 §4.3）。 */
+function Intensity() {
+  const { data: payload, loading } = useResource('insightKeyboard');
+  if (!payload) return loading ? <SkeletonRows count={2} /> : null;
+  const distribution = payload.distribution;
+  const buckets = distribution?.buckets || [];
+  const total = Number(distribution?.total_seconds) || 0;
+  const share = (seconds: number | undefined) => (total ? ((seconds || 0) / total) * 100 : 0);
+
+  return (
+    <>
+      <StackBar
+        label="输入强度构成"
+        segments={buckets.map((item) => ({
+          id: item.id,
+          name: item.name,
+          percent: share(item.seconds),
+          formatted: item.seconds_formatted,
+        }))}
+      />
+      <div className="category-list">
+        {buckets.map((item) => (
+          <CategoryRow key={item.id} item={item} percent={share(item.seconds)} kind="profile" />
+        ))}
+        {/* 总量守恒：没有归因的按键必须显示出来，否则各应用之和与总计对不上而用户
+            无从发现原因（04 文档 §2.2 的 app_id = 0）。 */}
+        {payload.unattributed_presses ? (
+          <div className="card__hint">
+            另有 {formatCount(payload.unattributed_presses)} 次按键没有应用归因
+          </div>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+function CategoryRow({
+  item,
+  percent,
+  kind = 'category',
+}: {
+  item: { id: string; name: string; seconds_formatted?: string };
+  percent: number;
+  kind?: 'category' | 'profile';
+}) {
+  return (
+    <div
+      className="category-row"
+      data-category={kind === 'category' ? item.id : undefined}
+      data-profile={kind === 'profile' ? item.id : undefined}
+    >
+      <span className="swatch" aria-hidden="true" />
+      <span className="truncate">{item.name}</span>
+      <span className="category-row__percent">{formatPercent(percent)}</span>
+      <span className="category-row__value">{item.seconds_formatted}</span>
+    </div>
+  );
+}
+
+/** 结论（从总览下沉）。文案与计算口径都由后端给，前端不编（06 文档 §5.3）。 */
+function Conclusions() {
+  const { data, loading } = useResource('insightOverview');
+  if (!data) return loading ? <SkeletonRows count={3} /> : null;
+  return <Highlights items={(data as OverviewResponse).highlights} />;
 }
 
 function KeyAppRows({

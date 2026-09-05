@@ -1,11 +1,13 @@
 // 分类堆叠柱：每小时的时长按应用类别分层（06 文档 §5 的活动时间线）。
 import { formatDurationShort } from '../domain/format.ts';
-import { hatchPattern, niceMax } from './canvas.ts';
+import { cssFont, hatchPattern, niceMax } from './canvas.ts';
+import { AXIS_LEFT, drawTimeAxis } from './axis.ts';
 import type { ChartDescription, DrawFn } from './canvas.ts';
 import type { MarkedBucket } from '../domain/buckets.ts';
 
-// left 同 panel-pair："1h23m" 这类刻度文字在 34px 下会被裁掉首字符。
-const PAD = { top: 8, right: 8, bottom: 16, left: 44 };
+// left 由 axis.ts 给（见 AXIS_LEFT）。原先是 44，比 panel-pair 少 8px——于是同一屏上
+// 这张图与它的活动带在 1024px 下给出的小时刻度数不同（24 vs 12）。
+const PAD = { top: 8, right: 8, bottom: 16, left: AXIS_LEFT };
 
 export interface StackedBarData {
   buckets: readonly (MarkedBucket & { total?: number })[];
@@ -24,7 +26,7 @@ export const drawStackedBar: DrawFn<StackedBarData> = (ctx, box, data, palette) 
   };
   const max = niceMax(Math.max(...buckets.map((item) => item.total || 0)));
 
-  ctx.font = '10px sans-serif';
+  ctx.font = cssFont(11);
   ctx.strokeStyle = palette.grid;
   ctx.fillStyle = palette.faint;
   ctx.textAlign = 'right';
@@ -61,14 +63,13 @@ export const drawStackedBar: DrawFn<StackedBarData> = (ctx, box, data, palette) 
     }
   });
 
-  ctx.fillStyle = palette.faint;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  const stride = Math.max(1, Math.ceil(buckets.length / Math.max(2, Math.floor(plot.w / 44))));
-  buckets.forEach((item, index) => {
-    if (index % stride) return;
-    ctx.fillText(String(item.label ?? ''), plot.x + slot * (index + 0.5), plot.y + plot.h + 4);
-  });
+  drawTimeAxis(
+    ctx,
+    buckets.map((item) => String(item.label ?? '')),
+    plot,
+    plot.y + plot.h + 4,
+    palette.faint,
+  );
 };
 
 export function describeStackedBar(data: StackedBarData): ChartDescription | null {

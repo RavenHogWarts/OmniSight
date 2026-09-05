@@ -8,7 +8,7 @@
 //   month  桶覆盖多天，只要含一天缺口就标记（保守：宁可提示也不要静默）。
 //   year   同上。
 import { bucketCoversGap } from './period.ts';
-import type { CategoryShare, PeriodMeta, TrendBucket } from '../types/api.d.ts';
+import type { CategoryShare, TrendBucket } from '../types/api.d.ts';
 
 /** 带缺口标记与堆叠段的桶。两个字段都是前端加的，后端不给。 */
 export interface MarkedBucket extends TrendBucket {
@@ -16,12 +16,28 @@ export interface MarkedBucket extends TrendBucket {
   parts?: { category: string; seconds: number; name: string }[];
 }
 
-export function markGaps(
-  buckets: readonly TrendBucket[] | undefined,
+/** 这个函数只读 `bucket` 一个字段，所以它对桶的其余形状不作要求。 */
+interface Bucketed {
+  bucket: string;
+}
+
+/** 只需要一个"这一段从哪天开始"。`PeriodMeta` 与键盘时间线的 `{start, end}` 都满足。 */
+interface PeriodStart {
+  start?: string | null;
+  anchor?: string | null;
+}
+
+/**
+ * **泛型而不是收 `TrendBucket`**：键盘时间线的桶（`KeyTimelineBucket`）没有
+ * seconds / presses / categories，而它同样要标缺口。写成泛型之后调用点不必 `as`
+ * 一下——那种转型会把"这里的类型其实对不上"这件事藏起来。
+ */
+export function markGaps<T extends Bucketed>(
+  buckets: readonly T[] | undefined,
   granularity: string,
   gaps: Set<string> | null | undefined,
-  period?: PeriodMeta | null,
-): MarkedBucket[] {
+  period?: PeriodStart | null,
+): (T & { gap?: boolean })[] {
   if (!buckets?.length || !gaps || gaps.size === 0) return [...(buckets || [])];
   if (granularity === 'hour') {
     const day = period?.start || period?.anchor;

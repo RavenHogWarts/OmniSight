@@ -1,0 +1,36 @@
+/* 视图切换器（17 文档 §4.1）。前身的 `.feature-switcher` / `.view-switcher` 形态，
+ * 档位从 2 扩到 4——它是漏斗的第三层（时间 → 范围 → **看哪一类** → 指标）。
+ *
+ * 与 `.segmented--switch` 的形状完全相同，只是语义不同：这里是 `role="tablist"` +
+ * `aria-selected`（切的是**一屏内容**），分段器是 `role="group"` + `aria-pressed`
+ * （切的是同一屏里的一个参数）。屏幕阅读器因此读得出"标签 3/4，已选中"。
+ */
+.viewbar {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  height: 38px;
+  padding: 3px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-sm);
+  min-width: 0;
+}
+
+.viewbar__tab {
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out);
+}
+.viewbar__tab:hover { color: var(--text-primary); }
+.viewbar__tab[aria-selected="true"] {
+  background: var(--surface-card);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}

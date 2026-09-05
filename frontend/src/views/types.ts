@@ -5,8 +5,8 @@
 // 选中键位），那些不在 store 里也不该在 store 里（07 文档 §4.3）。
 //
 // React 化之后契约反而更短了：原先还有 `render()` / `destroy()` / `filters()` 三个方法，
-// 现在渲染与卸载由 React 负责，视图级筛选由组件自己 portal 到周期栏（PeriodNav 的
-// FILTERS_SLOT_ID）。
+// 现在渲染与卸载由 React 负责。视图级控件各自就位（17 文档 §4.1）：键盘的指标分段器
+// portal 到居中的指标带（`METRIC_SLOT_ID`），其余筛选控件长在它们作用的那张卡的卡头上。
 import type { ComponentType } from 'react';
 import type { State } from '../core/store.ts';
 import type { DataRequest } from '../types/api.d.ts';

@@ -1,0 +1,48 @@
+/* 段标题行（17 文档 §4.2）。前身每一块内容都由「卡外的标题 + 卡」两件东西组成，而
+ * 我们原先只有「卡内的 card__head」——于是所有层级都长得一样重。这个文件补的就是
+ * 卡**外**那一行：左边 16px/760 的段标题，右边一行 12px 小字（通常是「更新于」）。
+ *
+ * 为什么不复用 card__head：那一行在卡的描边**内**，与卡共享圆角与阴影，因此它读起来
+ * 是"这张卡的表头"；段标题在卡外，读起来是"下面这一组卡讲的是什么"。前身两种都有
+ * （TimeLens 的 `.section-heading` 与 `.keyboard-card-header`），我们也两种都要。
+ */
+.section { display: flex; flex-direction: column; }
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: 9px;
+  min-height: 20px;
+}
+
+.section-title {
+  color: var(--text-secondary);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-heading);
+  line-height: var(--leading-tight);
+}
+
+/* 主段标题（一屏第一块）比其余段标题重一档：20px + 主文字色。 */
+.section-heading--lead .section-title {
+  color: var(--text-primary);
+  font-size: var(--text-xl);
+}
+
+.section-sub {
+  margin-top: var(--space-1);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+/* 「更新于 9/4 21:09」。D9 已定：**常驻**（17 文档 §8）。前身每一块都有这行小字，
+   而我们原先只在轮询降级时才显示它，于是屏幕上没有任何地方说得出这屏数字算于何时。 */
+.updated {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-family: var(--font-small);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

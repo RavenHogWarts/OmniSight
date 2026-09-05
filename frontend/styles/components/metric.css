@@ -1,54 +1,38 @@
-/* 指标卡（06 文档 §5.1、14 文档 §3.4）。delta 不做价值判断——只有方向，没有颜色。
+/* 数字块。原先这里是「指标卡」（键帽形状的 44px 英雄数字，两张并排）——17 文档 §4.2
+ * 把它们合成了一张招牌卡（`views/overview.css` 的 `.screen-card`），因为前身主屏只有
+ * 一个大数字，而"一屏一个 hero"本来就是 14 文档 §2.6 的规矩。
  *
- * 解剖来自键帽：标签左上、数值右下、1px 描边、无独立卡头。整张卡就是一枚放大的键帽。 */
-.card--keycap {
-  border: 1px solid var(--border-default);
-  box-shadow: 0 2px 0 var(--key-wall), inset 0 1px 0 var(--key-gloss);
+ * 留下的是**四格摘要**：并列的四个读数，没有主次，因此不用键帽那套解剖。
+ */
+.quad {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
 }
-
-.metric {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+.quad__cell {
+  padding: 11px 12px;
+  border-radius: 11px;
+  background: var(--surface-sunken);
+  min-width: 0;
 }
-
-.metric__label {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--text-sm);
-  font-family: var(--font-text);
+.quad__label {
+  display: block;
   color: var(--text-secondary);
-}
-/* delta 推到标签行的右端：数值在右下，涨跌在右上，同一条右对齐轴。 */
-.metric__delta { margin-left: auto; }
-
-.metric__value {
-  /* 数值右下对齐（键帽的"塞值"位）。比例数字而不是等宽：44px 上的 tabular-nums
-     会让 121 这类数字看起来松散（14 文档 §3.3）。 */
-  align-self: flex-end;
-  font-family: var(--font-display);
-  font-size: var(--text-3xl);
-  font-weight: var(--weight-semibold);
-  line-height: 1.1;
-  letter-spacing: var(--tracking-tight);
-}
-/* 一屏只能有一个英雄数字：两个一样大等于没有（dataviz 的 hero figure 规则）。 */
-.metric[data-hero="true"] .metric__value { font-size: var(--text-4xl); }
-
-.metric__delta {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
-.metric__foot {
-  font-size: var(--text-xs);
+  font-size: var(--text-2xs);
   font-family: var(--font-small);
-  color: var(--text-tertiary);
+  font-weight: var(--weight-semibold);
+}
+.quad__value {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--text-md);
+  font-weight: var(--weight-heading);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-@media (max-width: 767px) {
-  .metric__value,
-  .metric[data-hero="true"] .metric__value { font-size: var(--text-2xl); }
+@media (max-width: 860px) {
+  .quad { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

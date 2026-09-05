@@ -1,112 +1,15 @@
-/* 总览：一眼看出"时长"和"键盘"的关系（06 文档 §5）。 */
-.overview__pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
-
-.timeline-toggle { display: flex; align-items: center; gap: var(--space-2); }
-
-/* 单条 100% 构成条（14 文档 §2.10）。段间 2px 表面色间隙，**不给记号描边**：
-   描边会给每一段加一圈与数据无关的边界色（14 文档 §5.1）。 */
-.stackbar {
-  display: flex;
-  gap: 2px;
-  height: 28px;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  background: var(--surface-sunken);
-}
-.stackbar__seg {
-  flex-basis: 0;
-  min-width: 2px;
-  display: flex;
-  align-items: center;
-  padding: 0 var(--space-2);
-  overflow: hidden;
-  background: var(--cat-uncategorized);
-  transition: filter var(--duration-fast) var(--ease-out);
-}
-.stackbar--clickable .stackbar__seg { cursor: pointer; }
-.stackbar--clickable .stackbar__seg:hover { filter: brightness(1.08); }
-.stackbar__label {
-  font-size: var(--text-2xs);
-  font-family: var(--font-small);
-  font-weight: var(--weight-medium);
-  color: var(--text-inverse);
-  white-space: nowrap;
-  overflow: hidden;
-}
-.stackbar__seg[data-category="development"]   { background: var(--cat-development); }
-.stackbar__seg[data-category="productivity"]  { background: var(--cat-productivity); }
-.stackbar__seg[data-category="communication"] { background: var(--cat-communication); }
-.stackbar__seg[data-category="entertainment"] { background: var(--cat-entertainment); }
-.stackbar__seg[data-category="system"]        { background: var(--cat-system); }
-.stackbar__seg[data-category="uncategorized"] { background: var(--cat-uncategorized); }
-/* 强度分布的四档：同一个度量色的四个明度，不是四个身份色。 */
-.stackbar__seg[data-category="input_heavy"] { background: var(--heat-5); }
-.stackbar__seg[data-category="interactive"] { background: var(--heat-4); }
-.stackbar__seg[data-category="passive"]     { background: var(--heat-3); }
-.stackbar__seg[data-category="idle_open"]   { background: var(--heat-2); }
-
-.highlights { display: flex; flex-direction: column; gap: var(--space-2); }
-/* 每条结论是一个 <details>：点开就是它的计算口径（M4 判据 4）。 */
-.highlight {
-  font-size: var(--text-sm);
-  border-bottom: 1px solid var(--border-subtle);
-}
-.highlight:last-child { border-bottom: none; }
-.highlight summary {
-  display: flex;
-  gap: var(--space-2);
-  align-items: baseline;
-  cursor: pointer;
-  padding: var(--space-1) 0;
-  list-style: none;
-}
-.highlight summary::-webkit-details-marker { display: none; }
-.highlight summary > span:first-child { flex: none; color: var(--accent-text); }
-.highlight__toggle {
-  margin-left: auto;
-  flex: none;
-  font-size: var(--text-2xs);
-  color: var(--text-tertiary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-full);
-  padding: 0 var(--space-2);
-}
-.highlight[open] .highlight__toggle { color: var(--accent-text); border-color: var(--accent-subtle); }
-.highlight__basis {
-  margin: 0 0 var(--space-2) calc(1em + var(--space-2));
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-  line-height: var(--leading-relaxed);
-}
-
-.category-list { display: flex; flex-direction: column; gap: var(--space-3); }
-.category-row {
-  display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: var(--space-2) var(--space-3);
-  font-size: var(--text-sm);
-}
-.category-row__percent { color: var(--text-secondary); font-variant-numeric: tabular-nums; min-width: 5ch; text-align: right; }
-.category-row__value { font-variant-numeric: tabular-nums; min-width: 8ch; text-align: right; }
-.category-row__bar { grid-column: 2 / -1; }
-
-/* 两条构成条上下对齐、共用同一条 100% 宽度基准（14 文档 §4.3）。 */
-.overview__stacks { display: flex; flex-direction: column; gap: var(--space-5); }
-.overview__stack-label {
-  font-size: var(--text-xs);
-  font-family: var(--font-small);
-  color: var(--text-secondary);
-  margin-bottom: var(--space-2);
-}
-.overview__stacks .category-list { margin-top: var(--space-3); }
-
-/* 强度四档的图例色块：同一度量色的四个明度，与构成条同源。 */
-.category-row[data-profile="input_heavy"] .swatch { background: var(--heat-5); }
-.category-row[data-profile="interactive"] .swatch { background: var(--heat-4); }
-.category-row[data-profile="passive"] .swatch     { background: var(--heat-3); }
-.category-row[data-profile="idle_open"] .swatch   { background: var(--heat-2); }
-
-@media (max-width: 1023px) {
-  .overview__pair { grid-template-columns: minmax(0, 1fr); }
-}
+/* 总览 = TimeLens 的 `.all-section`（17 文档 §4.2）。
+ *
+ * 这个文件曾经装着招牌卡的全部几何：432px 定高、`1.18fr / .82fr` 主栅格、34px 的英雄数
+ * 字、两张 canvas、三格类别合计，以及卡内那对 26px 翻页钮（`.mini-nav`）。「屏幕时间」那
+ * 一段撤掉之后它们一并下线——翻页只剩控件带上那一对 `.round-btn`。
+ *
+ * 剩下的两段都是通栏卡，样式各在自己的组件文件里（`components/hour-band.css`、
+ * `components/usage-list.css`），这里只留段间距。
+ *
+ * **也没有宽档副列。** 曾经在 ≥1790px 把「每小时」抽到右副列（并把外壳放宽到 2222px），
+ * 那与"纵向读下来"互斥：它一开，第二块就跑到右边，动线从"往下"变成"往右再往下"。14 文档
+ * §4.1 规划过的那个副列因此正式销账——宽屏上多出的横向空间由「每小时」一行装得下的二十
+ * 几枚图标与「所有使用」的两列列表自己吃掉，而不是把版面劈成两栏。
+ */
+.overview { display: flex; flex-direction: column; gap: 18px; }

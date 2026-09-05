@@ -1,0 +1,39 @@
+/* 全屏加载遮罩（17 文档 §4.2、§5.1）。前身在每次取数时把整页蒙一层半透明纱 + 5px
+ * 模糊，转圈在正中——那是"这一屏正在整体换内容"的说法，而我们原先只有卡片级的骨架屏
+ * 与顶沿进度条。两者都要：**首次进入一个视图**时用纱（还没有任何内容可保留），
+ * 之后的刷新仍走骨架屏与顶沿进度条（06 文档 §10.1 的第二态，不清空旧数据）。
+ *
+ * `--surface-veil` 是 `--surface-page` 兑 62% 透明，因此深浅两套自动成立——深色下
+ * 它是暗纱而不是白纱（17 文档 §5.1）。
+ */
+.veil {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: var(--surface-veil);
+  backdrop-filter: blur(5px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.veil[data-visible="true"] { opacity: 1; }
+
+.veil__spinner {
+  width: 34px; height: 34px;
+  border: 3px solid var(--accent-subtle);
+  border-top-color: var(--accent);
+  border-radius: var(--radius-full);
+  animation: veil-spin .75s linear infinite;
+}
+
+@keyframes veil-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 降低动效偏好下不转圈——纱本身已经说明"在忙"，而一个持续旋转的元素正是这条偏好
+   要去掉的东西。改成呼吸式的透明度变化，幅度小到不构成动画噪声。 */
+@media (prefers-reduced-motion: reduce) {
+  .veil__spinner { animation: none; border-top-color: var(--accent); opacity: .8; }
+}

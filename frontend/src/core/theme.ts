@@ -16,7 +16,8 @@ export const THEMES = ['system', 'light', 'dark'] as const;
 export type Theme = (typeof THEMES)[number];
 export type Heat = 'blue' | 'warm';
 
-function isTheme(value: string): value is Theme {
+/** 导出给 ThemeMenu：store 里的 theme 切片是 string（它还要承接服务端 `ui.theme` 的值）。 */
+export function isTheme(value: string): value is Theme {
   return (THEMES as readonly string[]).includes(value);
 }
 
@@ -48,11 +49,6 @@ export function setHeat(heat: string): Heat {
   setState('heat', next);
   apply(getState().theme, next);
   return next;
-}
-
-export function cycle(): Theme {
-  const index = THEMES.indexOf(getState().theme as Theme);
-  return set(THEMES[(index + 1) % THEMES.length]);
 }
 
 /**

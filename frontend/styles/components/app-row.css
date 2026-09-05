@@ -73,15 +73,24 @@
 .app-row__menu { color: var(--text-tertiary); padding: 0 var(--space-1); }
 .app-row__menu:hover { color: var(--text-primary); }
 
-/* 展开的单应用详情，同页展开不跳转（06 文档 §6）。 */
+/* 展开的单应用详情。**紧跟被点的那一行**（06 文档 §6：同页展开、不跳转）——它原先
+   渲染在整张列表之后，点第 3 行时详情出现在第 50 行下面。
+   左侧那道 3px 类别色轨把它钉在它所属的应用上：面板有半屏高，滚到中段时上面那一行
+   已经出了视口，而"这是谁的详情"必须一直看得见。色值由 bar.css 的 [data-category]
+   给，不在这里第二次硬编码。 */
 .app-detail {
   padding: var(--space-4) var(--space-4) var(--space-5) 60px;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--surface-sunken);
+  box-shadow: inset 3px 0 0 var(--bar-color, var(--cat-uncategorized));
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
 }
+
+/* 详情落在最后一行下面时，它就是列表的最后一块——那条下边框会在卡内画出一条
+   悬空的线（与 `.app-row:last-child` 同一条理由）。 */
+.app-detail:last-child { border-bottom: 0; }
 
 .app-detail__path {
   font-family: var(--font-mono);

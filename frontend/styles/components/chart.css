@@ -8,6 +8,9 @@
 .chart--tall canvas   { height: 220px; }
 .chart--medium canvas { height: 150px; }
 .chart--short canvas  { height: 96px; }
+/* 时间分布（键盘视图）。它是那一屏唯一的一张图、占满整张卡的宽度，因此比 `--tall`
+   还宽松一点——190px 让 24 根柱与三条刻度线都有呼吸的余地。 */
+.chart--scale canvas  { height: 190px; }
 
 .chart__axis {
   display: flex;
@@ -55,8 +58,3 @@
   font-size: var(--text-sm);
   color: var(--text-tertiary);
 }
-
-/* 指标卡上的对照条（14 文档 §4.3 的 7–14 根柱）。高度由 JS 按实例给。
-   限宽的理由：7 根柱铺满一张 680px 的卡会读成散落的刻度而不是一组可比的柱子。 */
-.metric__context { max-width: 340px; }
-.metric__context canvas { display: block; width: 100%; }

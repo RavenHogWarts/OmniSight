@@ -1,12 +1,17 @@
+/* 吐司（17 文档 §5.0 的 L20）。**位置搬到顶部居中**（两个前身都在那里，而右下角的
+ * 吐司在 1080px 居中布局里离视线太远）；**配色不搬**——前身是红底白字，我们保持
+ * 卡面 + 状态色描边 + 状态点，因为同一套外观还要承载 ok/info 两种吐司。 */
 .toast-host {
   position: fixed;
-  right: var(--space-5);
-  bottom: var(--space-5);
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 70;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  align-items: flex-end;
+  align-items: center;
+  max-width: min(90vw, 460px);
 }
 
 .toast {
@@ -30,6 +35,6 @@
 .toast[data-kind="info"] .toast__dot  { background: var(--accent); }
 
 @keyframes toast-in {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(-8px); }
   to   { opacity: 1; transform: none; }
 }

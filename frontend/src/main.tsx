@@ -21,8 +21,10 @@ import { Banners } from './components/degraded.tsx';
 import { OverlayHost } from './components/Drawer.tsx';
 import { ImportBanner, openImportWizard } from './components/ImportWizard.tsx';
 import { maybeShowOnboarding, openAbout } from './components/Onboarding.tsx';
-import { PeriodNav, goToday, step as stepPeriod } from './components/PeriodNav.tsx';
+import { DateBar, RangeBar, goToday, step as stepPeriod } from './components/PeriodNav.tsx';
 import { StatusDot } from './components/StatusDot.tsx';
+import { ThemeMenu } from './components/ThemeMenu.tsx';
+import { Veil } from './components/Veil.tsx';
 import { ToastHost, fail } from './components/toast.tsx';
 import { TooltipHost, hide as hideTooltip, show as showTooltip } from './components/tooltip.tsx';
 import { adoptToken, get as apiGet } from './core/api.ts';
@@ -31,12 +33,7 @@ import { abortPending, fetchInto } from './core/loader.ts';
 import { ROUTES, go, start as startRouter } from './core/router.ts';
 import { getState, setState, subscribe } from './core/store.ts';
 import { connect as connectStream, startPolling } from './core/stream.ts';
-import {
-  restore as restoreTheme,
-  cycle as cycleTheme,
-  set as setTheme,
-  watchSystem,
-} from './core/theme.ts';
+import { restore as restoreTheme, set as setTheme, watchSystem } from './core/theme.ts';
 import { rangeFromDefaultView } from './domain/metrics.ts';
 import { openSettingsDrawer } from './views/settings.tsx';
 import type { ViewModule } from './views/types.ts';
@@ -94,6 +91,10 @@ function syncTabs(route: string): void {
     document.getElementById(`tab-${id}`)?.setAttribute('aria-selected', String(id === route));
   }
   document.getElementById('view-root')?.setAttribute('aria-labelledby', `tab-${route}`);
+  // 外壳宽度按路由取值（17 文档 §4.1）：总览/洞察 1080px（TimeLens），键盘/应用
+  // 1280px（KeyTrace 的机身 min-width 加 padding 正好落在 1280 内）。切换点是这一个
+  // 属性，layout.css 里 `body[data-route]` 各自覆盖 --shell-max 与 --layout-gutter。
+  document.body.dataset.route = route;
 }
 
 /** 按当前状态重新取数。周期变了要 abort 上一批，否则旧响应会覆盖新数据。 */
@@ -113,7 +114,6 @@ function refresh({ abort = true }: { abort?: boolean } = {}): void {
  */
 const ACTIONS: Record<string, (dataset: DOMStringMap) => void> = {
   'route:go': (dataset) => go(dataset.route || 'overview'),
-  'theme:cycle': () => cycleTheme(),
   'settings:open': () => {
     void openSettingsDrawer(() => {
       void loadStatus();
@@ -266,13 +266,21 @@ function mountShell(): void {
   createRoot(mountPoint('status-host')).render(
     <StrictMode>
       <StatusDot />
-      <ThemeButton />
+      <ImportButton />
+      <ThemeMenu />
       <SettingsButton />
     </StrictMode>,
   );
+  // 两条居中控件带（17 文档 §4.1）。`#periodbar` 的 id 沿用，类名换成 `.datebar`
+  // ——smoke 与契约测试验的是 id。
   createRoot(mountPoint('periodbar')).render(
     <StrictMode>
-      <PeriodNav />
+      <DateBar />
+    </StrictMode>,
+  );
+  createRoot(mountPoint('rangebar')).render(
+    <StrictMode>
+      <RangeBar />
     </StrictMode>,
   );
   createRoot(mountPoint('toasts')).render(
@@ -284,24 +292,23 @@ function mountShell(): void {
     <StrictMode>
       <OverlayHost />
       <TooltipHost />
+      <Veil />
     </StrictMode>,
   );
   viewRoot = createRoot(mountPoint('view-root'));
 }
 
-
-/** 主题三态循环（跟随系统 / 浅 / 深）。图标是 contrast，不是日月——见 Icon.tsx 的理由。 */
-function ThemeButton() {
+/** 导入向导（17 文档 §4.1 的第四个功能钮）。它原先只有横幅那一个入口。 */
+function ImportButton() {
   return (
     <button
       className="icon-button"
       type="button"
-      id="theme-toggle"
-      title="切换主题"
-      aria-label="切换主题"
-      onClick={() => cycleTheme()}
+      title="从旧版导入"
+      aria-label="从旧版导入数据"
+      onClick={() => openImportWizard()}
     >
-      <Icon name="theme" />
+      <Icon name="download" />
     </button>
   );
 }

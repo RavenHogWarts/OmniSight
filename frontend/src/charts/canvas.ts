@@ -114,9 +114,17 @@ export interface ChartDescription {
   rows: readonly (readonly (string | number)[])[];
 }
 
-/** 绘制上下文：`setupCanvas` 的返回值加上一个待填的命中区数组。 */
+/** 绘制上下文：`setupCanvas` 的返回值、一个待填的命中区数组、加上当前悬停的下标。 */
 export interface DrawBox extends CanvasSurface {
   hits: HitArea[];
+  /**
+   * 指针落在第几个命中区上，没有则 -1。**存下标而不是 HitArea 对象**：每次绘制都会
+   * 重建 `hits`，存对象就指向上一帧那批已经作废的矩形；而各图表推命中区的顺序与数据
+   * 顺序一致，下标因此在重绘之间仍然指同一个数据点。
+   *
+   * 拿它画准线的图表要自己判越界——数据换了而指针没动时，下标可能落在新数据范围外。
+   */
+  hover: number;
 }
 
 export type Palette = ReturnType<typeof palette>;

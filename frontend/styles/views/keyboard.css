@@ -1,19 +1,22 @@
+/* 键盘视图（17 文档 §4.3、§13 的「时间热力图改成筛选」）。 */
+
+/* 段标题右段：范围选择器 + 更新于。它们改的是请求参数，作用域是整屏，因此在段标题上
+   而不是某张卡的卡头上（14 文档 §4.1）。 */
 .keyboard-view__scope {
   display: flex;
   align-items: center;
   gap: var(--space-4);
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
-.keyboard-view__scope .spacer { flex: 1 1 auto; }
 
+/* 四格总计 + 范围注记。Quad 的几何在 metric.css，这里只管它与键盘之间的距离。 */
 .keyboard-totals {
+  margin-top: 14px;
   display: flex;
-  gap: var(--space-8);
-  flex-wrap: wrap;
-  font-variant-numeric: tabular-nums;
+  flex-direction: column;
+  gap: var(--space-2);
 }
-.keyboard-total__label { font-size: var(--text-xs); color: var(--text-secondary); }
-.keyboard-total__value { font-size: var(--text-xl); font-weight: var(--weight-semibold); }
 
 .top-keys { display: flex; flex-direction: column; gap: var(--space-2); }
 .top-key {
@@ -52,3 +55,7 @@
 .hands__bar i { display: block; height: 100%; }
 .hands__bar i:first-child { background: var(--cat-productivity); width: calc(var(--left, .5) * 100%); }
 .hands__bar i:last-child  { background: var(--cat-entertainment); flex: 1 1 auto; }
+
+@media (max-width: 860px) {
+  .keyboard-view__scope { justify-content: flex-start; }
+}

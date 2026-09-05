@@ -25,6 +25,53 @@
 
 .segmented--sm .segmented__item { padding: 2px var(--space-2); font-size: var(--text-xs); }
 
+/* ── 前身的两种大号形态（17 文档 §5.0）──────────────────────────────── */
+/* `--lg` = TimeLens/KeyTrace 的范围分段器：等分网格、34px 高、槽色 --control-track。
+   `grid-auto-flow: column` + `grid-auto-columns: 1fr` 让它不必知道有几档。 */
+.segmented--lg {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 0;
+  width: 100%;
+  height: 34px;
+  padding: 3px;
+  border-radius: var(--radius-md);
+  background: var(--control-track);
+  flex-wrap: nowrap;
+}
+.segmented--lg .segmented__item {
+  padding: 0;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+}
+.segmented--lg .segmented__item[aria-pressed="true"] { box-shadow: var(--shadow-sm); }
+
+/* `--switch` = TimeLens 的 `.feature-switcher`：38px 高、半透明底 + 1px 边 + 浮起影。
+   它比 `--lg` 高一档，因为它切的是"看哪一类统计"，比"看哪一段时间"更靠上一层。 */
+.segmented--switch {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 0;
+  width: 100%;
+  height: 38px;
+  padding: 3px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-sm);
+  flex-wrap: nowrap;
+}
+.segmented--switch .segmented__item {
+  padding: 0;
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+}
+.segmented--switch .segmented__item[aria-pressed="true"] { box-shadow: var(--shadow-sm); }
+
 .chip {
   padding: 2px var(--space-2);
   border-radius: var(--radius-full);

@@ -1,34 +1,27 @@
 {
-  "_AppRow-BMX9Ac2T.js": {
-    "file": "assets/AppRow-BMX9Ac2T.js",
-    "name": "AppRow",
+  "_Quad-CHKOixmJ.js": {
+    "file": "assets/Quad-CHKOixmJ.js",
+    "name": "Quad",
     "imports": [
       "src/main.tsx"
     ]
   },
-  "_buckets-Vq47HwJd.js": {
-    "file": "assets/buckets-Vq47HwJd.js",
-    "name": "buckets",
+  "_axis-B9TjIDv1.js": {
+    "file": "assets/axis-B9TjIDv1.js",
+    "name": "axis",
     "imports": [
       "src/main.tsx"
     ]
   },
-  "_panel-pair-ZeqsPmhE.js": {
-    "file": "assets/panel-pair-ZeqsPmhE.js",
-    "name": "panel-pair",
-    "imports": [
-      "src/main.tsx"
-    ]
-  },
-  "_states-DZ-0dhHV.js": {
-    "file": "assets/states-DZ-0dhHV.js",
+  "_states-VXV8MaG2.js": {
+    "file": "assets/states-VXV8MaG2.js",
     "name": "states",
     "imports": [
       "src/main.tsx"
     ]
   },
   "src/main.tsx": {
-    "file": "assets/main-DA_wrxiB.js",
+    "file": "assets/main-DULowGlx.js",
     "name": "main",
     "src": "src/main.tsx",
     "isEntry": true,
@@ -40,54 +33,51 @@
     ]
   },
   "src/views/apps.tsx": {
-    "file": "assets/apps-D31fY4Sn.js",
+    "file": "assets/apps-B_rZ-2el.js",
     "name": "apps",
     "src": "src/views/apps.tsx",
     "isDynamicEntry": true,
     "imports": [
       "src/main.tsx",
-      "_AppRow-BMX9Ac2T.js",
-      "_states-DZ-0dhHV.js"
+      "_Quad-CHKOixmJ.js",
+      "_states-VXV8MaG2.js"
     ]
   },
   "src/views/insights.tsx": {
-    "file": "assets/insights-Corh1BTj.js",
+    "file": "assets/insights-DMzo4QmG.js",
     "name": "insights",
     "src": "src/views/insights.tsx",
     "isDynamicEntry": true,
     "imports": [
       "src/main.tsx",
-      "_states-DZ-0dhHV.js",
-      "_panel-pair-ZeqsPmhE.js"
+      "_states-VXV8MaG2.js",
+      "_axis-B9TjIDv1.js"
     ]
   },
   "src/views/keyboard.tsx": {
-    "file": "assets/keyboard-n9wRvK-k.js",
+    "file": "assets/keyboard-xiaIe6TQ.js",
     "name": "keyboard",
     "src": "src/views/keyboard.tsx",
     "isDynamicEntry": true,
     "imports": [
       "src/main.tsx",
-      "_states-DZ-0dhHV.js",
-      "_panel-pair-ZeqsPmhE.js",
-      "_buckets-Vq47HwJd.js"
+      "_Quad-CHKOixmJ.js",
+      "_states-VXV8MaG2.js",
+      "_axis-B9TjIDv1.js"
     ]
   },
   "src/views/overview.tsx": {
-    "file": "assets/overview-Bvsdp43E.js",
+    "file": "assets/overview-DV70mCTS.js",
     "name": "overview",
     "src": "src/views/overview.tsx",
     "isDynamicEntry": true,
     "imports": [
       "src/main.tsx",
-      "_AppRow-BMX9Ac2T.js",
-      "_states-DZ-0dhHV.js",
-      "_panel-pair-ZeqsPmhE.js",
-      "_buckets-Vq47HwJd.js"
+      "_states-VXV8MaG2.js"
     ]
   },
   "style.css": {
-    "file": "assets/style-mwFXOwTS.css",
+    "file": "assets/style-DvZddAlx.css",
     "src": "style.css"
   }
 }

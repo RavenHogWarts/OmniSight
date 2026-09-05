@@ -13,19 +13,22 @@
 // 应该写在按钮的 aria-label 上，不是写在图标里。
 import {
   ChartColumn,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Contrast,
   Download,
   EllipsisVertical,
   House,
   Info,
   Keyboard,
   LayoutGrid,
+  Monitor,
+  Moon,
   Pause,
   Search,
   Settings,
+  Sun,
   TriangleAlert,
   X,
 } from 'lucide-react';
@@ -34,14 +37,20 @@ import type { LucideIcon } from 'lucide-react';
 /**
  * 我们的 id → lucide 组件。
  *
- * **保留这张映射表而不是直接用 lucide 的名字**：`theme` 用 `Contrast`（圆 + 半填充）
- * 而不是 `SunMoon`，因为主题按钮是三态循环（跟随系统 / 浅 / 深），日月图标会暗示
- * 只有两态。这类"为什么是这个图标"的决定需要一个落脚处，而调用点写 `<Icon name="theme" />`
- * 读起来也比 `<Contrast />` 更贴近它在界面上的角色。
+ * **保留这张映射表而不是直接用 lucide 的名字**：id 说的是"它在界面上是什么角色"，glyph 说
+ * 的是"它长什么样"，而"为什么挑这个 glyph"需要一个落脚处。调用点写 `<Icon name="gear" />`
+ * 也比 `<Settings />` 更贴近它在界面上的角色。
+ *
+ * 主题那三档是这张表最值钱的一条注记：`theme-system` / `theme-light` / `theme-dark` 分别是
+ * 显示器 / 太阳 / 月亮，因为主题现在是一张三行的列表（ThemeMenu.tsx），每一行都得自己说清
+ * 是哪一档。它原先是一个三态循环钮，那时只有一个图标位，用的是不暗示态数的 `Contrast`
+ * ——日月会让人以为只有两态。
  */
 const ICONS = {
   gear: Settings,
-  theme: Contrast,
+  'theme-system': Monitor,
+  'theme-light': Sun,
+  'theme-dark': Moon,
   left: ChevronLeft,
   right: ChevronRight,
   // 弹层触发器的下箭头（应用范围选择器，14 文档 §4.6）。用 chevron 而不是 caret：
@@ -56,6 +65,8 @@ const ICONS = {
   pause: Pause,
   more: EllipsisVertical,
   search: Search,
+  // 菜单里的"当前那一档"标记（ThemeMenu.tsx 的三行）。
+  check: Check,
   close: X,
   warning: TriangleAlert,
 } satisfies Record<string, LucideIcon>;

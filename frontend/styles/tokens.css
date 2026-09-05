@@ -35,6 +35,10 @@
   --surface-active:  rgba(0, 0, 0, .06);
   --surface-overlay: rgba(255, 255, 255, .86);
   --surface-scrim:   rgba(20, 20, 24, .32);
+  /* 全屏加载遮罩（17 文档 §5.1）。前身用 rgba(245,245,247,.52) + blur(5px)，也就是
+   * "页底色兑一半透明"。写成 color-mix 之后**深浅两套自动成立**——`--surface-page`
+   * 本身分主题，因此这里不需要深色覆盖，深色下它自然变成暗纱而不是白纱。 */
+  --surface-veil:    color-mix(in srgb, var(--surface-page) 62%, transparent);
 
   --text-primary:   var(--gray-900);
   --text-secondary: #5f5f66;
@@ -94,6 +98,19 @@
   --key-gloss: rgba(255, 255, 255, .72);
   --key-tray:  var(--surface-sunken);
 
+  /* 分段器与切换器的槽（17 文档 §5.0）。前身用 `#e7e7ec`，`--gray-150` 是 `#e6e6ea`
+   * ——两者 ΔE≈0.4，肉眼同色，因此**不新增色值**，直接指现有灰阶。 */
+  --control-track: var(--gray-150);
+
+  /* 键盘机身（17 文档 §5.1，来自 KeyTrace 的拟物机身）。四条全部指向现有令牌：
+   * 三段渐变取灰阶相邻三档，边取再深一档。顶棱复用 --key-gloss（它本来就是"打在
+   * 帽面上的光"这个用途），落影复用 --shadow-lg，外圈光晕由 --tray-edge 兑透明得到。
+   * 于是"搬机身"没有引入任何新的十六进制色值。 */
+  --tray-face-top:    var(--gray-100);
+  --tray-face-mid:    var(--gray-150);
+  --tray-face-bottom: var(--gray-200);
+  --tray-edge:        var(--gray-300);
+
   /* 排版（14 文档 §3.3）。Segoe UI Variable 在 Windows 11 上分三个族发行，设计意图
    * 就是分档使用：Small 给 ≤12px（字重更实、字腔更开），Text 给 13–20px，Display
    * 给 ≥24px。用 Display 排 11px 会偏细偏挤。三条链的头尾一致，只换中间那一段族名，
@@ -118,6 +135,9 @@
 
   --weight-normal: 400; --weight-medium: 500;
   --weight-semibold: 600; --weight-bold: 700;
+  /* 前身的两个非标准字重（17 文档 §5.1）。Segoe UI Variable 有可变字重轴，两个值都能
+   * 吃；430 是 TimeLens 招牌数字"又大又细"的签名，760 是它每一处段标题的字重。 */
+  --weight-thin-display: 430; --weight-heading: 760;
 
   --leading-tight: 1.25; --leading-normal: 1.5; --leading-relaxed: 1.7;
   --tracking-tight: -0.015em; --tracking-normal: 0; --tracking-wide: 0.02em;
@@ -136,10 +156,14 @@
   --ease-in-out: cubic-bezier(.4, 0, .2, 1);
   --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
 
-  --layout-max: 1440px;
-  --layout-gutter: var(--space-6);
-  --header-height: 56px;
-  --periodbar-height: 48px;
+  /* 外壳（17 文档 §5.1）。**没有顶栏**，因此没有 header/periodbar 两个高度令牌；
+   * 两个宽度分别来自两个前身——屏时屏 1080（TimeLens）、键盘屏 1280（KeyTrace），
+   * `--shell-max` 由 layout.css 按 `body[data-route]` 切换。 */
+  --shell-narrow: 1080px;
+  --shell-wide: 1280px;
+  --shell-max: var(--shell-narrow);
+  --layout-gutter: 22px;
+  --utility-height: 36px;
 }
 
 /* 深色令牌只写一次，两个选择器共用（媒体查询下 data-theme="light" 可反悔）。 */
@@ -204,6 +228,15 @@
 
     --key-wall:  #101014;
     --key-gloss: rgba(255, 255, 255, .06);
+
+    /* 控件槽与键盘机身（17 文档 §5.1）。深色下不能沿用浅色灰阶——`--gray-*` 是一条
+     * 浅色坡道，直接用会在暗卡上出现一块亮面。这里改指深色的三层表面：机身从
+     * sunken 渐到 page（上亮下暗 = 一块朝上的模制面板），边取 --border-strong。 */
+    --control-track: var(--surface-sunken);
+    --tray-face-top:    var(--surface-sunken);
+    --tray-face-mid:    var(--surface-card);
+    --tray-face-bottom: var(--surface-page);
+    --tray-edge:        var(--border-strong);
   }
 }
 
@@ -267,6 +300,15 @@
 
   --key-wall:  #101014;
   --key-gloss: rgba(255, 255, 255, .06);
+
+  /* 控件槽与键盘机身（17 文档 §5.1）。深色下不能沿用浅色灰阶——`--gray-*` 是一条
+   * 浅色坡道，直接用会在暗卡上出现一块亮面。这里改指深色的三层表面：机身从
+   * sunken 渐到 page（上亮下暗 = 一块朝上的模制面板），边取 --border-strong。 */
+  --control-track: var(--surface-sunken);
+  --tray-face-top:    var(--surface-sunken);
+  --tray-face-mid:    var(--surface-card);
+  --tray-face-bottom: var(--surface-page);
+  --tray-edge:        var(--border-strong);
 }
 
 /* 色阶备选主题（06 文档 §3.1、14 文档 §3.1）。默认是紫红 H320；这两档只换色阶，

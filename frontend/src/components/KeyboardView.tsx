@@ -34,7 +34,7 @@ const PRESS_CLEAR_MS = 220;
 /** 键面数值的字号地板。低于它宁可不印，也不印成 8px（14 文档 §2.5）。 */
 const VALUE_MIN_PX = 11;
 /** .key-cap__value 的字号系数，与 key-cap.css 里的 calc() 保持一致。 */
-const VALUE_RATIO = 0.21;
+const VALUE_RATIO = 0.27;
 
 export interface KeyboardViewProps {
   layout: LayoutResponse | null | undefined;
@@ -71,7 +71,6 @@ export function KeyboardView({
   );
   const scale = heatmap?.scale || null;
   const total = Number(heatmap?.totals?.press_count) || 0;
-  const definition = metricOf(metric);
 
   // 布局换了（ANSI -> ISO）就从头开始导航，否则光标会指到一个不存在的键。
   useEffect(() => setCursor({ row: 0, col: 0 }), [layout]);
@@ -142,7 +141,8 @@ export function KeyboardView({
 
   return (
     <>
-      <div className="keyboard-wrap" ref={board}>
+      <div className="keyboard-tray-scroll" ref={board}>
+        <div className="keyboard-tray">
         <div
           className="keyboard"
           ref={root}
@@ -180,8 +180,8 @@ export function KeyboardView({
             </div>
           ))}
         </div>
+        </div>
       </div>
-      <Legend definition={definition} scale={scale} />
       <Orphans keys={heatmap?.orphan_keys} metric={metric} />
       <KeyTable values={values} metric={metric} />
     </>
@@ -262,13 +262,19 @@ function KeyCap({ slot, entry, metric, scale, total, current, register, onActiva
   );
 }
 
-function Legend({
-  definition,
+/**
+ * 色阶图例。**长在键盘卡头右侧**（17 文档 §4.3，TimeLens 的做法）而不是键盘下方——
+ * 读者是先看到图例再去读键面的，图例在下面等于让人回头找。因此它导出给视图用，
+ * 而不是由 KeyboardView 自己渲染在板子底下。
+ */
+export function HeatLegend({
+  metric,
   scale,
 }: {
-  definition: ReturnType<typeof metricOf>;
-  scale: HeatmapResponse['scale'] | null;
+  metric: string;
+  scale: HeatmapResponse['scale'] | null | undefined;
 }) {
+  const definition = metricOf(metric);
   const top = Number(scale?.p95) || 0;
   const max = Number(scale?.max) || 0;
   return (

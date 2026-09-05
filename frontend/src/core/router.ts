@@ -32,7 +32,7 @@ export function parseHash(hash: string = window.location.hash): {
 }
 
 export function currentQuery(): URLSearchParams {
-  const { period, metric, scopeAppId, selectedAppId, timelineView } = getState();
+  const { period, metric, scopeAppId, selectedAppId } = getState();
   const params = new URLSearchParams();
   params.set('range', period.range);
   if (period.range === 'custom') {
@@ -42,7 +42,6 @@ export function currentQuery(): URLSearchParams {
     params.set('date', period.date);
   }
   if (metric !== 'press_count') params.set('metric', metric);
-  if (timelineView && timelineView !== 'hours') params.set('tl', timelineView);
   if (scopeAppId) params.set('scope', String(scopeAppId));
   if (selectedAppId) params.set('app', String(selectedAppId));
   return params;
@@ -65,7 +64,6 @@ export function applyFromHash(): void {
       end: params.get('end') || null,
     });
     setState('metric', params.get('metric') || 'press_count');
-    setState('timelineView', params.get('tl') || 'hours');
     setState('scopeAppId', toId(params.get('scope')));
     setState('selectedAppId', toId(params.get('app')));
     setState('route', route);
@@ -95,7 +93,7 @@ function syncHash(): void {
 export function start(): void {
   window.addEventListener('hashchange', applyFromHash);
   window.addEventListener('popstate', applyFromHash);
-  const slices = ['period', 'metric', 'timelineView', 'scopeAppId', 'selectedAppId'] as const;
+  const slices = ['period', 'metric', 'scopeAppId', 'selectedAppId'] as const;
   for (const slice of slices) subscribe(slice, syncHash);
   subscribe('route', syncHash);
   applyFromHash();

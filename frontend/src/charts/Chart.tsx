@@ -9,6 +9,9 @@
 //   2. **主题订阅**：CSS 变量变了 canvas 不会自己跟着变（06 文档 §11 第 2 点）。
 //   3. **命中区**：canvas 没有 DOM 节点，悬停要自己算。命中区存在 ref 里而不是 state
 //      ——它每帧重算，进 state 会引发一次无意义的重渲染。
+//   4. **悬停重绘**：准线（14 文档 §4.3）画在 canvas 上，所以指针跨过一个桶时得重画一
+//      次。走的仍然是 ref + 直接调 `render()`，不进 state——进 state 会让整棵子树跟着
+//      指针重渲染，而变的只有 canvas 里的一条线。
 import { useCallback, useEffect, useRef } from 'react';
 import { on as busOn } from '../core/bus.ts';
 import { palette, setupCanvas } from './canvas.ts';
@@ -43,7 +46,7 @@ export function Chart<T>({
 }: ChartProps<T>) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const hitsRef = useRef<HitArea[]>([]);
-  const hoveredRef = useRef<HitArea | null>(null);
+  const hoveredRef = useRef(-1);
   // 绘制函数与数据放进 ref：重绘发生在 ResizeObserver / 总线回调里，那些闭包不该
   // 因为 props 变化而重建（重建就要重新 observe，于是每次渲染都多一次绘制）。
   const latest = useRef({ data, draw });
@@ -53,7 +56,7 @@ export function Chart<T>({
     const canvas = canvasRef.current;
     const { data: current, draw: drawNow } = latest.current;
     if (!canvas || current === null || current === undefined) return;
-    const box: DrawBox = { ...setupCanvas(canvas), hits: [] };
+    const box: DrawBox = { ...setupCanvas(canvas), hits: [], hover: hoveredRef.current };
     try {
       drawNow(box.ctx, box, current, palette());
     } catch (error) {
@@ -78,33 +81,41 @@ export function Chart<T>({
     };
   }, [render]);
 
-  const hitAt = (event: { clientX: number; clientY: number }): HitArea | null => {
+  /** 命中区下标，没命中则 -1。返回下标而不是对象：`box.hover` 要的就是下标。 */
+  const hitIndexAt = (event: { clientX: number; clientY: number }): number => {
     const canvas = canvasRef.current;
-    if (!canvas) return null;
+    if (!canvas) return -1;
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
-    for (const hit of hitsRef.current) {
-      if (x >= hit.x && x <= hit.x + hit.w && y >= hit.y && y <= hit.y + hit.h) return hit;
-    }
-    return null;
+    return hitsRef.current.findIndex(
+      (hit) => x >= hit.x && x <= hit.x + hit.w && y >= hit.y && y <= hit.y + hit.h,
+    );
+  };
+
+  /** 悬停的桶变了才重画。同一个桶里移动时准线没动，重画一次是纯白干。 */
+  const setHovered = (index: number): void => {
+    if (index === hoveredRef.current) return;
+    hoveredRef.current = index;
+    render();
   };
 
   const handleMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const hit = hitAt(event);
-    if (hit) {
-      hoveredRef.current = hit;
-      onHover?.(hit.payload, event.clientX, event.clientY);
+    const index = hitIndexAt(event);
+    if (index >= 0) {
+      setHovered(index);
+      // 浮层跟着指针走，所以这一行每次移动都要调，不能并进 setHovered 的判断里。
+      onHover?.(hitsRef.current[index].payload, event.clientX, event.clientY);
       return;
     }
-    if (hoveredRef.current) {
-      hoveredRef.current = null;
+    if (hoveredRef.current >= 0) {
+      setHovered(-1);
       onLeave?.();
     }
   };
 
   const handleLeave = () => {
-    hoveredRef.current = null;
+    setHovered(-1);
     onLeave?.();
   };
 
@@ -121,8 +132,8 @@ export function Chart<T>({
         onPointerLeave={handleLeave}
         onClick={(event) => {
           if (!onSelect) return;
-          const hit = hitAt(event);
-          if (hit) onSelect(hit.payload);
+          const index = hitIndexAt(event);
+          if (index >= 0) onSelect(hitsRef.current[index].payload);
         }}
       />
       {/* 详细数据在紧邻的 sr-only 表格里，canvas 的 aria-label 只给摘要（06 文档 §11）。 */}

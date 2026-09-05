@@ -9,17 +9,22 @@
 // **一个浮层同时报两个值**。"看出两者关系"的正确实现是这个：读者对着一个时间点，
 // 同时拿到两个数，而不是让两条线在一张图里假装可比。
 //
+// **准线画在两个面板之前**（`drawCrosshair`）：它的职责是把同一个 x 在两个面板之间连
+// 起来，空白处与中缝里看得见就够了，柱子盖住的那一段不必显示。反过来把它压在最上层就是
+// 在记号上多加一笔墨，与 §5.1「不给记号描边」是同一件事。
+//
 // 上面板可以按类别堆叠（前身 TimeLens 的 renderHourlyBars 就是这么做的，合并时丢了）：
 // 有 parts 就分层，没有就画单色柱。
 //
 // **React 化只搬走了 DOM 那一半**：draw 与 describe 原样导出，由 charts/Chart.tsx 驱动。
 import { formatCount, formatDurationShort } from '../domain/format.ts';
 import { BAR_MAX_WIDTH, MARK_GAP, bar, cssFont, hatchPattern, niceMax } from './canvas.ts';
+import { AXIS_LEFT, drawTimeAxis } from './axis.ts';
 import type { ChartDescription, DrawBox, DrawFn, Palette } from './canvas.ts';
 import type { MarkedBucket } from '../domain/buckets.ts';
 
-// left 要放得下最宽的刻度文字：按键数到五位数时 40px 会把首位裁掉。
-const PAD = { top: 10, right: 8, bottom: 18, left: 52 };
+// left 由 axis.ts 给（三张带轴的图共用一个数，否则标签密度会不一致——见 AXIS_LEFT）。
+const PAD = { top: 10, right: 8, bottom: 18, left: AXIS_LEFT };
 /** 两个面板之间的留白。共享 x 轴，所以中间只需要一条呼吸缝。 */
 const SPLIT = 14;
 
@@ -56,10 +61,15 @@ export const drawPanelPair: DrawFn<PanelPairData> = (ctx, box, data, palette) =>
   const plotX = PAD.left;
   const plotW = Math.max(1, box.width - PAD.left - PAD.right);
   const totalH = Math.max(1, box.height - PAD.top - PAD.bottom);
+  const slot = plotW / buckets.length;
+  // 数据换了而指针没动时上一帧的下标可能越界——那时不画准线，而不是把它画在错的位置上。
+  const hover = box.hover >= 0 && box.hover < buckets.length ? box.hover : -1;
 
   // 「强度」是把两个量放到一根轴上的**合法**做法：取派生量 KPM，只画一条线一套刻度。
   if (mode === 'kpm') {
-    drawKpm(ctx, box, buckets, palette, { x: plotX, y: PAD.top, w: plotW, h: totalH });
+    const plot: Rect = { x: plotX, y: PAD.top, w: plotW, h: totalH };
+    if (hover >= 0) drawCrosshair(ctx, palette, plot, slot, hover);
+    drawKpm(ctx, box, buckets, palette, plot, slot, hover);
     drawXAxis(ctx, buckets, palette, plotX, plotW, PAD.top + totalH);
     return;
   }
@@ -70,9 +80,13 @@ export const drawPanelPair: DrawFn<PanelPairData> = (ctx, box, data, palette) =>
   const topPanel: Rect = { x: plotX, y: PAD.top, w: plotW, h: topH };
   const bottomPanel: Rect = { x: plotX, y: PAD.top + topH + SPLIT, w: plotW, h: bottomH };
 
-  const slot = plotW / buckets.length;
   const width = Math.max(1, Math.min(slot - MARK_GAP, BAR_MAX_WIDTH));
   const hatch = hatchPattern(ctx, palette.strong);
+
+  // 贯穿上下两个面板与中缝，所以高度取 totalH 而不是某一个面板的高度。
+  if (hover >= 0) {
+    drawCrosshair(ctx, palette, { x: plotX, y: PAD.top, w: plotW, h: totalH }, slot, hover);
+  }
 
   if (both || mode === 'seconds') {
     drawPanel(ctx, buckets, palette, topPanel, {
@@ -175,6 +189,8 @@ function drawKpm(
   buckets: readonly MarkedBucket[],
   palette: Palette,
   plot: Rect,
+  slot: number,
+  hover: number,
 ): void {
   const kpm = buckets.map(kpmOf);
   const max = niceMax(Math.max(...kpm));
@@ -194,7 +210,6 @@ function drawKpm(
     ctx.fillText(formatCount(Math.round((max * step) / 2)), plot.x - 6, y);
   }
 
-  const slot = plot.w / buckets.length;
   ctx.strokeStyle = palette.keys;
   ctx.lineWidth = 2;
   ctx.lineJoin = 'round';
@@ -216,6 +231,21 @@ function drawKpm(
   });
   ctx.stroke();
 
+  // 折线本身没有点标记，光有准线读者不知道这条线在这一刻落在哪个高度上。外圈用表面色把
+  // 它从线里托出来，而不是给它描一圈墨（同 §5.1 那 2px 表面色间隙的思路）。
+  if (hover >= 0 && !buckets[hover].gap) {
+    const cx = plot.x + slot * (hover + 0.5);
+    const cy = plot.y + plot.h - (max ? (kpm[hover] / max) * plot.h : 0);
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4.5, 0, Math.PI * 2);
+    ctx.fillStyle = palette.surface;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = palette.keys;
+    ctx.fill();
+  }
+
   buckets.forEach((item, index) => {
     box.hits.push({
       x: plot.x + slot * index,
@@ -227,6 +257,28 @@ function drawKpm(
   });
 }
 
+/**
+ * 十字准线（14 文档 §4.3）：一条竖线，贯穿上下两个面板与中间那道留白。
+ *
+ * 用 `--border-strong` 而不是度量色——它是参考线，不是数据。半像素偏移让这 1px 落在设备
+ * 像素上，否则在 150% 缩放的 Windows 上会糊成两像素宽的灰带（同 canvas.ts 的格线）。
+ */
+function drawCrosshair(
+  ctx: CanvasRenderingContext2D,
+  palette: Palette,
+  plot: Rect,
+  slot: number,
+  index: number,
+): void {
+  const x = Math.round(plot.x + slot * (index + 0.5)) + 0.5;
+  ctx.strokeStyle = palette.strong;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x, plot.y);
+  ctx.lineTo(x, plot.y + plot.h);
+  ctx.stroke();
+}
+
 function drawXAxis(
   ctx: CanvasRenderingContext2D,
   buckets: readonly MarkedBucket[],
@@ -235,16 +287,15 @@ function drawXAxis(
   w: number,
   baseline: number,
 ): void {
-  ctx.fillStyle = palette.faint;
+  // 字体要在 drawTimeAxis 之前设好：抽稀按实测文字宽度做，而宽度取决于当前 ctx.font。
   ctx.font = cssFont(11);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  const slot = w / buckets.length;
-  const stride = Math.max(1, Math.ceil(buckets.length / Math.max(2, Math.floor(w / 48))));
-  buckets.forEach((item, index) => {
-    if (index % stride) return;
-    ctx.fillText(String(item.label ?? ''), x + slot * (index + 0.5), baseline + 4);
-  });
+  drawTimeAxis(
+    ctx,
+    buckets.map((item) => String(item.label ?? '')),
+    { x, w },
+    baseline + 4,
+    palette.faint,
+  );
 }
 
 export function describePanelPair(data: PanelPairData): ChartDescription | null {

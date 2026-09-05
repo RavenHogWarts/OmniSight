@@ -1,23 +1,36 @@
-// 键盘视图（06 文档 §7）。
+// 键盘视图（06 文档 §7）= KeyTrace 键盘总览 ＋ TimeLens 按键面板（17 文档 §4.3）。
 //
-// 与旧 KeyTrace 的三处关键差异：
+// 两个前身在这一屏是互补的：KeyTrace 给拟物机身与四张时间热力卡，TimeLens 给卡内图例
+// 与每日日历。合起来正好是一屏：
+//
+//   按键跟踪                                    更新于 …   ← .section-heading + 范围选择器
+//   ┌ 键盘热力图 · 颜色越深使用越多      少 ▢▢▢▢ 多 ┐
+//   │ 拟物机身：42px 键帽 / 7px 间隙 / 键名 12px    │
+//   │ 按键次数 · 活跃键位 · 平均时长 · 最长按压     │  ← 四格摘要（Quad）
+//   时间热力图
+//   ┌ 每日活跃度 2fr ┐ ┌ 最近 24 小时 1fr ┐
+//   ┌ 按月 通栏 ┐ ┌ 按年 通栏 ┐
+//   高频键位 Top 10 ｜ 手指负荷                    ← 我们独有，留在最后
+//
+// 与旧 KeyTrace 的关键差异（这些是"合并"的收益，不因为搬布局而放弃）：
 //   1. 键盘 DOM 由 `/keyboard/layout` 下发的数据生成，前端零坐标（旧版是 860 行硬编码）。
-//   2. 范围切换（全部应用 / 某个应用）就在顶部，它是同一张热力图的两种范围，不是两个
-//      功能——旧版把它塞在页面最下方一个独立面板里，还需要另外连上 TimeLens。
-//   3. 时间分布四个粒度**一次请求取回**（`view=hours,days,months,years`），旧版首屏
-//      为此发 4 个请求。
+//   2. 范围切换（全部应用 / 某个应用）就在段标题右侧，它是同一张热力图的两种范围，
+//      不是两个功能——旧版把它塞在页面最下方一个独立面板里，还需要另外连上 TimeLens。
+//   3. 时间分布四个粒度**一次请求取回**（`view=hours,days,months,years`），因此四张卡
+//      同屏铺开不多一次往返——旧版首屏为此发 4 个请求，而我们原先只画当前选中的那一个。
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CalendarHeatmap } from '../charts/CalendarHeatmap.tsx';
 import { Chart } from '../charts/Chart.tsx';
-import { hideChartTooltip, showChartTooltip } from '../components/chart-hover.ts';
-import { describePanelPair, drawPanelPair } from '../charts/panel-pair.ts';
-import type { PanelPairData } from '../charts/panel-pair.ts';
+import { scaleBarsDescribe, scaleBarsDraw } from '../charts/scale-bars.ts';
+import type { ScaleBarsData } from '../charts/scale-bars.ts';
 import { AppPicker } from '../components/AppPicker.tsx';
-import { Card } from '../components/Card.tsx';
+import { Card, Section } from '../components/Card.tsx';
+import { hideChartTooltip, showChartTooltip } from '../components/chart-hover.ts';
 import { Icon } from '../components/Icon.tsx';
-import { KeyboardView } from '../components/KeyboardView.tsx';
-import { FILTERS_SLOT_ID } from '../components/PeriodNav.tsx';
+import { HeatLegend, KeyboardView } from '../components/KeyboardView.tsx';
+import { METRIC_SLOT_ID, Updated } from '../components/PeriodNav.tsx';
+import { Quad } from '../components/Quad.tsx';
 import { Segmented } from '../components/controls.tsx';
 import { capabilityOf, noticeFor } from '../components/degraded.tsx';
 import {
@@ -32,19 +45,33 @@ import { getState, setState } from '../core/store.ts';
 import { useResource, useSlice } from '../core/useStore.ts';
 import { markGaps } from '../domain/buckets.ts';
 import { formatCount, formatPercent } from '../domain/format.ts';
-import { METRICS, TIMELINE_VIEWS, formatMetric } from '../domain/metrics.ts';
-import { caliberNotes, gapSet, periodParams } from '../domain/period.ts';
+import { METRICS, TIMELINE_VIEWS, formatMetric, metricOf } from '../domain/metrics.ts';
+import { gapSet, periodParams } from '../domain/period.ts';
 import type { State } from '../core/store.ts';
-import type { Coverage, DataRequest, HeatmapKey, HeatmapResponse } from '../types/api.d.ts';
+import type { DataRequest, HeatmapKey, HeatmapResponse } from '../types/api.d.ts';
 
 export const title = '键盘';
 
 const TOP_KEYS = 10;
+/** 时间尺度。四个粒度**一次请求取回**（见 needs），因此切换尺度不发请求。 */
+type Grain = 'hours' | 'days' | 'months' | 'years';
+const GRAIN_NAMES: Record<Grain, string> = {
+  hours: '小时',
+  days: '天',
+  months: '月',
+  years: '年',
+};
+/** markGaps 用的桶粒度命名（它按 hour/day/month/year 判断缺口映射）。 */
+const GAP_GRAIN: Record<Grain, string> = {
+  hours: 'hour',
+  days: 'day',
+  months: 'month',
+  years: 'year',
+};
 const DENSITIES = [
   { id: 'standard', name: '标准' },
   { id: 'compact', name: '紧凑' },
 ];
-const GRAIN_NAMES: Record<string, string> = { hours: '小时', days: '天', months: '月', years: '年' };
 
 /** 布局族：auto 时不传 family，让后端按平台默认值决定（05 文档 §7）。 */
 function familyParam(state: State): Record<string, string> {
@@ -85,10 +112,6 @@ function reload(): void {
   for (const request of needs(state)) fetchInto(request.key, request.path, request.params);
 }
 
-function grainOf(view: string): string {
-  return view === 'hours' ? 'hour' : view === 'days' ? 'day' : view === 'months' ? 'month' : 'year';
-}
-
 function Bar({ ratio }: { ratio: number }) {
   return (
     <div className="bar" style={{ '--fill': Math.max(0, Math.min(1, ratio || 0)) } as React.CSSProperties}>
@@ -97,24 +120,10 @@ function Bar({ ratio }: { ratio: number }) {
   );
 }
 
-/** 口径变化（左右修饰键合并）不是缺数据，用注记而不是斜纹表达。 */
-function CaliberNotice({ coverage }: { coverage: Coverage | null }) {
-  const notes = caliberNotes(coverage);
-  if (!notes.length) return null;
-  const note = notes[0];
-  return (
-    <div className="card__hint">
-      {note.from} 至 {note.to} 的数据口径不同：{note.message}
-    </div>
-  );
-}
-
 export function View() {
   const metric = useSlice('metric');
-  const timelineView = useSlice('timelineView');
   const capabilities = useSlice('capabilities');
   const degraded = useSlice('degraded');
-  const coverage = useSlice('coverage');
   const selectedKeyId = useSlice('selectedKeyId');
   const layout = useResource('layout');
   const heatmap = useResource('heatmap');
@@ -123,8 +132,11 @@ export function View() {
   // 密度是真实的取舍：标准优先保证键面数值 ≥11px，紧凑优先让整块键盘不横向滚动
   // （14 文档 §4.4）。交给用户比替他猜好。它只改渲染，所以留在卡头。
   const [density, setDensity] = useState<'standard' | 'compact'>('standard');
+  // 时间尺度**只改这一张图怎么画**，不改取哪一批数（四个粒度是同一次请求取回的），
+  // 因此它是视图内部状态、留在卡头，不进 store 也不进 URL（14 文档 §4.1 的分界）。
+  const [grain, setGrain] = useState<Grain>('days');
 
-  const slot = document.getElementById(FILTERS_SLOT_ID);
+  const metricSlot = document.getElementById(METRIC_SLOT_ID);
   const error = heatmap.error || layout.error;
   const keyboardOk = capabilityOf(capabilities, 'keyboard');
   const notice = noticeFor(degraded, 'keyboard');
@@ -135,92 +147,109 @@ export function View() {
         键盘
       </h1>
 
-      {/* 视图级筛选：范围与指标改的是请求参数，作用域是整屏（14 文档 §4.1）。 */}
-      {slot
+      {/* 指标带（17 文档 §4.1）：它是漏斗的第四层，居中 300px 常驻，与前身一致。
+          原先它挤在周期栏右段的筛选行里，读起来像"某张卡的开关"。 */}
+      {metricSlot
         ? createPortal(
-            <>
-              <AppPicker
-                apps={appsMeta.data?.apps}
-                runningIds={(appsRunning.data?.apps || [])
-                  .map((app) => app.app_id)
-                  .filter((id): id is number => typeof id === 'number')}
-              />
-              <Segmented
-                items={METRICS}
-                active={metric}
-                onPick={(id) => setState('metric', id)}
-                small
-                label="指标"
-              />
-            </>,
-            slot,
+            <Segmented
+              items={METRICS}
+              active={metric}
+              onPick={(id) => setState('metric', id)}
+              variant="switch"
+              label="统计指标"
+            />,
+            metricSlot,
           )
         : null}
 
-      {/* 卡头上只剩密度开关：它改的是这张图怎么画，不改取哪一批数。范围与指标改的是
-          请求参数、作用域是整屏，因此它们在筛选行里（14 文档 §2.8、§4.1）。 */}
-      <Card
-        title="键盘热力图"
-        controls={
-          keyboardOk ? (
-            <Segmented
-              items={DENSITIES}
-              active={density}
-              onPick={(id) => setDensity(id as 'standard' | 'compact')}
-              small
-              label="键盘密度"
+      <Section
+        title="按键跟踪"
+        sub="只统计键位次数，不保存输入内容"
+        lead
+        right={
+          <div className="keyboard-view__scope">
+            <AppPicker
+              apps={appsMeta.data?.apps}
+              runningIds={(appsRunning.data?.apps || [])
+                .map((app) => app.app_id)
+                .filter((id): id is number => typeof id === 'number')}
             />
-          ) : null
-        }
-        footer={keyboardOk && heatmap.data ? <Totals heatmap={heatmap.data} /> : null}
-      >
-        {/* 键盘采集不可用：整块面板换成说明块。这里绝不画一张全 0 的键盘——那会让用户
-            以为自己没打字，而真相是这台机器测不到（06 文档 §4.2 规则 1）。 */}
-        {!keyboardOk ? (
-          <CapabilityNotice
-            title={notice?.title || '当前环境无法采集键盘'}
-            detail={notice?.detail || '应用时长统计不受影响。'}
-            hint={notice?.hint || ''}
-          />
-        ) : (
-          <div>
-            <CaliberNotice coverage={coverage} />
-            {error ? (
-              <ErrorState message={error.message} onRetry={reload} />
-            ) : !layout.data || !heatmap.data ? (
-              <SkeletonRows count={1} />
-            ) : (
-              <KeyboardView
-                layout={layout.data}
-                heatmap={heatmap.data}
-                metric={metric}
-                density={density}
-                onSelectKey={(keyId) => {
-                  setState('selectedKeyId', keyId);
-                  loadKeyDetail(keyId);
-                }}
-              />
-            )}
+            <Updated />
           </div>
-        )}
-      </Card>
+        }
+      >
+        <Card
+          title="键盘热力图"
+          subtitle="颜色越深，使用次数越多"
+          controls={
+            keyboardOk ? (
+              <>
+                <HeatLegend metric={metric} scale={heatmap.data?.scale} />
+                <Segmented
+                  items={DENSITIES}
+                  active={density}
+                  onPick={(id) => setDensity(id as 'standard' | 'compact')}
+                  small
+                  label="键盘密度"
+                />
+              </>
+            ) : null
+          }
+          footer={keyboardOk && heatmap.data ? <Totals heatmap={heatmap.data} /> : null}
+        >
+          {/* 键盘采集不可用：整块面板换成说明块。这里绝不画一张全 0 的键盘——那会让用户
+              以为自己没打字，而真相是这台机器测不到（06 文档 §4.2 规则 1）。 */}
+          {!keyboardOk ? (
+            <CapabilityNotice
+              title={notice?.title || '当前环境无法采集键盘'}
+              detail={notice?.detail || '应用时长统计不受影响。'}
+              hint={notice?.hint || ''}
+            />
+          ) : error ? (
+            <ErrorState message={error.message} onRetry={reload} />
+          ) : !layout.data || !heatmap.data ? (
+            <SkeletonRows count={1} />
+          ) : (
+            <KeyboardView
+              layout={layout.data}
+              heatmap={heatmap.data}
+              metric={metric}
+              density={density}
+              onSelectKey={(keyId) => {
+                setState('selectedKeyId', keyId);
+                loadKeyDetail(keyId);
+              }}
+            />
+          )}
+        </Card>
+      </Section>
 
       {selectedKeyId ? <KeyDetail keyId={selectedKeyId} /> : null}
 
-      <Card
+      {/* 时间分布。**尺度是一个筛选**，不是四张卡同屏：四个粒度里一次只看一个，而每一个
+          都值得占满整张卡的宽度——12 个月挤在 12 个 72px 的格子里、3 个年份铺成三块砖，
+          都比一根轴上的一组柱难读。数据仍然是一次请求取回的，所以切尺度不发请求。
+
+          形式按维度选（14 文档 §2.11）：**日是二维的**（7 行 × 53 列 + 月份轴），一维序列
+          用柱。这也把 D4 那条"一维也用格子"的妥协收回来了——它当初的理由是"四卡同屏才像
+          KeyTrace"，而四卡同屏已经不在了。 */}
+      <Section
         title="时间分布"
-        controls={
+        sub={`按${GRAIN_NAMES[grain]}聚合 · ${metricName(metric)}`}
+        right={
           <Segmented
             items={TIMELINE_VIEWS}
-            active={timelineView}
-            onPick={(id) => setState('timelineView', id)}
+            active={grain}
+            onPick={(id) => setGrain(id as Grain)}
             small
-            label="时间粒度"
+            label="时间尺度"
           />
         }
       >
-        <Timeline grain={timelineView} height={150} label="按键时间分布" showNote />
-      </Card>
+        <div className="card">
+          {grain === 'days' ? <Calendar /> : <ScaleBars grain={grain} />}
+        </div>
+      </Section>
 
       <div className="grid grid--2">
         <Card title={`高频键位 Top ${TOP_KEYS}`}>
@@ -232,24 +261,12 @@ export function View() {
           <Ergonomics />
         </Card>
       </div>
-
-      <Card title="每日活跃度（近 365 天）">
-        <Calendar />
-      </Card>
-
-      {/* 月与年常驻（16 文档 §A5）。四个粒度本来就是一次请求取回的（见 needs），
-          所以多画两块不多一次往返；前身 KeyTrace 把 365 天 / 24 小时 / 月 / 年四张卡
-          同屏铺开，而这里原先只有"当前选中的那一个粒度 + 常驻日历"。 */}
-      <div className="grid grid--2">
-        <Card title="按月">
-          <Timeline grain="months" height={96} label="按月的按键分布" />
-        </Card>
-        <Card title="按年">
-          <Timeline grain="years" height={96} label="按年的按键分布" />
-        </Card>
-      </div>
     </>
   );
+}
+
+function metricName(metric: string): string {
+  return METRICS.find((item) => item.id === metric)?.name || '';
 }
 
 /**
@@ -266,23 +283,20 @@ function loadKeyDetail(keyId: string): void {
   });
 }
 
+/** 四格总计。几何来自 KeyTrace 应用屏的四格摘要，不是原先那一行裸文字（17 文档 §4.3）。 */
 function Totals({ heatmap }: { heatmap: HeatmapResponse }) {
   const totals = heatmap.totals;
   const scope = heatmap.scope;
-  const items: readonly (readonly [string, string])[] = [
-    ['按键次数', formatCount(totals?.press_count || 0)],
-    ['活跃键位', `${totals?.active_keys || 0} 个`],
-    ['平均时长', formatMetric('duration_avg_ms', totals?.duration_avg_ms || 0)],
-    ['最长按压', formatMetric('duration_max_ms', totals?.duration_max_ms || 0)],
-  ];
   return (
     <div className="keyboard-totals">
-      {items.map(([label, value]) => (
-        <div key={label}>
-          <div className="keyboard-total__label">{label}</div>
-          <div className="keyboard-total__value numeric">{value}</div>
-        </div>
-      ))}
+      <Quad
+        items={[
+          { label: '按键次数', value: formatCount(totals?.press_count || 0) },
+          { label: '活跃键位', value: `${totals?.active_keys || 0} 个` },
+          { label: '平均时长', value: formatMetric('duration_avg_ms', totals?.duration_avg_ms || 0) },
+          { label: '最长按压', value: formatMetric('duration_max_ms', totals?.duration_max_ms || 0) },
+        ]}
+      />
       {scope?.type === 'app' ? (
         <div className="card__hint">范围：{scope.display_name || ''}</div>
       ) : null}
@@ -323,22 +337,13 @@ function TopKeys({
 }
 
 /**
- * 时间分布。四个粒度共用这一个组件：数据是同一次请求取回的四个视图之一。
+ * 小时 / 月 / 年：一根轴上的一组柱。三个尺度共用这一个组件——它们都是一维序列，
+ * 差别只在桶数（24 / 12 / 若干）与标签。
  *
  * `available: false` 是"该视图在当前设置下拿不到"，不是"值为 0"。原始事件被关掉时
- * 按小时的应用维度分布就属于这一类（services/keyboard.py 的 _hours_view）。
+ * 按小时的分布就属于这一类（services/keyboard.py 的 _hours_view）。
  */
-function Timeline({
-  grain,
-  height,
-  label,
-  showNote = false,
-}: {
-  grain: string;
-  height: number;
-  label: string;
-  showNote?: boolean;
-}) {
+function ScaleBars({ grain }: { grain: Grain }) {
   const metric = useSlice('metric');
   const coverage = useSlice('coverage');
   const { data: payload, loading } = useResource('timeline');
@@ -346,53 +351,62 @@ function Timeline({
 
   const view = payload.views?.[grain];
   if (!view || view.available === false) {
-    if (!showNote) return null;
     return (
       <CapabilityNotice
         title="该视图在当前设置下不可用"
-        detail={payload.warnings?.[0]?.message || '按小时的应用维度分布需要保留原始按键事件。'}
+        detail={payload.warnings?.[0]?.message || '按小时的分布需要保留原始按键事件。'}
         hint='设置中开启"保存原始按键事件"后，此后的数据可用'
       />
     );
   }
 
   const gaps = gapSet(coverage, ['keyboard']);
-  const buckets = markGaps(view.buckets || [], grainOf(grain), gaps, view.period);
-  const data: PanelPairData = {
-    // 指标可切，而 panel-pair 的下面板画的是 `presses`——把当前指标的值搬到那个字段上，
-    // 图表因此不必知道"指标"这件事。
-    buckets: buckets.map((bucket) => ({
-      ...bucket,
-      presses: Number((bucket as unknown as Record<string, unknown>)[metric]) || 0,
+  const definition = metricOf(metric);
+  const format = (value: number) => formatMetric(metric, value);
+  const marked = markGaps(view.buckets, GAP_GRAIN[grain], gaps, view.period);
+  const data: ScaleBarsData = {
+    buckets: marked.map((bucket) => ({
+      bucket: bucket.bucket,
+      label: bucket.label,
+      value: Number((bucket as unknown as Record<string, unknown>)[metric]) || 0,
+      gap: bucket.gap,
     })),
-    mode: 'presses',
-    caption: label,
-    summary: `按${GRAIN_NAMES[grain] || '时间'}的按键分布，共 ${buckets.length} 个桶`,
+    valueLabel: definition.name,
+    caption: `按${GRAIN_NAMES[grain]}的${definition.name}`,
+    summary: `按${GRAIN_NAMES[grain]}的${definition.name}，共 ${view.buckets.length} 个桶`,
   };
+
   return (
     <div>
-      <div className={height > 120 ? 'chart chart--medium' : 'chart chart--short'}>
-        <Chart<PanelPairData>
+      <div className="chart chart--scale">
+        <Chart<ScaleBarsData>
           data={data}
-          draw={drawPanelPair}
-          describe={describePanelPair}
-          height={height}
-          label={label}
+          draw={scaleBarsDraw({ format, accent: 'keys' })}
+          describe={scaleBarsDescribe({ format })}
+          height={190}
+          label={data.summary}
           onHover={showChartTooltip}
           onLeave={hideChartTooltip}
         />
       </div>
-      {showNote ? <GapLegend count={gaps.size} /> : null}
+      <GapLegend count={gaps.size} />
     </div>
   );
 }
 
+/**
+ * 「日」这一档。365 天是**二维**的（7 行 × 53 列），因此它是日历而不是柱：一年 365 根
+ * 柱各占 2px，看不出星期与月份的位置，而"周末在不在打字"恰是这个尺度上最该看出的事
+ * （14 文档 §2.11 / §5.2）。月份轴与星期轴也是我们比两个前身都强的地方。
+ */
 function Calendar() {
   const coverage = useSlice('coverage');
   const prefs = useSlice('prefs');
-  const { data: payload } = useResource('timeline');
+  const metric = useSlice('metric');
+  const { data: payload, loading } = useResource('timeline');
   const view = payload?.views?.days;
-  if (!view || view.available === false) return null;
+  if (!view) return loading ? <SkeletonRows count={1} /> : null;
+  if (view.available === false) return null;
   const gaps = gapSet(coverage, ['keyboard']);
   return (
     <div>
@@ -401,7 +415,7 @@ function Calendar() {
         scale={view.scale}
         gaps={gaps}
         weekStartsOn={prefs.weekStartsOn}
-        metric="press_count"
+        metric={metric}
       />
       <GapLegend count={gaps.size} />
     </div>

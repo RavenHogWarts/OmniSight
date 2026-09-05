@@ -1,3 +1,112 @@
+/* 「构成」与「结论」从总览下沉到这里（17 文档 §4.2 第 3 点）。前身主屏没有这两块，
+ * 而"时间去了哪些类别"已经由招牌卡里的小时堆叠柱 + 三格类别合计回答了；留在总览
+ * 就是同一件事在一屏里说两遍（14 文档 §2.9）。
+ *
+ * 类别色仍由 bar.css 的 `[data-category]` 规则给——这里只管形状。
+ */
+.stackbar {
+  display: flex;
+  gap: 2px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-sunken);
+}
+.stackbar__seg {
+  flex-basis: 0;
+  min-width: 2px;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  overflow: hidden;
+  background: var(--cat-uncategorized);
+  transition: filter var(--duration-fast) var(--ease-out);
+}
+.stackbar--clickable .stackbar__seg { cursor: pointer; }
+.stackbar--clickable .stackbar__seg:hover { filter: brightness(1.08); }
+.stackbar__label {
+  font-size: var(--text-2xs);
+  font-family: var(--font-small);
+  font-weight: var(--weight-medium);
+  color: var(--text-inverse);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.stackbar__seg[data-category="development"]   { background: var(--cat-development); }
+.stackbar__seg[data-category="productivity"]  { background: var(--cat-productivity); }
+.stackbar__seg[data-category="communication"] { background: var(--cat-communication); }
+.stackbar__seg[data-category="entertainment"] { background: var(--cat-entertainment); }
+.stackbar__seg[data-category="system"]        { background: var(--cat-system); }
+.stackbar__seg[data-category="uncategorized"] { background: var(--cat-uncategorized); }
+/* 强度分布的四档：同一个度量色的四个明度，不是四个身份色。 */
+.stackbar__seg[data-category="input_heavy"] { background: var(--heat-5); }
+.stackbar__seg[data-category="interactive"] { background: var(--heat-4); }
+.stackbar__seg[data-category="passive"]     { background: var(--heat-3); }
+.stackbar__seg[data-category="idle_open"]   { background: var(--heat-2); }
+
+.highlights { display: flex; flex-direction: column; gap: var(--space-2); }
+/* 每条结论是一个 <details>：点开就是它的计算口径（M4 判据 4）。 */
+.highlight {
+  font-size: var(--text-sm);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.highlight:last-child { border-bottom: none; }
+.highlight summary {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  cursor: pointer;
+  padding: var(--space-1) 0;
+  list-style: none;
+}
+.highlight summary::-webkit-details-marker { display: none; }
+.highlight summary > span:first-child { flex: none; color: var(--accent-text); }
+.highlight__toggle {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  padding: 0 var(--space-2);
+}
+.highlight[open] .highlight__toggle { color: var(--accent-text); border-color: var(--accent-subtle); }
+.highlight__basis {
+  margin: 0 0 var(--space-2) calc(1em + var(--space-2));
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+}
+
+.category-list { display: flex; flex-direction: column; gap: var(--space-3); }
+.category-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+}
+.category-row__percent { color: var(--text-secondary); font-variant-numeric: tabular-nums; min-width: 5ch; text-align: right; }
+.category-row__value { font-variant-numeric: tabular-nums; min-width: 8ch; text-align: right; }
+.category-row__bar { grid-column: 2 / -1; }
+
+/* 两条构成条上下对齐、共用同一条 100% 宽度基准（14 文档 §4.3）。类名从
+   `overview__stacks` 改成 `stacks`：这块内容已经不在总览了（17 文档 §4.2 第 3 点）。 */
+.stacks { display: flex; flex-direction: column; gap: var(--space-5); }
+.stacks__label {
+  font-size: var(--text-xs);
+  font-family: var(--font-small);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+.stacks .category-list { margin-top: var(--space-3); }
+
+/* 强度四档的图例色块：同一度量色的四个明度，与构成条同源。 */
+.category-row[data-profile="input_heavy"] .swatch { background: var(--heat-5); }
+.category-row[data-profile="interactive"] .swatch { background: var(--heat-4); }
+.category-row[data-profile="passive"] .swatch     { background: var(--heat-3); }
+.category-row[data-profile="idle_open"] .swatch   { background: var(--heat-2); }
+
 .profile-tag {
   display: inline-flex;
   align-items: center;

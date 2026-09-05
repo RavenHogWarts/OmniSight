@@ -18,6 +18,12 @@ interface HoverPayload {
   kpm?: number;
   value?: number;
   percent?: number;
+  /**
+   * 已经格式化好的一行读数。给"图表自己才知道单位"的那类图用（`scale-bars` 的指标可切：
+   * 同一张图既可能是次数也可能是毫秒），因此格式化在图表侧做完再送过来——而不是在这里
+   * 为每个指标加一个字段。
+   */
+  reading?: { label: string; text: string };
   gap?: boolean;
   parts?: readonly { category: string; name?: string; seconds: number }[];
 }
@@ -30,6 +36,7 @@ export function showChartTooltip(payload: unknown, x: number, y: number): void {
   if (data.total !== undefined) rows.push(['时长', formatDurationShort(data.total)]);
   if (data.presses !== undefined) rows.push(['按键', formatCount(data.presses)]);
   if (data.kpm !== undefined) rows.push(['输入强度', `${(Number(data.kpm) || 0).toFixed(1)} KPM`]);
+  if (data.reading) rows.push([data.reading.label, data.reading.text]);
   if (data.value !== undefined && data.percent !== undefined) {
     rows.push(['时长', formatDurationShort(data.value)]);
     rows.push(['占比', `${(data.percent || 0).toFixed(1)}%`]);

@@ -1,0 +1,52 @@
+/* 主题下拉（06 文档 §3.1）。三档：跟随系统 / 浅色 / 深色。
+ *
+ * **为什么是列表而不是原先那个循环钮**：三态循环钮只有一个图标位，说不出"现在是哪一档"，
+ * 也说不出"还剩哪几档"——只能点两下试。列表把三档同时摊开，当前那一档有勾。
+ *
+ * 弹层几何与 .status-panel、.app-picker__panel 同一套：贴在触发钮下方 8px、**右对齐**
+ * （它长在页面右上角，左对齐会顶出视口右边）、z-index 50——三者都是"临时面板"，都在
+ * 抽屉(80) 之下。触发钮本身是 .icon-button，形制由 layout.css 的托盘那一段管。
+ */
+.theme-menu { position: relative; display: flex; }
+
+.theme-menu__panel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 50;
+  min-width: 168px;
+  padding: var(--space-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-lg);
+}
+
+.theme-menu__item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  text-align: left;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+/* 悬停只上底色、不浮起：这里已经是浮层内部，再叠一层 shadow-sm 会读成"卡里的卡"。
+   焦点环由 base.css 的 :focus-visible 给，圆角与这一行同档，因此不必在这里重写。 */
+.theme-menu__item:hover { background: var(--surface-hover); }
+
+/* 当前那一档：文字与图标换主色，右端出一个勾。**两个信号而不是一个**——13px 上的主色差
+   不够显眼，而只给勾又读不出"这一整行是选中的那一行"。 */
+.theme-menu__item[aria-checked="true"] { color: var(--accent-text); }
+
+.theme-menu__label { flex: 1 1 auto; }
+/* 勾位常驻 16px，只有里面的图标按选中态出现：否则勾在三行之间移动时面板宽度会跳一下。 */
+.theme-menu__check {
+  width: 16px; height: 16px;
+  display: grid;
+  place-items: center;
+  flex: none;
+}

@@ -3,17 +3,33 @@
 /* 浮层相对这个容器定位：按钮与浮层是兄弟节点，定位上下文必须在它们的父级。 */
 .status-wrap { position: relative; display: flex; }
 
+/* 它现在坐在工具条那条胶囊托盘的第一个槽里（layout.css 的 .utility-bar__end），因此
+   **不再自带底色**：原先那块 --surface-sunken 是全页唯一一处凹陷灰胶囊，与它右边三个钮、
+   与下面几条控件带都不同族。承载面由托盘给，这里只在悬停与浮层展开时浮起成卡片色——
+   与同一条托盘里的图标钮、与 .viewbar__tab 的选中态同一个手法。 */
 .status {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
+  height: 26px;
+  padding: 0 var(--space-3);
   border-radius: var(--radius-full);
   font-size: var(--text-xs);
   color: var(--text-secondary);
-  background: var(--surface-sunken);
+  background: transparent;
+  white-space: nowrap;
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out);
 }
-.status:hover { color: var(--text-primary); }
+.status:hover,
+.status[aria-expanded="true"] {
+  background: var(--surface-card);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+/* 与 .icon-button 同理：焦点环写在浮起态之后，否则悬停时环会被 shadow-sm 顶掉。 */
+.status:focus-visible { box-shadow: var(--shadow-focus); }
 
 .status__dot {
   width: 7px; height: 7px;

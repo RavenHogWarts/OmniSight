@@ -1,134 +1,231 @@
-/* 全局框架：顶栏 56px + 周期栏 48px + 内容区（06 文档 §4.1）。 */
-.app {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
+/* 全局框架（17 文档 §4.1）。**没有顶栏，也没有周期栏**——两条 sticky 横线是当前界面
+ * "像网页"而两个前身"像原生面板"的主因。取而代之是一条不参与漏斗的 36px 工具条，
+ * 加上四条居中的定宽控件带：
+ *
+ *     ‹ [查看日期] › 今天        420px   .datebar
+ *     每天│每周│每月│每年│总计    520px   .rangebar
+ *     总览│应用│键盘│洞察         480px   .viewbar
+ *     按下次数│累计时长│平均时长   300px   .metricbar（仅键盘视图）
+ *
+ * 宽度按路由切：总览/洞察 1080px（TimeLens），键盘/应用 1280px（KeyTrace 的机身
+ * min-width 1175 + 左右 padding 正好落在 1280 内，不横向滚动）。切换点是
+ * `body[data-route]`，由 main.tsx 的 syncTabs() 写。
+ */
+.app { min-height: 100vh; }
+
+body[data-route="keyboard"],
+body[data-route="apps"] {
+  --shell-max: var(--shell-wide);
+  --layout-gutter: 18px;
 }
 
-/* ── 顶栏 ──────────────────────────────────────────────────────────── */
-.topbar {
-  position: sticky;
-  top: 0;
-  z-index: 30;
-  height: var(--header-height);
+/* ── 工具条 ────────────────────────────────────────────────────────── */
+/* 品牌左、功能钮右。**条本身无底色、无边框、不 sticky**：状态点与设置是我们独有的能力
+ * （前身没有设置），不能删，但也不该占一条视觉横线与漏斗抢注意力。
+ *
+ * **条不画，钮组要画。** 原先右段是三个直接浮在页底色上的裸图标，加一个凹陷灰的状态胶囊；
+ * 而这一页其余每一个控件都是"半透明底 + 1px 边 + shadow-sm"（.viewbar / .round-btn /
+ * .date-control / .pill-btn）——工具条于是成了全页唯一说另一种话的地方。这里把右段收进一条
+ * 胶囊托盘：形制与它正下方 38px 的 .viewbar 同族、只小一档，四个功能钮因此是"托盘里的四个
+ * 槽"，槽在悬停与浮层展开时浮起成卡片色（.viewbar__tab 选中态那个手法）。
+ */
+.utility-bar {
+  width: min(100%, var(--shell-max));
+  margin: 0 auto;
+  min-height: var(--utility-height);
   display: flex;
   align-items: center;
-  gap: var(--space-4);
-  padding: 0 var(--layout-gutter);
-  background: var(--surface-overlay);
-  backdrop-filter: saturate(180%) blur(20px);
-  border-bottom: 1px solid var(--border-subtle);
+  gap: var(--space-3);
+  /* 4px + 32px 托盘 = --utility-height 那 36px。原先是 8px + 30px 裸钮 = 38px，比
+     tokens.css 与 17 文档写的那一档高 2px。 */
+  padding: var(--space-1) var(--layout-gutter) 0;
 }
 
+/* 字标。字号与字重取 .section-title 的配方（--weight-heading + --text-secondary）降一档：
+   它仍是这一页最轻的一行字，但要读起来像字标，而不是像一个 13px 的说明标签。 */
 .brand {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
+  font-size: var(--text-base);
+  font-weight: var(--weight-heading);
   letter-spacing: var(--tracking-tight);
+  color: var(--text-secondary);
   flex: none;
 }
 
 .brand__dot {
-  width: 10px; height: 10px;
+  width: 8px; height: 8px;
   border-radius: var(--radius-full);
   background: var(--accent);
   flex: none;
 }
 
-.topbar__end {
+/* 钮组托盘。**刻意不写 height**：它由槽（26px）+ 2px 内边距 + 1px 描边决定，写死等于把
+   同一个数字记两遍，而改槽高时另一遍一定忘。槽距 2px 与 .segmented 的槽距一致。 */
+.utility-bar__end {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 2px;
   flex: none;
+  padding: 2px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-sm);
 }
 
+/* 图标钮的**通用形态**：抽屉表头与导入横幅的关闭钮也是它。悬停只上一层 --surface-hover
+   ——那两处坐在卡片色上，拿卡片色当悬停底等于没有反馈。 */
 .icon-button {
-  width: 32px; height: 32px;
+  width: 26px; height: 26px;
   display: grid;
   place-items: center;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-full);
   color: var(--text-secondary);
-  transition: background var(--duration-fast) var(--ease-out);
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out);
 }
 .icon-button:hover { background: var(--surface-hover); color: var(--text-primary); }
-.icon-button[aria-pressed="true"] { background: var(--accent-subtle); color: var(--accent-text); }
 
-/* ── 周期栏 ────────────────────────────────────────────────────────── */
-.periodbar {
-  position: sticky;
-  top: var(--header-height);
-  z-index: 20;
-  min-height: var(--periodbar-height);
+/* 托盘里的槽：悬停、以及"我的面板正开着"，都浮起成卡片色 + shadow-sm。 */
+.utility-bar__end .icon-button:hover,
+.utility-bar__end .icon-button[aria-expanded="true"],
+.utility-bar__end .icon-button[aria-pressed="true"] {
+  background: var(--surface-card);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+/* 焦点环写在最后：上面那几条 box-shadow 与它同优先级，同级里谁在后面谁赢。否则键盘焦点
+   落在一个正被悬停的钮上时，环会被 shadow-sm 顶掉。 */
+.icon-button:focus-visible { box-shadow: var(--shadow-focus); }
+
+/* ── 外壳 ──────────────────────────────────────────────────────────── */
+.shell {
+  width: min(100%, var(--shell-max));
+  margin: 0 auto;
+  padding: var(--space-1) var(--layout-gutter) var(--space-12);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 四条居中控件带 ────────────────────────────────────────────────── */
+/* 日期条（TimeLens `.top-bar`）。四格网格：翻页 / 日期 / 翻页 / 今天。 */
+.datebar {
+  display: grid;
+  grid-template-columns: 34px 1fr 34px 56px;
+  align-items: center;
+  gap: var(--space-2);
+  width: 420px;
+  min-height: 38px;
+  margin: 0 auto;
+}
+
+.round-btn {
+  width: 32px; height: 32px;
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--layout-gutter);
-  background: var(--surface-page);
-  border-bottom: 1px solid var(--border-subtle);
-  flex-wrap: wrap;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-default);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
 }
+.round-btn:disabled { opacity: .4; cursor: default; }
 
-.periodbar__nav { display: flex; align-items: center; gap: var(--space-1); }
-
-/* 数据新鲜度。只在实时通道断掉时出现（16 文档 §A6），因此它不参与常态排版。 */
-.periodbar__freshness {
-  font-size: var(--text-2xs);
-  font-family: var(--font-small);
-  color: var(--text-tertiary);
+.pill-btn {
+  height: 30px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-default);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  box-shadow: var(--shadow-sm);
 }
+.pill-btn:hover:not(:disabled) { background: var(--surface-hover); }
+.pill-btn:disabled { opacity: .4; cursor: default; }
 
-/* 视图级筛选（14 文档 §4.1）。用一条竖线与周期部分分开：它们回答的是不同的问题
-   ——左边是"哪一段时间"，右边是"这一屏里的哪一批"。 */
-.periodbar__filters {
+/* 日期控件。原生 `<input type="date">`（前身就是这个）——它自带日历弹层与键盘输入，
+   我们原先的「自定义…」按钮 + 两个日期框要点两次才能改一天。 */
+.date-control {
+  height: 32px;
+  justify-self: center;
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding-left: var(--space-4);
-  border-left: 1px solid var(--border-subtle);
+  gap: var(--space-2);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-sm);
+  max-width: 100%;
 }
-/* 这一行是固定 48px 高，因此**行内控件一律不换行**：分段器折成两行、复选框标签断成
-   两截，都会把周期栏顶开（应用视图加上第五个排序键"最近"之后就是这样）。要让位的是
-   搜索框的宽度，不是这一行的高度。 */
-.periodbar__filters .segmented { flex-wrap: nowrap; }
-.periodbar__filters .search { min-width: 132px; flex: 0 1 200px; }
-.periodbar__filters .checkbox { white-space: nowrap; }
-
-.period-label {
-  min-width: 12ch;
-  text-align: center;
+.date-control__label {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+.date-control input[type="date"] {
+  border: 0;
+  outline: 0;
+  min-width: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
   font-weight: var(--weight-medium);
   font-variant-numeric: tabular-nums;
 }
-
-.period-custom {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
+.date-control--disabled { opacity: .4; }
+/* 自定义区间：中格换成两个日期框。入口是控件右端那个小按钮，因此 420px 的
+   四格几何不必为一个少数场景常驻两个输入框（17 文档 §6.1）。 */
+.date-control--range { gap: var(--space-1); padding-left: var(--space-2); }
+.date-control__dash { color: var(--text-tertiary); flex: none; }
+.date-control__toggle {
+  flex: none;
+  padding: 2px var(--space-1);
+  border-radius: var(--radius-xs);
+  color: var(--text-tertiary);
+  font-size: var(--text-2xs);
+  font-family: var(--font-small);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
 }
+.date-control__toggle:hover { background: var(--surface-hover); color: var(--text-primary); }
+.date-control__toggle[aria-pressed="true"] { background: var(--accent-subtle); color: var(--accent-text); }
 
-.period-custom input[type="date"] {
-  background: var(--surface-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  padding: 3px var(--space-2);
-  color: var(--text-primary);
+.rangebar {
+  width: min(100%, 520px);
+  margin: var(--space-3) auto var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.viewbar   { margin: 0 auto var(--space-4); width: min(100%, 480px); }
+.metricbar { margin: calc(-1 * var(--space-1)) auto var(--space-4); width: min(100%, 300px); }
+.metricbar:empty { display: none; }
+
+/* 周期的口径注记（解析后的周期标题、左右修饰键合并这类口径变化）。跟在范围带下面
+   居中一行小字：日期控件里只有一个日期，而"周"或"月"到底覆盖了哪一段要有个落脚处。 */
+.periodnote {
+  margin: 0;
+  font-size: var(--text-2xs);
+  font-family: var(--font-small);
+  color: var(--text-tertiary);
+  text-align: center;
 }
 
 /* ── 内容区 ────────────────────────────────────────────────────────── */
-.main {
-  flex: 1 1 auto;
-  width: 100%;
-  max-width: var(--layout-max);
-  margin: 0 auto;
-  padding: var(--space-6) var(--layout-gutter) var(--space-16);
+/* 面板之间 18px（前身的 `margin-top: 18px`），比原先的 20px 略紧。 */
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
-
-.view { display: flex; flex-direction: column; gap: var(--space-5); }
 .view__title { font-size: var(--text-xl); }
 .view__title:focus-visible { box-shadow: none; }
 
@@ -143,10 +240,13 @@
   .grid--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-@media (max-width: 899px) {
+@media (max-width: 860px) {
   :root { --layout-gutter: var(--space-4); }
-  .topbar { gap: var(--space-2); }
-  .brand span:not(.brand__dot) { display: none; }
+  body[data-route="keyboard"], body[data-route="apps"] { --layout-gutter: var(--space-4); }
+  .datebar, .rangebar { width: min(100%, 520px); }
+  .datebar { grid-template-columns: 32px 1fr 32px 52px; }
+  .date-control__label { display: none; }
+  .viewbar, .metricbar { width: min(100%, 300px); }
 }
 
 @media (max-width: 767px) {

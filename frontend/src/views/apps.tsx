@@ -7,18 +7,20 @@
 // 管理元数据（excluded / merged_into / category_source）来自 `/apps`，按 app_id 合并。
 // 这是旧版完全没有的能力：分类规则原先硬编码在 web_app.py 与 app-categories.js 两处，
 // 用户改不了。
-import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { Fragment, useEffect, useRef, useState } from 'react';
+import { AppGrid, BigMark } from '../components/AppGrid.tsx';
 import { AppRow } from '../components/AppRow.tsx';
 import type { AppRowData } from '../components/AppRow.tsx';
-import { Card } from '../components/Card.tsx';
-import { FILTERS_SLOT_ID } from '../components/PeriodNav.tsx';
+import { Card, Section } from '../components/Card.tsx';
+import { Updated } from '../components/PeriodNav.tsx';
+import { Quad } from '../components/Quad.tsx';
 import { Checkbox, Chip, SearchBox, Segmented, Switch } from '../components/controls.tsx';
 import { capabilityOf, noticeFor } from '../components/degraded.tsx';
 import { CapabilityNotice, EmptyState, ErrorState, SkeletonRows } from '../components/states.tsx';
 import { fail, ok } from '../components/toast.tsx';
 import { del, messageOf, patch, post } from '../core/api.ts';
 import { fetchInto } from '../core/loader.ts';
+import { prefersReducedMotion } from '../core/theme.ts';
 import { getState, setState } from '../core/store.ts';
 import { useResource, useSlice } from '../core/useStore.ts';
 import { formatCount, formatPercent } from '../domain/format.ts';
@@ -35,7 +37,8 @@ import type {
 
 export const title = '应用';
 
-const PAGE_SIZE = 25;
+/** 每页 50 行（17 文档 §4.4）。前身没有分页；25 行在 1280px 宽的外壳里只占半屏。 */
+const PAGE_SIZE = 50;
 const SORTS = [
   { id: 'seconds', name: '时长' },
   { id: 'presses', name: '按键' },
@@ -67,6 +70,9 @@ export function needs(state: State): DataRequest[] {
       path: '/apps',
       params: { limit: 500, include_excluded: viewParams.includeExcluded },
     },
+    // 图标网格的「正在运行」分组（17 文档 §4.4）。前身 KeyTrace 要靠 TimeLens 的
+    // 集成接口才拿得到这一份，我们自己就有。
+    { key: 'appsRunning', path: '/apps/running' },
   ];
   if (state.selectedAppId) {
     requests.push({ key: 'appDetail', path: `/apps/${state.selectedAppId}` });
@@ -205,7 +211,6 @@ export function View() {
     fetchInto('appsMeta', '/apps', { limit: 500, include_excluded: includeExcluded });
   }, [includeExcluded]);
 
-  const slot = document.getElementById(FILTERS_SLOT_ID);
   const error = period.error || meta.error;
   const catalog: readonly CategoryOption[] = meta.data?.categories || [];
   const rows = applyFilters(joinApps(period.data, meta.data, { includeExcluded }), {
@@ -227,37 +232,54 @@ export function View() {
         应用
       </h1>
 
-      {/* 搜索 / 排序 / 含已排除都改的是这一屏取哪一批数据，因此它们在筛选行里，不在
-          卡头上（14 文档 §2.8、§4.1）。类别 chip 留在卡内：它筛的是这张列表本身。 */}
-      {slot
-        ? createPortal(
-            <>
-              <SearchBox placeholder="搜索应用" value={query} onInput={setQuery} />
-              <Segmented
-                items={SORTS}
-                active={sort}
-                onPick={(id) => {
-                  setSort(id);
-                  setPage(0);
-                }}
-                small
-                label="排序"
-              />
-              <Checkbox
-                label="显示已排除"
-                checked={includeExcluded}
-                onChange={(value) => {
-                  setIncludeExcluded(value);
-                  setPage(0);
-                }}
-              />
-            </>,
-            slot,
-          )
-        : null}
+      {/* 图标网格面板（17 文档 §4.4）= KeyTrace 应用分类屏的主体。选应用是**认图标**，
+          所以它是一整块常驻网格，而不是一个下拉框；弹层那一份留给键盘视图。 */}
+      <Section title="应用" right={<Updated />} lead>
+        {/* 这一块**没有卡头**：卡里第一行就是 42px 的选中应用头，再加一行"选择应用"
+            等于把同一件事说两遍（KeyTrace 这张卡也没有标题）。 */}
+        <div className="card">
+          <AppPanel rows={rows} periodPayload={period.data} />
+        </div>
+      </Section>
 
+      <Section
+        title="所有使用"
+        right={
+          <p className="updated">
+            {foregroundOk && period.data
+              ? `${rows.length} 个应用，合计 ${period.data.total_seconds_formatted || ''}`
+              : ''}
+          </p>
+        }
+      >
       <Card
-        title="应用"
+        title="明细与管理"
+        subtitle="改名、合并、排除、改类别都在这里"
+        controls={
+          <>
+            {/* 搜索 / 排序 / 含已排除改的是这张列表取哪一批，作用域就是这张卡——原先
+                它们 portal 到周期栏右段，那一行因此越挤越长（17 文档 §4.1）。 */}
+            <SearchBox placeholder="搜索应用" value={query} onInput={setQuery} />
+            <Segmented
+              items={SORTS}
+              active={sort}
+              onPick={(id) => {
+                setSort(id);
+                setPage(0);
+              }}
+              small
+              label="排序"
+            />
+            <Checkbox
+              label="显示已排除"
+              checked={includeExcluded}
+              onChange={(value) => {
+                setIncludeExcluded(value);
+                setPage(0);
+              }}
+            />
+          </>
+        }
         footer={
           <div className="row row--wrap">
             <div className="row row--wrap">
@@ -302,24 +324,33 @@ export function View() {
                 detail={query ? '换一个关键词试试' : '把范围切到全部即可查看历史数据'}
               />
             ) : (
+              /* 详情**紧跟被点的那一行**展开（06 文档 §6：同页展开、不跳转）。
+                 原先它渲染在整张列表之后——点第 3 行、详情出现在第 50 行下面，屏幕上
+                 看不到任何变化，读起来像"点了没反应"。手风琴的语义本来就在
+                 `AppRow` 的 `aria-expanded` 上，缺的只是 DOM 位置。 */
               slice.map((row) => (
-                <AppRow
-                  key={row.app_id}
-                  app={row}
-                  maxSeconds={maxSeconds}
-                  maxKpm={maxKpm}
-                  expanded={selectedAppId === row.app_id}
-                  onToggle={(appId) =>
-                    setState('selectedAppId', getState().selectedAppId === appId ? null : appId)
-                  }
-                />
+                <Fragment key={row.app_id}>
+                  <AppRow
+                    app={row}
+                    maxSeconds={maxSeconds}
+                    maxKpm={maxKpm}
+                    expanded={selectedAppId === row.app_id}
+                    onToggle={(appId) =>
+                      setState('selectedAppId', getState().selectedAppId === appId ? null : appId)
+                    }
+                  />
+                  {selectedAppId === row.app_id ? (
+                    <AppDetail
+                      appId={row.app_id}
+                      category={row.category}
+                      catalog={catalog}
+                      rows={rows}
+                    />
+                  ) : null}
+                </Fragment>
               ))
             )}
           </div>
-          {/* 详情同页展开（06 文档 §6：不跳转）。 */}
-          {foregroundOk && selectedAppId && slice.some((row) => row.app_id === selectedAppId) ? (
-            <AppDetail appId={selectedAppId} catalog={catalog} rows={rows} />
-          ) : null}
           {pages > 1 ? (
             <div className="pager">
               <button
@@ -345,31 +376,119 @@ export function View() {
           ) : null}
         </div>
       </Card>
+      </Section>
+    </>
+  );
+}
+
+/**
+ * 图标网格面板（KeyTrace 应用分类屏）。头部是选中应用的 42px 图标 + 名字 + 进程名，
+ * 接着是四格摘要，然后是三分组 + 图标网格。
+ *
+ * 四格摘要显示的是**选中应用的**读数（KeyTrace 同口径）；没选时显示整个周期的合计，
+ * 而不是四个横杠——那一格空着的时候这块面板看起来像坏了。
+ */
+function AppPanel({
+  rows,
+  periodPayload,
+}: {
+  rows: readonly AppRowData[];
+  periodPayload: UsagePeriodResponse | undefined;
+}) {
+  const selectedAppId = useSlice('selectedAppId');
+  const meta = useResource('appsMeta');
+  const running = useResource('appsRunning');
+  const detail = useResource('appDetail');
+  const current = rows.find((row) => row.app_id === selectedAppId) || null;
+  const profile =
+    detail.data && detail.data.app.app_id === selectedAppId
+      ? detail.data.keyboard?.profile_name || ''
+      : '';
+
+  const items = current
+    ? [
+        { label: '屏幕时长', value: current.seconds_formatted || '0秒' },
+        { label: '按键次数', value: `${formatCount(current.presses)} 次` },
+        { label: '输入强度', value: `${formatCount(current.kpm)} KPM` },
+        { label: '画像', value: profile || '—' },
+      ]
+    : [
+        { label: '应用数', value: `${rows.length} 个` },
+        { label: '合计时长', value: periodPayload?.total_seconds_formatted || '0秒' },
+        {
+          label: '合计按键',
+          value: `${formatCount(rows.reduce((sum, row) => sum + num(row.presses), 0))} 次`,
+        },
+        { label: '画像', value: '选一个应用查看' },
+      ];
+
+  return (
+    <>
+      <div className="app-grid__head">
+        <BigMark app={current} />
+        <div className="app-grid__copy">
+          <div className="app-grid__name">
+            {current ? nameOf(current) : '全部应用'}
+          </div>
+          <div className="app-grid__process">
+            {current ? current.process_name || '' : '点一个图标只看它，再点一次回到全部'}
+          </div>
+        </div>
+        <span className="spacer" />
+        <span className="app-grid__scope">统计范围跟随上方周期</span>
+      </div>
+      <div className="app-grid__summary">
+        <Quad items={items} />
+      </div>
+      <AppGrid
+        apps={meta.data?.apps}
+        runningIds={(running.data?.apps || [])
+          .map((app) => app.app_id)
+          .filter((id): id is number => typeof id === 'number')}
+        selectedId={selectedAppId}
+        onPick={(appId) =>
+          setState('selectedAppId', getState().selectedAppId === appId ? null : appId)
+        }
+      />
     </>
   );
 }
 
 function AppDetail({
   appId,
+  category,
   catalog,
   rows,
 }: {
   appId: number;
+  /** 只为左侧那道类别色轨（见 app-row.css）。色值由 CSS 按 data-category 取。 */
+  category?: string;
   catalog: readonly CategoryOption[];
   rows: readonly AppRowData[];
 }) {
   const detail = useResource('appDetail');
   const sessions = useResource('appSessions');
+  const host = useRef<HTMLDivElement | null>(null);
+
+  // 点列表最后几行时，展开的详情整块落在折叠线以下——那和"点了没反应"是同一种体验。
+  // `block: 'nearest'` 只在真的看不见时才滚，已经在视口里的话一动不动。
+  useEffect(() => {
+    host.current?.scrollIntoView({
+      block: 'nearest',
+      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+    });
+  }, [appId]);
+
   if (!detail.data || detail.data.app.app_id !== appId) {
     return (
-      <div className="app-detail">
+      <div className="app-detail" ref={host} data-category={category || 'uncategorized'}>
         <SkeletonRows count={3} />
       </div>
     );
   }
   const app = detail.data.app;
   return (
-    <div className="app-detail">
+    <div className="app-detail" ref={host} data-category={category || 'uncategorized'}>
       {app.exe_path ? <div className="app-detail__path">{app.exe_path}</div> : null}
       <Totals totals={detail.data.totals} />
       <KeyboardSummary keyboard={detail.data.keyboard} />

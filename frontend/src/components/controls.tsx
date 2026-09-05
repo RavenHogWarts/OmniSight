@@ -10,6 +10,18 @@ export interface SegmentedItem {
 }
 
 /**
+ * 三种形态（17 文档 §5.0）。形状不同是因为它们在漏斗的不同层：
+ *
+ *   `sm`      卡头上的小分段器（改的是这张图怎么画）
+ *   默认       行内分段器
+ *   `lg`      居中 34px 的范围分段器（改的是取哪一段时间）—— 前身的 `.segmented`
+ *   `switch`  居中 38px 的类型切换器（改的是看哪一类统计）—— 前身的 `.feature-switcher`
+ *
+ * 后两者是**等分网格**（`grid-auto-flow: column`），因此加一档不必改 CSS。
+ */
+export type SegmentedVariant = 'sm' | 'lg' | 'switch';
+
+/**
  * 用 aria-pressed 而不是 class 表达选中态：屏幕阅读器因此不需要额外的文案。
  */
 export function Segmented({
@@ -17,17 +29,21 @@ export function Segmented({
   active,
   onPick,
   small = false,
+  variant,
   label = '',
 }: {
   items: readonly SegmentedItem[];
   active: string;
   onPick: (id: string) => void;
+  /** `variant="sm"` 的旧写法。两者都给时 variant 胜出。 */
   small?: boolean;
+  variant?: SegmentedVariant;
   label?: string;
 }) {
+  const kind = variant || (small ? 'sm' : null);
   return (
     <div
-      className={small ? 'segmented segmented--sm' : 'segmented'}
+      className={kind ? `segmented segmented--${kind}` : 'segmented'}
       role="group"
       aria-label={label}
     >

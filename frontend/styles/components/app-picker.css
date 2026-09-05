@@ -1,7 +1,10 @@
-/* 应用范围选择器（14 文档 §4.6 第 3 项）。
+/* 应用范围选择器的弹层外壳（14 文档 §4.6 第 3 项）。
  *
- * 弹层而不是常驻网格：它只在切范围时出现，常驻会把筛选行下面一整屏都占掉。
- * 层级 50 与状态点浮层同档——它们都是"贴在筛选行上的临时面板"，都在抽屉(80)之下。 */
+ * **网格本身的样式在 app-grid.css**（17 文档 §4.4）：同一份网格在应用视图里是常驻面板，
+ * 在这里收进弹层。这个文件只剩触发器与弹层的几何。
+ *
+ * 弹层而不是常驻网格：它只在切范围时出现，常驻会把键盘那一屏的上半部分整个占掉。
+ * 层级 50 与状态点浮层同档——它们都是"贴在卡头上的临时面板"，都在抽屉(80)之下。 */
 .app-picker { position: relative; display: inline-flex; align-items: center; gap: var(--space-2); }
 
 .app-picker__trigger {
@@ -11,12 +14,14 @@
   max-width: 240px;
 }
 .app-picker__mark { display: inline-flex; width: 18px; height: 18px; flex: none; }
+.app-picker__mark .app-grid__icon,
+.app-picker__mark .app-grid__initial { width: 18px; height: 18px; }
 .app-picker__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .app-picker__panel {
   position: absolute;
   top: calc(100% + var(--space-2));
-  /* **右对齐**：选择器长在筛选行的右段，左对齐会让 600px 的弹层顶出视口右边——
+  /* **右对齐**：选择器长在卡头右段，左对齐会让 600px 的弹层顶出视口右边——
      那不只是被裁掉，还会给整页拉出一条横向滚动条。 */
   right: 0;
   z-index: 50;
@@ -28,83 +33,4 @@
   border-radius: var(--radius-md);
   background: var(--surface-card);
   box-shadow: var(--shadow-lg);
-}
-
-.app-picker__head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
-  flex-wrap: wrap;
-}
-.app-picker__head .search { flex: 1 1 180px; }
-
-/* 190px 下限来自 14 §4.6：再窄"应用名 + 副行"就要截断，而认名字是这个网格的第二线索。 */
-.app-picker__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: var(--space-2);
-}
-
-.app-picker__cell {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-  padding: var(--space-2);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--surface-card);
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-out),
-              border-color var(--duration-fast) var(--ease-out);
-}
-.app-picker__cell:hover { background: var(--surface-hover); }
-/* 选中态：底色 + 边框，不用勾。勾要额外一列宽度，而这一格只有 190px。 */
-.app-picker__cell[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: var(--accent-subtle);
-}
-
-.app-picker__icon,
-.app-picker__initial {
-  width: 30px;
-  height: 30px;
-  border-radius: var(--radius-xs);
-  flex: none;
-}
-.app-picker__icon { object-fit: contain; background: var(--surface-sunken); }
-.app-picker__initial {
-  display: grid;
-  place-items: center;
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
-  color: var(--text-inverse);
-  background: var(--bar-color, var(--cat-uncategorized));
-}
-
-.app-picker__copy { display: grid; min-width: 0; }
-.app-picker__label {
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.app-picker__meta {
-  font-size: var(--text-2xs);
-  font-family: var(--font-small);
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.app-picker__empty {
-  grid-column: 1 / -1;
-  padding: var(--space-4);
-  font-size: var(--text-sm);
-  color: var(--text-tertiary);
-  text-align: center;
 }

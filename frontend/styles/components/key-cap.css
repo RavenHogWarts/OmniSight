@@ -21,26 +21,25 @@
  * - 键盘托盘用 --surface-sunken 下沉一档，键面才有落点；否则零态键面与卡片同色，
  *   整块键盘会散成一堆浮空的描边（14 文档 §2.16）。
  */
-.keyboard-wrap {
-  overflow-x: auto;
-  padding: var(--space-3);
-  background: var(--key-tray);
-  border-radius: var(--radius-md);
-}
-
 .keyboard {
-  /* 下限 30px 而不是 26px：键面数值有 11px 的地板，--u 太小时它会被整个丢掉
-     （见 .key-cap__value 的 max()）。1440px 窗口下键盘一行是 23u + 22×0.14u。 */
-  --u: clamp(30px, 3.0vw, 46px);
-  --key-gap: calc(var(--u) * 0.14);
+  /* **定值 42px / 7px 间隙**（17 文档 §4.3，KeyTrace 的 `--u: 42px; --gap: 7px`）。
+     一行是 23u + 22gap = 1120px，加机身 padding 与边正好落在 1280px 的外壳里，不
+     横向滚动；比它更窄的窗口由 .keyboard-tray-scroll 横滚，前身也是这样。
+
+     定值而不是 clamp(vw) 的理由：键帽尺寸是这块界面的"物理尺度"，跟着视口连续缩放
+     会让同一台机器上每次开窗口大小不同、键帽也不同——而 D5 把键面数值的可读性钉在
+     42×0.27 = 11.3px 上，那条地板需要一个确定的 --u。 */
+  --u: 42px;
+  --key-gap: calc(var(--u) * 0.167);
   --pitch: calc(var(--u) + var(--key-gap));
   display: inline-flex;
   flex-direction: column;
   gap: var(--key-gap);
 }
 
-/* 紧凑档：优先让整块键盘不横向滚动，代价是键面数值可能装不下（14 文档 §4.4）。 */
-.keyboard[data-density="compact"] { --u: clamp(24px, 2.4vw, 34px); }
+/* 紧凑档：优先让整块键盘不横向滚动，代价是键面数值可能装不下（14 文档 §4.4）。
+   34px 是 TimeLens 的键宽。 */
+.keyboard[data-density="compact"] { --u: 34px; }
 
 .keyboard__row {
   display: flex;
@@ -102,7 +101,9 @@
 
 .key-cap__label {
   /* 11px 地板：全站最小字号。装不下时宁可不印，也不印成 8px（14 文档 §2.5）。 */
-  font-size: max(var(--text-2xs), calc(var(--u) * 0.26));
+  /* 系数 0.26 → 0.29（17 文档 §8 的 D5）：42×0.29 = 12.2px，正好是 KeyTrace 的
+     键名 12px，而 11px 地板一次都没触到。 */
+  font-size: max(var(--text-2xs), calc(var(--u) * 0.29));
   font-family: var(--font-small);
   line-height: 1.15;
   font-weight: var(--weight-medium);
@@ -114,7 +115,9 @@
 
 .key-cap__value {
   align-self: flex-end;
-  font-size: max(var(--text-2xs), calc(var(--u) * 0.21));
+  /* 系数 0.21 → 0.27（D5）：42×0.27 = 11.3px。定值 --u 之后键面数值常印，
+     不再需要「装不下就整体隐藏」那条退路——它仍然留着，给紧凑档与窄窗口。 */
+  font-size: max(var(--text-2xs), calc(var(--u) * 0.27));
   font-family: var(--font-small);
   font-variant-numeric: tabular-nums;
   opacity: .8;
@@ -198,8 +201,12 @@
 }
 .keyboard-table__scroll { max-height: 320px; overflow: auto; margin-top: var(--space-2); }
 
-@media (max-width: 767px) {
-  .keyboard { --u: 26px; }
+/* 窄于键盘外壳（`--shell-wide` 1280）时降到 34px = TimeLens 的键宽。
+   34 x 0.27 = 9.2px 会被 max() 托到 11px 地板，因此数值仍然印得出来，而整块键盘
+   在 1024px 的窗口里刚好不横滚——比"保住 42px 然后横滚"更好读。
+   再窄下去由 .keyboard-tray-scroll 横滚兜住，前身在那个宽度也是横滚。 */
+@media (max-width: 1279px) {
+  .keyboard { --u: 34px; }
 }
 
 /* 强制颜色模式：色阶整个失效（系统只给有限几个颜色），改用斜纹密度分档。 */

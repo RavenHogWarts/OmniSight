@@ -1,0 +1,66 @@
+/* 键盘机身（17 文档 §4.3 / §5.1，KeyTrace 的拟物机身）。
+ *
+ * 原先键盘坐在一块 `--key-tray` 的纯色下沉面上（TimeLens 的做法）。前身 KeyTrace 给
+ * 的是一整块**机身**：三段渐变的面、2px 边、4px 白描边、外圈光晕、内圈 1px 压线。
+ * 这一层是"像不像"的最大单一来源——它让键盘从"网页里的一块灰底"变成"桌上的一块板"。
+ *
+ * 五个视觉部件全部由现有令牌推导，没有引入任何新的十六进制色值（17 文档 §5.0）：
+ *
+ *   面    --tray-face-top/mid/bottom  浅色取灰阶三档，深色取三层表面（上亮下暗）
+ *   边    --tray-edge                 浅色再深一档，深色用 --border-strong
+ *   白棱  --key-gloss                 它本来就是"打在帽面上的光"这个用途
+ *   落影  --shadow-lg                 与卡片同一条影子
+ *   光晕  --tray-edge 兑 28% 透明      color-mix，因此跟着主题走
+ */
+.keyboard-tray-scroll {
+  overflow-x: auto;
+  padding: 6px 4px 18px;
+  /* 细滚动条：机身比视口宽时它一定会出现，粗滚动条会在机身下面压出一条黑边。 */
+  scrollbar-width: thin;
+}
+
+.keyboard-tray {
+  position: relative;
+  width: max-content;
+  min-width: 100%;
+  margin: 0 auto;
+  display: flex;
+  justify-content: center;
+  padding: 18px;
+  border: 2px solid var(--tray-edge);
+  border-radius: var(--radius-xl);
+  background: linear-gradient(
+    180deg,
+    var(--tray-face-top) 0%,
+    var(--tray-face-mid) 48%,
+    var(--tray-face-bottom) 100%
+  );
+  outline: 4px solid var(--key-gloss);
+  outline-offset: 2px;
+  box-shadow:
+    0 0 0 7px color-mix(in srgb, var(--tray-edge) 28%, transparent),
+    var(--shadow-lg),
+    inset 0 2px 0 var(--key-gloss);
+}
+
+/* 内圈压线（KeyTrace 的 `.keyboard::before`）。它把"面"与"边"之间又切了一道，
+   于是机身读起来是**注塑成型的一块**，而不是一张贴了边框的图。 */
+.keyboard-tray::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border: 1px solid color-mix(in srgb, var(--tray-edge) 55%, transparent);
+  border-radius: var(--radius-md);
+  pointer-events: none;
+}
+
+@media (max-width: 767px) {
+  .keyboard-tray { padding: 10px; outline-width: 2px; }
+  .keyboard-tray::before { inset: 4px; }
+}
+
+/* 强制颜色模式下渐变与光晕全部失效，只留边——那时机身就是一个方框，这没问题：
+   forced-colors 的用户要的是形状与边界，不是拟物。 */
+@media (forced-colors: active) {
+  .keyboard-tray { background: Canvas; outline: none; box-shadow: none; }
+}

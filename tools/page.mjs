@@ -1,7 +1,7 @@
 // 用无头浏览器读仪表盘：截图 + 可量化的版面报告（14 文档 §8.3）。
 //
 // 为什么需要它：14 文档 §8.3 那张"只能用眼睛确认的"清单里，有一半其实是可量化的——
-// 「键面数值要么 ≥11px 要么不印」「不横向溢出」「主列不超过 1240px」「1024/1280/1440/1920
+// 「键面数值要么 ≥11px 要么不印」「不横向溢出」「主列不超过 1244px」「1024/1280/1440/1920
 // 四档」「深浅两色」「强制颜色模式」「prefers-reduced-motion」。这些判据不需要眼睛，
 // 需要的是一个能读到 computed style 与 getBoundingClientRect 的浏览器。
 //
@@ -33,8 +33,9 @@ const VIEWS = ['overview', 'apps', 'keyboard', 'insights'];
 const WIDTHS = [1024, 1280, 1440, 1920];
 /** 14 文档 §2.5 P1-2：键面数字在常见窗口宽度下只有 7–9px，判据是"≥11px 或不印"。 */
 const MIN_FONT_PX = 11;
-/** 14 文档 §4.1 / §2.20：主列不该无限拉宽，正文行长会失控。 */
-const MAX_MAIN_PX = 1240;
+/** 主列不该无限拉宽，正文行长会失控。1244 = 17 文档 §4.1 的键盘/应用外壳
+ *  （`--shell-wide` 1280 减两侧 18px 装订线）；总览/洞察那一档只有 1044。 */
+const MAX_MAIN_PX = 1244;
 
 function parseArgs(argv) {
   const args = {
@@ -145,11 +146,23 @@ function auditInPage({ minFontPx, maxMainPx }) {
   const text = (el) => el.textContent.trim().replace(/\s+/g, ' ').slice(0, 48);
 
   /** 内容区是否真的分成了两列。只看 grid 的列模板，比数子元素靠得住。 */
-  const hasSideColumn = () => {
-    const host = document.querySelector('.main') || document.querySelector('main');
-    if (!host) return false;
+  /**
+   * 副列（17 文档 §4.1）。**分栏发生在内容区，不在外壳上**：四条控件带是居中定宽的，
+   * 它们不参与分栏，所以外壳始终是单列 flex。因此这里找的是带 `data-wide="side"`
+   * 的那一块（宽档里挪到副列的内容）所在的那个网格。
+   *
+   * 返回 null 表示这一屏**没有可放进副列的内容**——那时单列是正确行为，不是问题。
+   */
+  const sideColumn = () => {
+    const side = document.querySelector('[data-wide="side"]');
+    const host = side && side.parentElement;
+    if (!host) return null;
     const columns = getComputedStyle(host).gridTemplateColumns.trim().split(/\s+/);
-    return columns.length > 1;
+    return {
+      twoColumn: columns.length > 1,
+      // 主列宽度取网格第一列，而不是整个内容区——分栏后内容区含两列，量它没有意义。
+      mainPx: Math.round(Number.parseFloat(columns[0])) || 0,
+    };
   };
 
   const all = Array.from(document.querySelectorAll('body *')).filter(
@@ -186,7 +199,7 @@ function auditInPage({ minFontPx, maxMainPx }) {
     .map((el) => ({ selector: selectorFor(el), ...box(el) }));
 
   // 版面骨架：卡片与区块级容器。这是 agent 真正要看的那份结构。
-  const OUTLINE = '.app > header, .periodbar, main, #view-root > *, .card, section, .drawer, .modal';
+  const OUTLINE = '.utility-bar, .datebar, .rangebar, .viewbar, .metricbar, main, #view-root > *, .card, section, .drawer, .modal';
   const outline = Array.from(document.querySelectorAll(OUTLINE))
     .filter(shown)
     .slice(0, 80)
@@ -214,11 +227,19 @@ function auditInPage({ minFontPx, maxMainPx }) {
     horizontalOverflow: doc.scrollWidth > vw + 1,
     mainWidth,
     layoutMax,
-    // 超宽档：14 文档 §4.1 要求 ≥1790px 时内容区变两列（主列 ≤1240 + 副列 ≥660）。
-    // 窄于 1790 时单列铺满 --layout-max 是**正确行为**，不是问题。
-    ultrawide: vw >= 1790
-      ? { expectedMainPx: maxMainPx, mainOverWide: mainWidth > maxMainPx, twoColumn: hasSideColumn() }
-      : null,
+    // 超宽档：≥1790px 时内容区变两列（17 文档 §4.1，TimeLens 的断点）。窄于 1790 时
+    // 单列是**正确行为**；这一屏没有副列内容时也一样（`side` 为 null）。
+    ultrawide: (() => {
+      if (vw < 1790) return null;
+      const side = sideColumn();
+      const main = side ? side.mainPx : mainWidth;
+      return {
+        expectedMainPx: maxMainPx,
+        mainOverWide: main > maxMainPx,
+        mainPx: main,
+        twoColumn: side ? side.twoColumn : null,
+      };
+    })(),
     counts: { elements: all.length, cards: document.querySelectorAll('.card').length },
     tinyText: tinyText.slice(0, 40),
     clipped: clipped.slice(0, 40),
@@ -311,12 +332,13 @@ function summarize(result) {
     problems.push(`横向溢出：document 宽 ${result.document.scrollWidth} > 视口 ${result.viewport.width}`);
   }
   if (result.ultrawide) {
-    // 只在 ≥1790px 档判：那是 14 文档 §4.1 唯一要求双列的一档。
-    if (!result.ultrawide.twoColumn) {
-      problems.push(`超宽屏仍是单列（14 §4.1 要求 ≥1790px 分主列 + 副列）`);
+    // 只在 ≥1790px 档判，且只判**有副列内容的那一屏**（17 文档 §4.1：目前是总览）。
+    // twoColumn === null 表示这一屏没有 [data-wide="side"]，单列是正确的。
+    if (result.ultrawide.twoColumn === false) {
+      problems.push(`超宽屏仍是单列（17 §4.1 要求 ≥1790px 分主列 + 副列）`);
     }
     if (result.ultrawide.mainOverWide) {
-      problems.push(`主列 ${result.mainWidth}px 超过 ${result.ultrawide.expectedMainPx}px`);
+      problems.push(`主列 ${result.ultrawide.mainPx}px 超过 ${result.ultrawide.expectedMainPx}px`);
     }
   }
   for (const item of result.offscreen.slice(0, 5)) {

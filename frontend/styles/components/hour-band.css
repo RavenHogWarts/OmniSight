@@ -1,78 +1,103 @@
-/* 每小时应用图标带（16 文档 §A1）。
+/* 每小时应用图标带（16 文档 §A1、17 文档 §4.2）。前身 TimeLens 的 `.hourly-icon-list`：
+ * 它回答的是"那个小时我在干什么"，而柱状图只回答"多久"。
  *
- * 24 行固定在场，空行也留——"这一小时什么都没干"本身是信息，跳过它会让读者以为
- * 那一小时不存在。行高压到 26px：24 行必须能在一屏里看完，否则它就失去了"扫一眼
- * 就知道一天怎么过的"的意义。 */
+ * **几何逐格照抄前身**（`refer/TimeLens/src/static/style.css:393-465`）：单列 24 行、
+ * `54px + 1fr` 两列、列距 12px、行高 45px、每行一条上边线、图标 28px、`+N` 38×28。
+ * 色值与字号走我们的 token，不照抄前身的十六进制——那张色板过不了 WCAG 与深色主题两道
+ * 闸（14 文档 §3.1），而 12px/700、28px、45px 这些几何量与配色无关，可以逐字取。
+ *
+ * 24 行固定在场，空行也留——"这一小时什么都没干"本身是信息，跳过它会让读者以为那一小时
+ * 不存在。**每行一条上边线**让这 24 行读起来是一把梯子而不是一列洞：空行因此不必再画什
+ * 么记号，边线自己说明了"这一格在场且是空的"。（我们一度给空行画一道 12px 短横，那是因
+ * 为当时只有每 6 小时一条线，空行之间没有任何分界。）
+ *
+ * **首字母兜底用类别色**，与「所有使用」「应用」两处逐字一致。图标缺失在某些机器上是常
+ * 态（`capabilities.icons === false`），那时整块会退化成一片首字母方块——如果这里用中性
+ * 灰，同一个应用就会在「所有使用」里是红色 V、在这里是灰色 V，读者要么以为是两个应用，
+ * 要么以为其中一处坏了。前身用的是与数据无关的蓝渐变，这一处不学。颜色由 `data-category`
+ * 交给 bar.css 的 `--bar-color`，色值不在这个文件里第二次出现。
+ */
 .hour-band {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  /* 与「所有使用」同一张卡面（前身的 `.hourly-icon-list` 也是一张卡）。 */
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 4px 14px 12px;
 }
 
+/* 两列：小时 / 图标。**不加第三列**——前身没有，而"这一小时多久"每一枚图标的悬浮里都
+   有；通栏一行里再挂一个右端数字，会把 24 行读成一张表格而不是一条时间线。 */
 .hour-band__row {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: var(--space-3);
   align-items: center;
-  gap: var(--space-2);
-  min-height: 26px;
-  border-radius: var(--radius-xs);
+  min-height: 45px;
+  border-top: 1px solid var(--border-subtle);
 }
-.hour-band__row:hover { background: var(--surface-hover); }
-/* 没有记录的小时：标签压淡、行压矮，但**仍然在场**——空行是"那一小时什么都没干"，
-   而不是"那一小时不存在"。压矮只是让有内容的行自己浮出来。 */
-.hour-band__row[data-empty="true"] { min-height: 18px; }
-.hour-band__row[data-empty="true"] .hour-band__hour { color: var(--text-tertiary); }
+.hour-band__row:first-child { border-top: 0; }
 
+/* 小时刻度。前身是 12px/700 左对齐——**左对齐**在 24 行里比右对齐好读：每行的第一个字
+   符落在同一条竖线上，眼睛顺着它往下走。等宽数字让 `09:00` 与 `21:00` 一样宽。 */
 .hour-band__hour {
-  font-size: var(--text-2xs);
+  font-size: var(--text-xs);
   font-family: var(--font-small);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
-  text-align: right;
 }
 
+/* `flex-wrap: wrap` 是兜底而不是常态：容量由 JS 按实测宽度算（HourBand.tsx 的
+   `ICON_SLOT`），装不下的折进 `+N`。真正会换行的只有一种情况——ResizeObserver 还没回调
+   的那一帧窗口被拖窄了，那时宁可折一行也不要横向溢出把卡面撑破。 */
 .hour-band__apps {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-2);
   min-width: 0;
-  overflow: hidden;
+  padding: 7px 0;
 }
 
 .hour-band__app {
   display: inline-flex;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   flex: none;
 }
-.hour-band__icon {
-  width: 26px;
-  height: 26px;
-  border-radius: var(--radius-xs);
-  object-fit: contain;
-  background: var(--surface-sunken);
-}
+.hour-band__icon,
 .hour-band__initial {
-  width: 26px;
-  height: 26px;
-  border-radius: var(--radius-xs);
+  width: 28px;
+  height: 28px;
+  /* 6px ≈ 边长的 21%（前身 7px/25%）。4px 读起来像色块，而这里画的是一枚应用图标。 */
+  border-radius: var(--radius-sm);
+}
+.hour-band__icon { object-fit: contain; background: var(--surface-sunken); }
+.hour-band__initial {
   display: grid;
   place-items: center;
-  font-size: var(--text-2xs);
-  font-weight: var(--weight-semibold);
+  font-size: var(--text-xs);
+  font-family: var(--font-small);
+  font-weight: var(--weight-bold);
   color: var(--text-inverse);
   background: var(--bar-color, var(--cat-uncategorized));
 }
 
-/* `+N`：装不下的与后端 top 之外的合成一格，hover 报它们的合计时长。 */
+/* `+N`：装不下的与后端 top 之外的合成一格，hover 报它们的合计时长。定宽 38px（前身同
+   值）——它在每一行的同一个位置结束，于是"这一行还有没有省略"一眼可辨。 */
 .hour-band__more {
   display: inline-flex;
   align-items: center;
-  height: 26px;
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-xs);
+  justify-content: center;
+  width: 38px;
+  height: 28px;
+  border-radius: var(--radius-sm);
   flex: none;
-  font-size: var(--text-2xs);
+  font-size: var(--text-xs);
   font-family: var(--font-small);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
   background: var(--surface-sunken);
 }
