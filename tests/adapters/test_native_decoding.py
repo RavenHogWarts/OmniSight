@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from omnisight.adapters.macos import keymap_native as macos_native
 from omnisight.adapters.windows import keymap_native as windows_native
 
 NATIVE_FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "native_events"
@@ -45,8 +46,31 @@ def _decode_windows(events: Iterable[dict]) -> list[Decoded]:
     return decoded
 
 
+def _decode_macos(events: Iterable[dict]) -> list[Decoded]:
+    """修饰键的"上一状态"由解码器这边维护——生产里同一份状态在 event tap 的事件泵里。
+
+    状态留在泵里、解码保持纯函数，与 Windows 版的分工一致（19 文档 §2.3：
+    flags 位左右共用，重叠区判不出方向，必须结合 keycode 的上一状态）。
+    """
+    decoded: list[Decoded] = []
+    held: set[int] = set()
+    for event in events:
+        keycode = _as_int(event["keycode"])
+        event_type = _as_int(event["type"])
+        key_id, _usage, is_down = macos_native.resolve(
+            keycode,
+            event_type,
+            _as_int(event.get("flags", 0)),
+            previous_held=keycode in held,
+        )
+        if event_type == macos_native.EVENT_FLAGS_CHANGED:
+            (held.add if is_down else held.discard)(keycode)
+        decoded.append((key_id, is_down))
+    return decoded
+
+
 #: M8/M9 在这里各加一行，自己的 fixture 就自动被全部用例覆盖。
-DECODERS: dict[str, Decoder] = {"windows": _decode_windows}
+DECODERS: dict[str, Decoder] = {"windows": _decode_windows, "macos": _decode_macos}
 
 
 def decoder_for(platform_id: str) -> Decoder:

@@ -1,0 +1,24 @@
+{
+  "platform": "macos",
+  "description": "左右修饰键必须分开：flags 位左右共用，区分靠 keycode。重叠区（两颗同按再放开其一）flags 位不变，判定要结合该 keycode 的上一状态",
+  "events": [
+    {"keycode": "0x37", "type": "0xC", "flags": "0x100000"},
+    {"keycode": "0x36", "type": "0xC", "flags": "0x100000"},
+    {"keycode": "0x37", "type": "0xC", "flags": "0x100000"},
+    {"keycode": "0x36", "type": "0xC", "flags": "0x0"},
+    {"keycode": "0x38", "type": "0xC", "flags": "0x20000"},
+    {"keycode": "0x3C", "type": "0xC", "flags": "0x20000"},
+    {"keycode": "0x38", "type": "0xC", "flags": "0x20000"},
+    {"keycode": "0x3C", "type": "0xC", "flags": "0x0"}
+  ],
+  "expected": [
+    ["win_left", true],
+    ["win_right", true],
+    ["win_left", false],
+    ["win_right", false],
+    ["shift_left", true],
+    ["shift_right", true],
+    ["shift_left", false],
+    ["shift_right", false]
+  ]
+}

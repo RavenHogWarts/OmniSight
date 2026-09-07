@@ -19,6 +19,7 @@ import pytest
 
 from omnisight.adapters import hid
 from omnisight.adapters.generic import pynput_keys
+from omnisight.adapters.macos import keymap_native as macos_native
 from omnisight.adapters.windows import keymap_native as windows_native
 from omnisight.capture.keymap import KEY_BY_ID, KEY_IDS, KEYS, is_known, label_for
 
@@ -42,11 +43,25 @@ def _generic_key_ids() -> set[str]:
     }
 
 
+def _macos_key_ids() -> set[str]:
+    """macOS 表是 ``kVK → HID``，与 Windows 同一跳数。"""
+    usages = set(macos_native.KVK_TO_HID.values())
+    return {key_id for key_id in map(hid.key_id_for_hid, usages) if key_id}
+
+
 #: 各平台的"能到达哪些 key_id"。M8/M9 在这里加一行即可被全部结构性测试覆盖。
 NATIVE_TABLES: dict[str, set[str]] = {
     "windows": _windows_key_ids(),
+    "macos": _macos_key_ids(),
     "generic": _generic_key_ids(),
 }
+
+#: macOS 键盘**物理上没有**的键。它们仍留在 ``KEY_IDS``（外接 PC 键盘、旧数据都
+#: 可能有），由 Windows 表负责可达性：PrtSc/ScrLk/Pause/Menu 与 F21~F24 在 kVK
+#: 空间里不存在等价物（19 文档 §3.1）。
+KNOWN_MACOS_GAPS = frozenset(
+    {"print_screen", "scroll_lock", "pause", "menu", *(f"f{index}" for index in range(21, 25))}
+)
 
 #: 兜底后端**结构性**拿不到的键，理由各不相同，但都不是 bug：
 #:
@@ -127,6 +142,13 @@ def test_generic_backend_gaps_are_exactly_the_documented_ones():
 def test_windows_backend_has_no_gaps():
     """一级平台不允许有缺口——Raw Input 拿得到全部物理位置。"""
     assert KEY_IDS - NATIVE_TABLES["windows"] == set()
+
+
+def test_macos_backend_gaps_are_exactly_the_missing_hardware():
+    """macOS 的缺口只能是"键盘上没有的键"；多一个是漏表，少一个是想当然。"""
+    assert KEY_IDS - NATIVE_TABLES["macos"] == KNOWN_MACOS_GAPS
+    # numpad_equal 首次有平台能报出（此前它在 KNOWN_GENERIC_GAPS 里，谁也到不了）。
+    assert "numpad_equal" in NATIVE_TABLES["macos"]
 
 
 def test_unknown_key_id_is_returned_as_is_not_crashing():

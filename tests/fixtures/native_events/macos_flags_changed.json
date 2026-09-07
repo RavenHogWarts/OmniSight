@@ -1,0 +1,24 @@
+{
+  "platform": "macos",
+  "description": "修饰键没有 KeyDown/KeyUp，只有 FlagsChanged：按下/抬起由 flags 位与上一状态合成；Caps Lock 的位是锁定状态，开=按下、关=抬起",
+  "events": [
+    {"keycode": "0x3B", "type": "0xC", "flags": "0x40000"},
+    {"keycode": "0x3B", "type": "0xC", "flags": "0x0"},
+    {"keycode": "0x3A", "type": "0xC", "flags": "0x80000"},
+    {"keycode": "0x3A", "type": "0xC", "flags": "0x0"},
+    {"keycode": "0x39", "type": "0xC", "flags": "0x10000"},
+    {"keycode": "0x39", "type": "0xC", "flags": "0x0"},
+    {"keycode": "0x3E", "type": "0xC", "flags": "0x40000"},
+    {"keycode": "0x3E", "type": "0xC", "flags": "0x0"}
+  ],
+  "expected": [
+    ["control_left", true],
+    ["control_left", false],
+    ["alt_left", true],
+    ["alt_left", false],
+    ["caps_lock", true],
+    ["caps_lock", false],
+    ["control_right", true],
+    ["control_right", false]
+  ]
+}

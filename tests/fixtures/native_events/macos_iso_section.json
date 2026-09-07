@@ -1,0 +1,16 @@
+{
+  "platform": "macos",
+  "description": "ISO 键盘第 102 键（kVK_ISO_Section 0x0A）必须落到 iso_backslash——pynput 兜底后端认不出它，这正是 event tap 的价值之一",
+  "events": [
+    {"keycode": "0x0A", "type": "0xA", "flags": "0x0"},
+    {"keycode": "0x0A", "type": "0xB", "flags": "0x0"},
+    {"keycode": "0x00", "type": "0xA", "flags": "0x0"},
+    {"keycode": "0x00", "type": "0xB", "flags": "0x0"}
+  ],
+  "expected": [
+    ["iso_backslash", true],
+    ["iso_backslash", false],
+    ["key_a", true],
+    ["key_a", false]
+  ]
+}

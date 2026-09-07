@@ -1,0 +1,28 @@
+{
+  "platform": "macos",
+  "description": "小键盘全套：数字不与主键区相撞；KeypadEquals 是苹果键盘独有的 = 键（KNOWN_GENERIC_GAPS 里 pynput 认不出的那个）；Clear 与 NumLock 在 HID 里本是同一个 usage (0x53)",
+  "events": [
+    {"keycode": "0x47", "type": "0xA", "flags": "0x0"},
+    {"keycode": "0x47", "type": "0xB", "flags": "0x0"},
+    {"keycode": "0x59", "type": "0xA", "flags": "0x0"},
+    {"keycode": "0x59", "type": "0xB", "flags": "0x0"},
+    {"keycode": "0x1A", "type": "0xA", "flags": "0x0"},
+    {"keycode": "0x1A", "type": "0xB", "flags": "0x0"},
+    {"keycode": "0x51", "type": "0xA", "flags": "0x0"},
+    {"keycode": "0x51", "type": "0xB", "flags": "0x0"},
+    {"keycode": "0x4C", "type": "0xA", "flags": "0x0"},
+    {"keycode": "0x4C", "type": "0xB", "flags": "0x0"}
+  ],
+  "expected": [
+    ["num_lock", true],
+    ["num_lock", false],
+    ["numpad_7", true],
+    ["numpad_7", false],
+    ["digit7", true],
+    ["digit7", false],
+    ["numpad_equal", true],
+    ["numpad_equal", false],
+    ["numpad_enter", true],
+    ["numpad_enter", false]
+  ]
+}
