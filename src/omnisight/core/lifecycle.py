@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import signal
+import sys
 import threading
 import time
 import webbrowser
@@ -698,8 +699,10 @@ class Lifecycle:
             available=runtime.capabilities.tray,
         )
         runtime.tray = tray
-        if not runtime.capabilities.tray:
+        if not runtime.capabilities.tray and sys.stdout is not None:
             # 没有托盘时这是用户唯一能看到访问地址的地方（10 文档 §5.1）。
+            # macOS 的 --windowed 包里 stdout 是 None：这一行不守卫，"无托盘"模式
+            # 会在启动的最后一步崩掉，而崩的位置看起来与托盘毫无关系。
             print(f"OmniSight 正在运行：{runtime.config.dashboard_url(runtime.token)}")
         return tray
 
