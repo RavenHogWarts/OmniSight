@@ -111,3 +111,33 @@ jobs:
             # --verify-tag：tag 必须已经在远端存在，否则 gh 会顺手从默认分支建一个。
             gh release create $env:TAG --verify-tag $meta $assets
           }
+
+  # ── macOS：构建能过 + 全部平台无关测试（20 文档 C2）───────────────────
+  # 与 release job 并列、同样只由 tag 触发（仓库决定无常驻 CI，偏离 151）。
+  # **不需要任何签名 secrets**：自签名私钥不进 CI——这个 job 只验证"构建能过
+  # 与测试全绿"，产物不用于分发；实际发布的 tar.gz 在本机用固定身份签完再上传
+  # （19 文档 §4.4）。
+  macos:
+    runs-on: macos-latest
+    env:
+      PYTHONIOENCODING: utf-8
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # requirements-dev 已含 requirements（三条 pyobjc 带 darwin 环境标记，直接
+      # 可用）；optional 里的 pynput 是 mac 的兜底键盘后端。
+      - run: pip install -r requirements-dev.txt -r requirements-optional.txt
+
+      # 10 文档 §11.1 兑现的那一条：非 Windows 上跑测试是「核心层真的不依赖
+      # Win32」这一架构主张的唯一持续证据——A1/A3/A4 那类"在 Windows 上跑测试
+      # 永远发现不了"的缺口，正是靠这条线拦住的。
+      - run: python -m pytest tests/ -m "not windows_only" -q
+
+      # 前端用版本库里提交的产物（没装 Node 时 build.py 的回退路径），因此这个
+      # job 不需要 pnpm；发布产物里的前端仍由 release job 在构建时现场重编。
+      - run: python tools/build.py

@@ -552,7 +552,7 @@ def test_against_a_real_repository(tmp_path: Path):
 
 
 def test_there_is_exactly_one_workflow_and_it_only_releases():
-    """**只有一条流水线，而它只做发布该做的事。**
+    """**只有一条流水线，而它的发布 job 只做发布该做的事。**
 
     这件事反复过两轮：10 文档 §11.1 为省额度移除了常驻 CI；15 文档 §9 因为"产物提交进
     版本库"把它加回来；现在又去掉了，并且连发布流水线里的测试与静态检查一起去掉。理由
@@ -564,20 +564,27 @@ def test_there_is_exactly_one_workflow_and_it_only_releases():
     发布物里的前端由 `build.py --release` 现场用 Vite 重新构建（见下一条），因此**发出去
     的 EXE 不会带过期前端**——过期只会留在版本库里。
 
-    这条用例的作用是让"又悄悄加回一条流水线"和"又悄悄塞进一道 pytest"都得先改它。
+    **唯一的例外是 macos job**（M9，20 文档 C2）：非 Windows 上跑
+    ``pytest -m "not windows_only"`` 是「核心层真的不依赖 Win32」这一架构主张的
+    唯一持续证据（10 文档 §11.1 写明欠的就是这条）。这条用例的作用因此是：往
+    **发布 job** 里塞检查、或"又悄悄加回一条流水线"，都得先改它。
     """
     workflows = sorted(path.name for path in (ROOT / ".github" / "workflows").glob("*.yml"))
     assert workflows == ["release.yml"], workflows
     text = _workflow()
+    # macos job（含它被许可的那一条平台无关 pytest）从文本尾部切开单独检查。
+    head, _, macos = text.partition("  macos:")
+    assert macos, "macos job 不见了——非 Windows 的持续验证就靠它（20 文档 C2）"
+    assert 'python -m pytest tests/ -m "not windows_only" -q' in macos
     for absent in (
         "ruff check .",
-        "python -m pytest",
         "check_frontend.py",
         "check_types.py",
         "check_bundle.py",
         "pull_request",
     ):
-        assert absent not in text, f"发布流水线里不该有 {absent}"
+        assert absent not in text, f"流水线里不该有 {absent}"
+    assert "python -m pytest" not in head, "发布 job 里不许有测试（10 文档 §11.1）"
 
 
 def test_the_only_check_left_is_a_distribution_obligation():
