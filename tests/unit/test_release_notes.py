@@ -591,7 +591,11 @@ def test_there_is_exactly_one_workflow_and_it_only_releases():
     build_text = _effective_text(BUILD_WORKFLOW)
     assert "pull_request:" in build_text, "build.yml 的存在意义就是 PR 触发（偏离 156）"
     assert "runs-on: windows-latest" in build_text
-    assert "runs-on: macos-latest" in build_text
+    # mac 双架构矩阵：arm64（macos-latest）+ x86_64（macos-15-intel，Windows 宿主上的
+    # 虚拟机是 x86_64）。universal2 被 binary 依赖的 wheel 选择挡着（PROGRESS M9）。
+    assert "macos-latest" in build_text and "macos-15-intel" in build_text
+    assert "${{ matrix.arch }}" in build_text, "产物名必须带架构后缀区分"
+    assert "retention-days: 1" in build_text, "PR 产物 24 小时过期——它是待验证件，不是存档"
     assert "upload-artifact" in build_text, "产物要走 artifact 下载，不建 Release"
     assert "contents: read" in build_text, "PR 流水线只读——发布写权限只属于 release.yml"
     # 测试与静态检查一条都不进 PR 流水线（同一决定，同一条边界）。

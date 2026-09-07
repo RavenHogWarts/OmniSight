@@ -50,12 +50,28 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: OmniSight-windows
+          # PR 产物 24 小时过期：它是给"这轮改动马上要人工验证"用的，不是存档。
+          retention-days: 1
           path: |
             dist/OmniSight-portable.zip
             dist/OmniSight-portable.zip.sha256
 
+  # **双架构矩阵**：arm64（macos-latest 已是 Apple Silicon 镜像）+ x86_64
+  # （macos-15-intel；Windows 宿主上的 macOS 虚拟机只能是 x86_64）。universal2
+  # 是更好的长期形态，但被 binary 依赖的 wheel 选择问题挡着（pip 在 arm64 上
+  # 优先装 arm64-only wheel，--target-arch=universal2 会在 lipo 阶段失败），
+  # 记账在 PROGRESS M9。
   macos:
-    runs-on: macos-latest
+    strategy:
+      # 一个架构失败不该连坐另一个（它们验证的是同一份代码的不同编译目标）。
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-latest
+          - arch: x64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
     env:
       PYTHONIOENCODING: utf-8
     timeout-minutes: 30
@@ -79,15 +95,16 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # --release 走完整的 mac 组装（.app → tar.gz + sha256）：这也顺带在真
-      # macOS 上持续验证 C1 的组装路径本身。CI 不配置签名身份（自签名私钥不进
-      # CI，19 文档 §4.4）——artifact 是 ad-hoc 签名，TCC 授权不跨构建存活，
-      # 属预期：测试机每次重新授权，或按 docs/macos-build.md 固定一个本地身份。
-      - run: python tools/build.py --release
+      # 不走 --release：PR 产物直接带 .app，不再套 tar.gz——artifact 下载解压
+      # 一次即得可运行的 .app（upload-artifact 本身就是 zip，tar.gz 只会多一层
+      # 解包）。tar.gz 形态留给正式分发（cask 消费 tarball）。CI 不配置签名身份
+      # （自签名私钥不进 CI，19 文档 §4.4）——artifact 是 ad-hoc 签名，TCC 授权
+      # 不跨构建存活，属预期：测试机每次重新授权，或按 docs/macos-build.md
+      # 固定一个本地身份。
+      - run: python tools/build.py
 
       - uses: actions/upload-artifact@v4
         with:
-          name: OmniSight-macos
-          path: |
-            dist/OmniSight-macos.tar.gz
-            dist/OmniSight-macos.tar.gz.sha256
+          name: OmniSight-macos-${{ matrix.arch }}
+          retention-days: 1
+          path: dist/OmniSight.app

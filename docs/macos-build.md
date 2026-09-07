@@ -5,24 +5,38 @@
 > B4–B7 的采集适配器未实现），见 `dev/PROGRESS.md` 的 M9 节——本文同时写清
 > "现在能测到什么、测不到什么"。
 
+## 架构说明（选哪个产物）
+
+mac 的 CI 产物分两种架构，名字带后缀：
+
+- `OmniSight-macos-x64` —— Intel。Windows 宿主上的 macOS 虚拟机是 x86_64，**选这个**；
+- `OmniSight-macos-arm64` —— Apple Silicon（M 系列真机 / ARM 虚拟机）。
+
+不确定自己的机器是什么架构时：
+
+```sh
+uname -m    # x86_64 = Intel（或 Rosetta 下的终端）；arm64 = Apple Silicon
+```
+
+选错架构的症状就是那张"你无法打开应用程序'OmniSight'，因为这台 Mac 不支持此
+应用程序"的弹窗（图标带禁止符号）。universal2（双架构合一）是更好的长期形态，
+但被 Pillow 等 binary 依赖的 wheel 选择问题挡着——记账在 `dev/PROGRESS.md` 的
+M9 节，解决后可以合并回一个产物。
+
 ## 路线 A（推荐）：下载 CI 构建的包
 
-仓库有两条流水线，分工见 `release.yml` 与 `build.yml` 的头注释：
-
 1. 开一个 PR（或对任意分支手动跑 **Actions → Build → Run workflow**）；
-2. 等 `windows` 与 `macos` 两个 job 变绿；
-3. 在运行页底部 **Artifacts** 下载：
-   - `OmniSight-macos` —— `OmniSight-macos.tar.gz`（内含 `OmniSight.app`）+ `.sha256`；
-   - `OmniSight-windows` —— 便携 zip + `.sha256`；
-4. 在虚拟机里：
+2. 等 `windows` 与 `macos`（arm64 / x64 两个矩阵项）变绿；
+3. 在运行页底部 **Artifacts** 按架构下载 `OmniSight-macos-x64`（或 `-arm64`）；
+4. 在虚拟机里解压下载到的 zip——**里面直接就是 `OmniSight.app`**，不用再解 tar：
 
 ```sh
 cd ~/Downloads
-shasum -a 256 OmniSight-macos.tar.gz   # 与 .sha256 的内容比对
-tar xzf OmniSight-macos.tar.gz
-open OmniSight.app                      # 或拖进「应用程序」后再打开
+unzip OmniSight-macos-x64.zip -d OmniSight-macos
+open OmniSight-macos/OmniSight.app     # 或拖进「应用程序」后再打开
 ```
 
+产物只保留 **24 小时**（它是待验证件，不是存档），过期就重新跑一次流水线。
 CI 产物只带链接器的 **ad-hoc 签名**（自签名私钥不进 CI），因此每次下载的包
 都要重新给一次「输入监控」授权。嫌烦就走下面的"固定签名身份"，或改用路线 B。
 

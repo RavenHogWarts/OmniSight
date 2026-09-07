@@ -117,8 +117,10 @@ jobs:
   # **不需要任何签名 secrets**：自签名私钥不进 CI——这个 job 只验证"构建能过
   # 与测试全绿"，产物不用于分发；实际发布的 tar.gz 在本机用固定身份签完再上传
   # （19 文档 §4.4）。
+  # Intel runner（与 build.yml 的 macos job 同一条理由：用户的测试虚拟机是
+  # x86_64，arm64 产物在它上面跑不起来；x86_64 产物两边都能跑——ARM 经 Rosetta）。
   macos:
-    runs-on: macos-latest
+    runs-on: macos-15-intel
     env:
       PYTHONIOENCODING: utf-8
     timeout-minutes: 30
