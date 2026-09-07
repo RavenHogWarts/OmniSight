@@ -12,6 +12,20 @@ name: Build
 on:
   pull_request:
   workflow_dispatch:
+    # 手动运行时可以只勾要构建的目标（PR 时三者全建，勾选只对手动运行生效）。
+    inputs:
+      windows:
+        description: 构建 Windows 便携包
+        type: boolean
+        default: true
+      macos_arm64:
+        description: 构建 macOS arm64（Apple Silicon）
+        type: boolean
+        default: true
+      macos_x64:
+        description: 构建 macOS x64（Intel / 虚拟机）
+        type: boolean
+        default: true
 
 # 只读：这条流水线不上传 Release、不需要写权限。
 permissions:
@@ -19,6 +33,8 @@ permissions:
 
 jobs:
   windows:
+    # PR 全建；手动运行时按勾选取舍（pull_request 事件没有 inputs 上下文）。
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.windows }}
     runs-on: windows-latest
     env:
       # 与 release.yml 同一条理由：runner 的管道 stdout 按 locale 挑编码，
@@ -62,6 +78,8 @@ jobs:
   # 优先装 arm64-only wheel，--target-arch=universal2 会在 lipo 阶段失败），
   # 记账在 PROGRESS M9。
   macos:
+    # PR 全建；手动运行时按勾选跳过对应架构（被跳过的矩阵项显示为 Skipped）。
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs[matrix.want] }}
     strategy:
       # 一个架构失败不该连坐另一个（它们验证的是同一份代码的不同编译目标）。
       fail-fast: false
@@ -69,8 +87,10 @@ jobs:
         include:
           - arch: arm64
             runner: macos-latest
+            want: macos_arm64
           - arch: x64
             runner: macos-15-intel
+            want: macos_x64
     runs-on: ${{ matrix.runner }}
     env:
       PYTHONIOENCODING: utf-8
@@ -95,16 +115,19 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # 不走 --release：PR 产物直接带 .app，不再套 tar.gz——artifact 下载解压
-      # 一次即得可运行的 .app（upload-artifact 本身就是 zip，tar.gz 只会多一层
-      # 解包）。tar.gz 形态留给正式分发（cask 消费 tarball）。CI 不配置签名身份
-      # （自签名私钥不进 CI，19 文档 §4.4）——artifact 是 ad-hoc 签名，TCC 授权
-      # 不跨构建存活，属预期：测试机每次重新授权，或按 docs/macos-build.md
+      # --release 出 tar.gz（名字带架构后缀）。**不要改成直接上传 .app 目录**：
+      # upload-artifact 的 LCA 规则会剥掉 OmniSight.app 这层包装（解压出来是裸的
+      # Contents/），且不走 gzip——同一个包大出几十 MB。artifact 下载自带一层
+      # GitHub 的 zip 包装（平台行为，去不掉），里面就是 tar.gz 与它的 .sha256。
+      # CI 不配置签名身份（自签名私钥不进 CI，19 文档 §4.4）——ad-hoc 签名，TCC
+      # 授权不跨构建存活，属预期：测试机每次重新授权，或按 docs/macos-build.md
       # 固定一个本地身份。
-      - run: python tools/build.py
+      - run: python tools/build.py --release
 
       - uses: actions/upload-artifact@v4
         with:
           name: OmniSight-macos-${{ matrix.arch }}
           retention-days: 1
-          path: dist/OmniSight.app
+          path: |
+            dist/OmniSight-macos-*.tar.gz
+            dist/OmniSight-macos-*.tar.gz.sha256

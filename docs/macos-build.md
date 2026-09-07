@@ -25,15 +25,18 @@ M9 节，解决后可以合并回一个产物。
 
 ## 路线 A（推荐）：下载 CI 构建的包
 
-1. 开一个 PR（或对任意分支手动跑 **Actions → Build → Run workflow**）；
-2. 等 `windows` 与 `macos`（arm64 / x64 两个矩阵项）变绿；
+1. 开一个 PR，或对任意分支手动跑 **Actions → Build → Run workflow**——手动运行时
+   可以只勾要构建的目标（比如只勾"构建 macOS x64"，省下另外两条 runner 时间）；
+2. 等对应 job 变绿；
 3. 在运行页底部 **Artifacts** 按架构下载 `OmniSight-macos-x64`（或 `-arm64`）；
-4. 在虚拟机里解压下载到的 zip——**里面直接就是 `OmniSight.app`**，不用再解 tar：
+4. 下载得到的是 GitHub 的 artifact 包装 zip（平台行为，去不掉），**里面是
+   `OmniSight-macos-<架构>.tar.gz` 与它的 `.sha256`**：
 
 ```sh
 cd ~/Downloads
-unzip OmniSight-macos-x64.zip -d OmniSight-macos
-open OmniSight-macos/OmniSight.app     # 或拖进「应用程序」后再打开
+unzip OmniSight-macos-x64.zip
+tar xzf OmniSight-macos-x64.tar.gz
+open OmniSight.app                      # 或拖进「应用程序」后再打开
 ```
 
 产物只保留 **24 小时**（它是待验证件，不是存档），过期就重新跑一次流水线。
