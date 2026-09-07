@@ -104,6 +104,34 @@ def test_default_family_is_defined_for_every_platform(platform_id: str, family: 
     assert layouts.default_family(platform_id) == family
 
 
+def test_mac_families_label_the_physical_slots_in_mac_terms():
+    """Mac 的键盘图上，修饰键行的格子必须画成 ⌘/⌥/⌃/⇧ 而不是 Win/Alt（19 文档 §3.1）。
+
+    只覆盖显示：``id`` 仍是 ``win_left``——它是 ``agg_*`` 的主键，两个平台上
+    同一个物理格子必须算同一个键。
+    """
+    payload = layouts.FAMILIES["mac_ansi"].to_dict(source="default")
+    slots = {slot["id"]: slot for row in payload["rows"] for slot in row if "label" in slot}
+    assert slots["win_left"]["label"] == "⌘"
+    assert slots["win_right"]["label"] == "⌘"
+    assert slots["alt_left"]["label"] == "⌥"
+    assert slots["control_left"]["label"] == "⌃"
+    assert slots["shift_right"]["label"] == "⇧"
+    assert slots["backspace"]["label"] == "⌫"
+    assert slots["enter"]["label"] == "return"
+    assert slots["caps_lock"]["label"] == "⇪"
+    assert slots["win_left"]["id"] == "win_left"
+
+
+def test_pc_families_keep_the_pc_labels():
+    """覆盖表按族查：ansi104/iso105 没有条目，回落 keymap 的原标签。"""
+    for family in ("ansi104", "iso105"):
+        payload = layouts.FAMILIES[family].to_dict(source="default")
+        slots = {slot["id"]: slot for row in payload["rows"] for slot in row if "label" in slot}
+        assert slots["win_left"]["label"] == "Win", family
+        assert slots["backspace"]["label"] == "Backspace", family
+
+
 def test_all_layout_key_ids_is_the_union_of_the_families():
     union = set()
     for family in layouts.IMPLEMENTED_FAMILIES:

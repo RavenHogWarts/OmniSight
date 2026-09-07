@@ -35,10 +35,13 @@ class KeySlot:
     #: 倍数"表达。只为这一个键留一个形状标记，不引入通用多边形机制（06 文档 §7.1）。
     shape: str | None = None
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self, labels: dict[str, str] | None = None) -> dict[str, object]:
+        """``labels`` 是按布局族的标签覆盖表（见 :data:`_LABEL_OVERRIDES`）——
+        只改这一格显示成什么，**不动 ``id``**：数据库里那个物理格子永远叫
+        ``win_left``，无论它此刻被画成 ⌘ 还是 Win。"""
         payload: dict[str, object] = {"id": self.id, "w": self.w}
         if self.id != GAP:
-            payload["label"] = keymap.label_for(self.id)
+            payload["label"] = (labels or {}).get(self.id) or keymap.label_for(self.id)
         if self.h != 1.0:
             payload["h"] = self.h
         if self.shape:
@@ -78,12 +81,16 @@ class Layout:
         return max(sum(slot.w for slot in row) for row in self.rows)
 
     def to_dict(self, *, source: str) -> dict[str, object]:
+        labels = _LABEL_OVERRIDES.get(self.family)
         return {
             "family": self.family,
             "name": self.name,
             "source": source,
             "unit_hint": {"rows": len(self.rows), "max_units": self.max_units},
-            "rows": [[slot.to_dict() for slot in row] for row in self.rows],
+            "rows": [
+                [slot.to_dict(labels) for slot in row]
+                for row in self.rows
+            ],
         }
 
 
@@ -325,6 +332,24 @@ MAC_ISO = Layout(
         _MAC_MODIFIER_ROW,
     ),
 )
+
+
+#: 按布局族覆盖标签（19 文档 §3.1 的"方案二"）。**只覆盖显示，不动 ``key_id``**：
+#: HID 的 GUI 键在 ``key_id`` 层面叫 ``win_left``——它是 ``agg_*`` 表的主键，改名等于
+#: 数据迁移，且同一个物理键在两个系统上会算成两个键；而在 Mac 的键盘图上它必须画成
+#: ⌘，否则用户会在自己的键盘上看到两个 "Win"。PC 族没有条目，回落
+#: ``keymap.label_for``。
+_MAC_LABELS: dict[str, str] = {
+    "win_left": "⌘", "win_right": "⌘",
+    "alt_left": "⌥", "alt_right": "⌥",
+    "control_left": "⌃", "control_right": "⌃",
+    "shift_left": "⇧", "shift_right": "⇧",
+    "backspace": "⌫", "enter": "return", "caps_lock": "⇪",
+}
+_LABEL_OVERRIDES: dict[str, dict[str, str]] = {
+    "mac_ansi": _MAC_LABELS,
+    "mac_iso": _MAC_LABELS,
+}
 
 
 #: 已实现的布局族。配置的取值范围更宽（含 M8 的 ``tkl87``），但设置页只应列出
