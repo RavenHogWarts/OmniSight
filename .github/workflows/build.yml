@@ -1,0 +1,93 @@
+name: Build
+
+# PR 触发的双平台打包（偏离 156：用户决定加回 PR 流水线）。
+#
+# 背景：只有一台 Windows 真机、macOS 只有一台虚拟机用于实际运行验证——包由 runner
+# 构建，本地只做真机 / 虚拟机上的运行验证。产物走 artifact 下载，不建 Release、
+# 不碰 tag：发布仍然是 release.yml（tag 触发）那一条路，两条流水线不重叠。
+#
+# 它**只构建、不跑测试**：测试仍在本地跑（10 文档 §11.1 的决定对这条同样适用），
+# 平台无关测试的唯一 CI 出口是 release.yml 的 macos job。前端在 runner 上现场
+# 重新构建（与 release.yml 同一条理由：产物里的界面一定是当前源码编出来的）。
+on:
+  pull_request:
+  workflow_dispatch:
+
+# 只读：这条流水线不上传 Release、不需要写权限。
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      # 与 release.yml 同一条理由：runner 的管道 stdout 按 locale 挑编码，
+      # 中文输出会抛 UnicodeEncodeError。
+      PYTHONIOENCODING: utf-8
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements-dev.txt -r requirements-optional.txt
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # --no-installer：PR 验证不需要 Inno Setup 的安装包（省一步 choco 安装），
+      # 便携 zip 已是完整的可分发形态。
+      - run: python tools/build.py --release --no-installer
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OmniSight-windows
+          path: |
+            dist/OmniSight-portable.zip
+            dist/OmniSight-portable.zip.sha256
+
+  macos:
+    runs-on: macos-latest
+    env:
+      PYTHONIOENCODING: utf-8
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # requirements-dev 已含 requirements：三条 pyobjc 带 darwin 环境标记，
+      # 在 mac 上直接安装；optional 里的 pynput 是兜底键盘后端。
+      - run: pip install -r requirements-dev.txt -r requirements-optional.txt
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # --release 走完整的 mac 组装（.app → tar.gz + sha256）：这也顺带在真
+      # macOS 上持续验证 C1 的组装路径本身。CI 不配置签名身份（自签名私钥不进
+      # CI，19 文档 §4.4）——artifact 是 ad-hoc 签名，TCC 授权不跨构建存活，
+      # 属预期：测试机每次重新授权，或按 docs/macos-build.md 固定一个本地身份。
+      - run: python tools/build.py --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OmniSight-macos
+          path: |
+            dist/OmniSight-macos.tar.gz
+            dist/OmniSight-macos.tar.gz.sha256

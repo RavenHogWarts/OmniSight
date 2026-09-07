@@ -41,6 +41,21 @@ import version_info  # noqa: E402
 from omnisight import APP_NAME, __version__  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
+BUILD_WORKFLOW = ROOT / ".github" / "workflows" / "build.yml"
+
+
+def _effective_text(path: Path) -> str:
+    """流水线文件的**有效内容**：注释行剔掉。
+
+    不剔的话，断言会命中注释里提到的东西——"push 与 pull_request 上不再有 job"
+    这句话本身就会让"没有 pull_request 触发器"那条用例通过或失败得毫无意义。
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
+    return "\n".join(line for line in lines if not line.strip().startswith("#"))
+
+
+def _workflow() -> str:
+    return _effective_text(WORKFLOW)
 TAG = f"v{__version__}"
 
 
@@ -68,16 +83,6 @@ def _commits(*subjects: str) -> list[release_notes.Commit]:
         release_notes.Commit(sha=f"{index:07x}", subject=subject)
         for index, subject in enumerate(subjects, start=1)
     ]
-
-
-def _workflow() -> str:
-    """流水线的**有效内容**：注释行剔掉。
-
-    不剔的话，断言会命中注释里提到的东西——"push 与 pull_request 上不再有 job"
-    这句话本身就会让"没有 pull_request 触发器"那条用例通过或失败得毫无意义。
-    """
-    lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
-    return "\n".join(line for line in lines if not line.strip().startswith("#"))
 
 
 # ── 变更日志：以 git 提交记录为准 ───────────────────────────────────────
@@ -552,29 +557,25 @@ def test_against_a_real_repository(tmp_path: Path):
 
 
 def test_there_is_exactly_one_workflow_and_it_only_releases():
-    """**只有一条流水线，而它的发布 job 只做发布该做的事。**
+    """**两条流水线、各司其职：release.yml 只做发布，build.yml 只做 PR 打包。**
 
-    这件事反复过两轮：10 文档 §11.1 为省额度移除了常驻 CI；15 文档 §9 因为"产物提交进
-    版本库"把它加回来；现在又去掉了，并且连发布流水线里的测试与静态检查一起去掉。理由
-    是那些检查在本地跑得到，而它们在 runner 上的失败模式——十几分钟后红在一条本地早就
-    跑过的检查上——比它们挡住的东西更常见。
+    常驻 CI 这件事反复过三轮：10 文档 §11.1 为省额度移除；15 文档 §9 加回来又去掉；
+    偏离 156（2026-09-07）用户决定加回**PR 触发的构建**流水线——理由是手上只有一台
+    Windows 真机、macOS 只有一台虚拟机用于实际运行验证，包由 runner 构建、本地只做
+    运行验证。测试与静态检查**仍然一条都不进 CI**：它们在本地跑得到，而它们在
+    runner 上的失败模式——十几分钟后红在一条本地早就跑过的检查上——比它们挡住的
+    东西更常见。
 
-    **代价要写明白**：现在没有任何自动化在每次推送时验证任何东西。"改了 frontend/src
-    却忘了 pnpm build"这一类只能靠本地 `tools/check_bundle.py --check`。唯一的缓解是
-    发布物里的前端由 `build.py --release` 现场用 Vite 重新构建（见下一条），因此**发出去
-    的 EXE 不会带过期前端**——过期只会留在版本库里。
-
-    **唯一的例外是 macos job**（M9，20 文档 C2）：非 Windows 上跑
-    ``pytest -m "not windows_only"`` 是「核心层真的不依赖 Win32」这一架构主张的
-    唯一持续证据（10 文档 §11.1 写明欠的就是这条）。这条用例的作用因此是：往
-    **发布 job** 里塞检查、或"又悄悄加回一条流水线"，都得先改它。
+    这条用例的作用是守住分工：往 **发布 job** 或 **PR 流水线**里塞测试/检查、
+    "又悄悄加第三条流水线"、或让 PR 流水线碰 Release（写权限/建 tag），都得先改它。
     """
     workflows = sorted(path.name for path in (ROOT / ".github" / "workflows").glob("*.yml"))
-    assert workflows == ["release.yml"], workflows
+    assert workflows == ["build.yml", "release.yml"], workflows
+
+    # ── release.yml：只由 tag 触发，只做发布该做的事 ─────────────────────
     text = _workflow()
-    # macos job（含它被许可的那一条平台无关 pytest）从文本尾部切开单独检查。
     head, _, macos = text.partition("  macos:")
-    assert macos, "macos job 不见了——非 Windows 的持续验证就靠它（20 文档 C2）"
+    assert macos, "release.yml 的 macos job 不见了——非 Windows 的持续验证就靠它（20 文档 C2）"
     assert 'python -m pytest tests/ -m "not windows_only" -q' in macos
     for absent in (
         "ruff check .",
@@ -583,8 +584,26 @@ def test_there_is_exactly_one_workflow_and_it_only_releases():
         "check_bundle.py",
         "pull_request",
     ):
-        assert absent not in text, f"流水线里不该有 {absent}"
+        assert absent not in text, f"release.yml 里不该有 {absent}"
     assert "python -m pytest" not in head, "发布 job 里不许有测试（10 文档 §11.1）"
+
+    # ── build.yml：PR 触发、双平台打包、只上传 artifact ─────────────────
+    build_text = _effective_text(BUILD_WORKFLOW)
+    assert "pull_request:" in build_text, "build.yml 的存在意义就是 PR 触发（偏离 156）"
+    assert "runs-on: windows-latest" in build_text
+    assert "runs-on: macos-latest" in build_text
+    assert "upload-artifact" in build_text, "产物要走 artifact 下载，不建 Release"
+    assert "contents: read" in build_text, "PR 流水线只读——发布写权限只属于 release.yml"
+    # 测试与静态检查一条都不进 PR 流水线（同一决定，同一条边界）。
+    for absent in (
+        "python -m pytest",
+        "ruff check .",
+        "check_frontend.py",
+        "check_types.py",
+        "check_bundle.py",
+    ):
+        assert absent not in build_text, f"build.yml 里不该有 {absent}"
+    assert "gh release" not in build_text, "PR 流水线不碰 Release"
 
 
 def test_the_only_check_left_is_a_distribution_obligation():
