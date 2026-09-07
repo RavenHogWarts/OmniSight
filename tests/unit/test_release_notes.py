@@ -596,6 +596,11 @@ def test_there_is_exactly_one_workflow_and_it_only_releases():
     assert "macos-latest" in build_text and "macos-15-intel" in build_text
     assert "${{ matrix.arch }}" in build_text, "产物名必须带架构后缀区分"
     assert "retention-days: 1" in build_text, "PR 产物 24 小时过期——它是待验证件，不是存档"
+    # 手动运行可以只勾部分目标（PR 时全建，勾选只对手动运行生效）。windows 直接
+    # 引用 inputs.windows；mac 两个架构经 matrix.want 间接引用——输入名与机制都在。
+    assert "inputs.windows" in build_text
+    assert "inputs[matrix.want]" in build_text
+    assert "want: macos_arm64" in build_text and "want: macos_x64" in build_text
     assert "upload-artifact" in build_text, "产物要走 artifact 下载，不建 Release"
     assert "contents: read" in build_text, "PR 流水线只读——发布写权限只属于 release.yml"
     # 测试与静态检查一条都不进 PR 流水线（同一决定，同一条边界）。
@@ -698,3 +703,32 @@ def test_the_prerelease_flag_comes_from_the_tool_not_from_a_yaml_condition():
     # Release 上一次的状态原样留着。
     assert "--prerelease=$($env:PRERELEASE)" in publish
     assert "contains(" not in publish
+
+
+def test_collect_can_list_a_multi_platform_release(tmp_path: Path):
+    """publish job 在汇总机上点名全部平台键：四件产物按 安装包 → 便携 → mac 的顺序
+    列出，且正文给 mac 的校验命令与"按架构二选一"的说法（汇总机不是任何一台构建机，
+    名单不能按它的"本机平台"回答——那会静默漏掉别的平台）。"""
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    platforms = ("windows", "macos-arm64", "macos-x64")
+    for name in build.published_names(platforms):
+        path = dist / name
+        path.write_bytes(b"payload of " + name.encode())
+        (dist / f"{name}.sha256").write_text(
+            f"{build.sha256_of(path)}  {name}\n", encoding="utf-8"
+        )
+
+    assets = release_notes.collect(dist, platforms=platforms)
+    # 顺序是展示序（安装包在前——大多数人要的是它），不是 published_names 的原始序。
+    assert [item.name for item in assets] == [
+        build.installer_name(),
+        build.portable_name(),
+        build.macos_bundle_name("arm64"),
+        build.macos_bundle_name("x64"),
+    ]
+
+    body = release_notes.render_assets(assets)
+    assert "shasum -a 256" in body, "mac 的校验命令也要给"
+    assert "按 CPU 架构二选一" in body, "多平台发版不再只有'两件产物'的说法"
+    assert all(item.role for item in assets), "每个产物都要有'适合谁'的一句"

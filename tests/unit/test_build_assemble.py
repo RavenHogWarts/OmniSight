@@ -594,3 +594,24 @@ def test_macos_readme_answers_the_four_questions_the_mac_way():
     assert "Get-FileHash" not in text
     assert "%LOCALAPPDATA%" not in text
     assert "Windows" in text and "macOS" in text  # 平台支持一节如实列出两个平台
+
+
+def test_published_names_union_covers_all_release_platforms():
+    """发版名单支持显式平台键：publish job 在汇总机上拿到四件产物的并集，
+    顺序是 安装包 → 便携 zip → mac arm64 → mac x64（名单真源仍只有这一处）。"""
+    names = build.published_names(("windows", "macos-arm64", "macos-x64"))
+    assert names == (
+        build.portable_name(),
+        build.installer_name(),
+        build.macos_bundle_name("arm64"),
+        build.macos_bundle_name("x64"),
+    )
+    assert len(set(names)) == 4
+
+
+def test_macos_bundle_names_carry_the_arch_suffix():
+    """Intel 与 Apple Silicon 的 Mach-O 不能互换：名字必须带后缀，混用只会在
+    双击时得到"这台 Mac 不支持此应用程序"。"""
+    assert build.macos_bundle_name("arm64").endswith("macos-arm64.tar.gz")
+    assert build.macos_bundle_name("x64").endswith("macos-x64.tar.gz")
+    assert build.macos_bundle_name("arm64") != build.macos_bundle_name("x64")

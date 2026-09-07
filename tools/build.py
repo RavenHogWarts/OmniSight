@@ -29,13 +29,14 @@ from __future__ import annotations
 
 import hashlib
 import os
+import platform
 import shutil
 import string
 import subprocess
 import sys
 import tarfile
 import zipfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -434,11 +435,26 @@ def installer_name() -> str:
     return f"{APP_NAME}-Setup.exe"
 
 
-def macos_bundle_name() -> str:
-    """macOS 的发布形态：.app 打进 tar.gz。**不是 .dmg**——没有 Developer ID 的产物
-    一旦带上隔离标记，双击只会显示"已损坏，无法打开"；tar.gz 走 Homebrew cask /
-    本机构建通道，隔离标记根本不会被打上（19 文档 §4.1、§4.2）。"""
-    return f"{APP_NAME}-macos.tar.gz"
+def macos_bundle_name(arch: str | None = None) -> str:
+    """macOS 的发布形态：.app 打进 tar.gz，**名字带架构后缀**——Intel 与 Apple
+    Silicon 的 Mach-O 不能互换，混用只会在双击时得到"这台 Mac 不支持此应用
+    程序"。**不是 .dmg**——没有 Developer ID 的产物一旦带上隔离标记，双击只会
+    显示"已损坏，无法打开"；tar.gz 走 Homebrew cask / 本机构建通道，隔离标记
+    根本不会被打上（19 文档 §4.1、§4.2）。"""
+    return f"{APP_NAME}-macos-{arch or _mac_arch_suffix()}.tar.gz"
+
+
+def _mac_arch_suffix() -> str:
+    """构建机的 arm64/x64。Rosetta 下 ``machine()`` 报 x86_64——与真实产出的字节
+    一致（Rosetta 里跑的 Python 编出的就是 x64 包），不纠偏。"""
+    return "arm64" if platform.machine() == "arm64" else "x64"
+
+
+def _platform_key() -> str:
+    """平台 + （mac 的）架构，作为 :func:`published_names` 的键。"""
+    if sys.platform == "darwin":
+        return f"macos-{_mac_arch_suffix()}"
+    return _platform()
 
 
 def artifact_names() -> tuple[str, ...]:
@@ -453,17 +469,26 @@ def artifact_names() -> tuple[str, ...]:
     return (_executable_name(), portable_name(), installer_name())
 
 
-def published_names() -> tuple[str, ...]:
-    """真正发出去的东西，按平台。
+def published_names(platforms: Sequence[str] | None = None) -> tuple[str, ...]:
+    """真正发出去的东西。
 
-    - Windows 两件：便携 zip 与安装包（10 文档 §10）。``dist/`` 里的裸 EXE 不在其中
-      ——它带不走许可正文与说明。
-    - macOS 一件：tar.gz。**不做便携形态**（``.app`` 内部不可写，10 文档 §2.2），
-      也没有安装包。
+    默认按**本机**平台回答（``scan_record`` 与本地预览走这条）；发版汇总的
+    publish job 显式传入全部构建平台拿到**并集**——名单仍然只有这一处真源，
+    只是提问从"这台机器发什么"变成"这次发版发什么"。
+
+    - Windows 两件：便携 zip 与安装包（10 文档 §10）。``dist/`` 里的裸 EXE 不在
+      其中——它带不走许可正文与说明。
+    - macOS **每个架构一件** tar.gz。不做便携形态（``.app`` 内部不可写，10 文档
+      §2.2），也没有安装包。
     """
-    if _platform() == "macos":
-        return (macos_bundle_name(),)
-    return (portable_name(), installer_name())
+    keys = list(platforms) if platforms is not None else [_platform_key()]
+    names: list[str] = []
+    for key in keys:
+        if key == "windows":
+            names += [portable_name(), installer_name()]
+        elif key.startswith("macos"):
+            names.append(macos_bundle_name(key.partition("-")[2] or None))
+    return tuple(names)
 
 
 def _default_port() -> int:

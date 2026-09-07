@@ -28,6 +28,7 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,6 +49,8 @@ USAGE = """用法：python tools/release_notes.py [选项]
   --check-only          只核对 tag 与代码里的版本号，不生成任何东西。
   --no-artifacts        不读 dist/，只渲染变更部分（本地预览用）。
   --dist 目录           发布物所在目录（默认 dist/）。
+  --platforms a,b,c     这次发版实际构建的平台键（默认按本机平台）。publish job
+                        汇总多平台产物时必须显式给，如 windows,macos-arm64,macos-x64。
   --previous v0.1.0     手动指定基线 tag（默认按"同类"自动选，见下）。
   --repo owner/name     仓库（默认取 GITHUB_REPOSITORY，否则解析 origin 的 URL）。
   --out 文件            写入文件（默认写到标准输出）。
@@ -355,29 +358,49 @@ class Asset:
 
 
 def _roles() -> dict[str, str]:
-    """两件产物各自"适合谁"。键取自 build 的名字函数——改名的那天，这里不会剩下
+    """各产物"适合谁"。键取自 build 的名字函数——改名的那天，这里不会剩下
     一句挂在错误文件上的描述。
     """
     return {
         build.installer_name(): "装进系统：开始菜单项 + 标准卸载项，数据在 %LOCALAPPDATA%",
         build.portable_name(): "解压即用：不动系统，数据在解压目录，可放 U 盘",
+        build.macos_bundle_name("arm64"): (
+            "Apple Silicon（M 系列）的 macOS：解压得 .app，拖进「应用程序」即用"
+        ),
+        build.macos_bundle_name("x64"): (
+            "Intel 的 macOS（含虚拟机）：解压得 .app；Apple Silicon 上经 Rosetta 也能运行"
+        ),
     }
 
 
-def _display_order() -> list[str]:
-    """安装包在前（大多数人要的是它），便携包在后。
+def _display_order(platforms: Sequence[str] | None = None) -> list[str]:
+    """安装包在前（大多数人要的是它），便携包随后，mac 两种架构殿后。
 
-    顺序表**不是名单**：名单永远是 ``build.published_names()``。将来多出第三件产物
-    时它会跟在后面，而不是被这里的两行字面量静默漏掉。
+    顺序表**不是名单**：名单永远是 ``build.published_names()``。将来多出一件产物
+    时它会跟在后面，而不是被这里的字面量静默漏掉。
     """
-    published = list(build.published_names())
-    preferred = [name for name in (build.installer_name(), build.portable_name())
-                 if name in published]
+    published = list(build.published_names(platforms))
+    preferred = [
+        name
+        for name in (
+            build.installer_name(),
+            build.portable_name(),
+            build.macos_bundle_name("arm64"),
+            build.macos_bundle_name("x64"),
+        )
+        if name in published
+    ]
     return preferred + [name for name in published if name not in preferred]
 
 
-def collect(dist: Path = DIST) -> list[Asset]:
+def collect(
+    dist: Path = DIST, platforms: Sequence[str] | None = None
+) -> list[Asset]:
     """找出发布物，算摘要，并与 ``--release`` 写下的 ``.sha256`` 比对。
+
+    ``platforms`` 是这次发版**实际构建**的平台键（如 ``("windows", "macos-arm64",
+    "macos-x64")``）——publish job 汇总多平台产物时必须显式给：名单默认按**本机**
+    平台回答，而汇总机不是任何一台构建机。
 
     **裸 EXE 不在其中**（``build.published_names()`` 的理由）：它带不走许可正文与
     说明，而发布页上多挂一个 ``OmniSight.exe`` 等于给出一条绕开分发义务的下载路径。
@@ -387,7 +410,7 @@ def collect(dist: Path = DIST) -> list[Asset]:
     """
     roles = _roles()
     assets: list[Asset] = []
-    for name in _display_order():
+    for name in _display_order(platforms):
         path = dist / name
         if not path.exists():
             raise SystemExit(
@@ -485,10 +508,15 @@ def render_assets(assets: list[Asset], *, signed: bool | None = None) -> str:
     """产物表 + 校验值 + 校验方法。
 
     ``signed`` 决定最后一段说不说"未做代码签名"。默认按环境里的签名配置算——
-    ``build.render_readme`` 里同一件事踩过一次：签名构建配着一句"本程序未做代码
-    签名"，而那句话恰好出现在信任成本最高的地方。
+    ``build.render_readme`` 里同一件事踩过一次：签名构建配着一句"本程序未做
+    代码签名"，而那句话恰好出现在信任成本最高的地方。
     """
     signed = build.signing_from_env() is not None if signed is None else signed
+    mac_assets = [item for item in assets if item.name.startswith(f"{APP_NAME}-macos-")]
+    has_mac = bool(mac_assets)
+    has_windows = any(
+        item.name in (build.portable_name(), build.installer_name()) for item in assets
+    )
     lines = [
         "## 产物与校验值",
         "",
@@ -496,26 +524,47 @@ def render_assets(assets: list[Asset], *, signed: bool | None = None) -> str:
         "| --- | --- | --- |",
     ]
     lines += [f"| `{item.name}` | {item.size} | {item.role} |" for item in assets]
-    lines.append(
-        f"\n两件产物功能完全一样，差别只有安装位置。`{build._executable_name()}` 不单独发布"
-        "——它带不走许可正文与说明。"
-    )
+    if has_windows and has_mac:
+        lines.append(
+            "\nWindows 两件功能完全一样，差别只有安装位置；macOS 按 CPU 架构二选一"
+            "（不确定就选 x64，Apple Silicon 上经 Rosetta 也能运行）。"
+            f"`{build._executable_name()}` 不单独发布——它带不走许可正文与说明。"
+        )
+    elif has_mac:
+        lines.append(
+            "\nmacOS 按 CPU 架构二选一（不确定就选 x64，Apple Silicon 上经 Rosetta 也能运行）。"
+        )
+    else:
+        lines.append(
+            "\n两件产物功能完全一样，差别只有安装位置。"
+            f"`{build._executable_name()}` 不单独发布——它带不走许可正文与说明。"
+        )
     lines.append("\nSHA-256（与随发布上传的 `.sha256` 是同一份内容）：\n")
     lines.append("```text")
     lines += [f"{item.digest}  {item.name}" for item in assets]
     lines.append("```")
-    lines.append(f"\n```powershell\nGet-FileHash .\\{assets[0].name} -Algorithm SHA256\n```")
+    if has_windows:
+        lines.append(f"\n```powershell\nGet-FileHash .\\{assets[0].name} -Algorithm SHA256\n```")
+    if has_mac:
+        lines.append(f"\n```sh\nshasum -a 256 ./{mac_assets[0].name}\n```")
     if signed:
         lines.append(
             "\n产物带数字签名（属性页 →「数字签名」可以核对签署者）。校验值仍然给出，"
             "它比签名更容易自己动手核对。"
         )
     else:
-        lines.append(
-            "\n本程序**未做代码签名**，Windows 会显示 SmartScreen 警告（「更多信息」→"
-            "「仍要运行」），部分杀软也可能因为「读键盘」这一行为报警。因此校验值是确认"
-            "你拿到的确实是这份产物的唯一手段——下载后请先核对再运行。"
-        )
+        if has_windows:
+            lines.append(
+                "\n本程序**未做代码签名**，Windows 会显示 SmartScreen 警告（「更多信息」→"
+                "「仍要运行」），部分杀软也可能因为「读键盘」这一行为报警。因此校验值是确认"
+                "你拿到的确实是这份产物的唯一手段——下载后请先核对再运行。"
+            )
+        if has_mac:
+            lines.append(
+                "\nmacOS 产物为**自签名**（未做 Apple 公证——本项目不购买 Developer ID）："
+                "Homebrew 与本机构建通道不受影响；不要从浏览器直接下载后绕过系统的安全"
+                "提示。签名与授权的背景见 `docs/macos-build.md`。"
+            )
     return "\n".join(lines)
 
 
@@ -645,7 +694,15 @@ def main(argv: list[str] | None = None) -> int:
     nearest = history[0] if history else None
     previous = _argument(argv, "--previous") or baseline_from(history, prerelease=prerelease)
     commits = commits_between(previous, rev)
-    assets = None if "--no-artifacts" in argv else collect(Path(_argument(argv, "--dist") or DIST))
+    platforms_arg = _argument(argv, "--platforms")
+    platforms = (
+        tuple(part.strip() for part in platforms_arg.split(",") if part.strip())
+        if platforms_arg
+        else None
+    )
+    assets = None if "--no-artifacts" in argv else collect(
+        Path(_argument(argv, "--dist") or DIST), platforms=platforms
+    )
     text = render(
         tag=tag,
         commits=commits,
