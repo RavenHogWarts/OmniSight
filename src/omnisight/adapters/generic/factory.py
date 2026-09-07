@@ -71,6 +71,8 @@ def detect(platform_id: str = PLATFORM_ID, tier: int = TIER) -> Capabilities:
         tier=tier,
         keyboard=has_pynput,
         keyboard_backend="pynput" if has_pynput else "none",
+        # 与 Windows 工厂同一条原则：没装兜底后端就不把它列进可选值。
+        keyboard_backends=("auto", "pynput", "none") if has_pynput else ("auto", "none"),
         keyboard_durations=has_pynput,
         # 兜底后端拿不到物理位置码，这一位永远是 False（04 文档 §3.1）。
         key_position_stable=False,

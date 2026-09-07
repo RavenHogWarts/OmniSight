@@ -57,6 +57,7 @@ def full_capabilities() -> Capabilities:
         os_version="10.0.26100",
         keyboard=True,
         keyboard_backend="raw_input",
+        keyboard_backends=("auto", "raw_input", "pynput", "none"),
         keyboard_durations=True,
         key_position_stable=True,
         foreground=True,

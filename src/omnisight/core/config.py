@@ -21,7 +21,18 @@ from typing import Any
 CONFIG_VERSION = 1
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
-KEYBOARD_BACKENDS = frozenset({"auto", "raw_input", "pynput", "none"})
+#: 各平台键盘后端名的**并集**，不是"当前平台可用的那些"。
+#:
+#: 分开这两件事的理由与 ``KEYBOARD_LAYOUTS`` 完全一致（见下）：配置文件跨平台可携
+#: ——同一份 config.json 可能来自 Mac，也可能跟着数据目录在两台机器间同步。校验层
+#: 拒绝一个在别的平台上完全合法的值，只会让配置无法共享，而用户得到的报错是"只能是
+#: [auto, none, pynput, raw_input]"，看不出问题其实是"你这份配置是 Mac 写的"。
+#:
+#: "此刻这个后端可不可用"由 ``adapters.detect()`` 回答，由设置页那一项的 ``available``
+#: 与 ``options`` 表达（``services/settings.py``）。
+KEYBOARD_BACKENDS = frozenset(
+    {"auto", "raw_input", "event_tap", "pynput", "evdev", "none"}
+)
 THEMES = frozenset({"system", "light", "dark"})
 #: 键盘热力图与日历格子的色阶（14 文档 §3.1 的两档）。18 文档 批 3 之前它只存在于前端的
 #: localStorage 里——那意味着换一个浏览器打开，用户三个月前设的暖色就没了，而界面上没有

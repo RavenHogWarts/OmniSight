@@ -114,6 +114,11 @@ class Capabilities:
     keyboard: bool = False
     keyboard_backend: str = "none"
     keyboard_durations: bool = False
+    #: 本平台**实际接受**的 ``keyboard_backend`` 取值。与 :attr:`keyboard_backend`
+    #: （此刻在用的那一个）是两件事：``config.KEYBOARD_BACKENDS`` 是跨平台并集，
+    #: 为了让同一份配置文件能在两个平台间可携；而"选了必然失败"的值不该出现在任何
+    #: 一台机器的设置页下拉里（设置项的 options 与写校验都以这份清单为准）。
+    keyboard_backends: tuple[str, ...] = ("auto", "none")
     #: key_id 是否基于物理位置。False 时热力图不可区分左右修饰键，UI 必须明示。
     key_position_stable: bool = False
     #: 应用归因是否可用 ← 决定合并的核心价值能否交付。

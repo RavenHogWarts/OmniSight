@@ -106,6 +106,8 @@ SPECS: tuple[SettingSpec, ...] = (
         "capture.keyboard_backend",
         "enum",
         RESTART,
+        # 这份 options 是**跨平台并集**，只回答"这个值在配置文件里合不合法"。
+        # 设置页下拉与写校验给的是本平台实际接受的那份，见 ``_options()``。
         options=tuple(sorted(config_module.KEYBOARD_BACKENDS)),
         capability="keyboard",
     ),
@@ -210,8 +212,9 @@ class SettingsService:
                 "applies": spec.applies,
                 "available": available,
             }
-            if spec.options is not None:
-                entry["options"] = list(spec.options)
+            options = self._options(spec)
+            if options is not None:
+                entry["options"] = list(options)
             if spec.minimum is not None:
                 entry["min"] = spec.minimum
             if spec.maximum is not None:
@@ -254,6 +257,18 @@ class SettingsService:
             database = getattr(self._ctx.database, "path", None)
             return str(Path(database).parent) if database else None
         return None
+
+    def _options(self, spec: SettingSpec) -> tuple[object, ...] | None:
+        """设置项**在这台机器上**的可选值。下拉展示与写校验共用同一份。
+
+        只有 ``capture.keyboard_backend`` 需要按平台收窄：spec 里的 options 是跨平台
+        并集（配置文件可携——同一份 config.json 可能来自 Mac），直接整份下发就会在
+        Windows 上列出 ``event_tap``、在 Mac 上列出 ``raw_input``，都是选了必然失败的
+        值。与 ``IMPLEMENTED_FAMILIES`` 对布局族的处理是同一个原则。
+        """
+        if spec.path == "capture.keyboard_backend":
+            return tuple(sorted(set(self._ctx.capabilities.keyboard_backends)))
+        return spec.options
 
     def _availability(self, spec: SettingSpec) -> tuple[bool, str | None]:
         if spec.path == "ui.shell":
@@ -390,12 +405,15 @@ class SettingsService:
                     }
                 )
                 continue
-            if spec.options is not None and value not in spec.options:
+            # 写校验与下拉用同一份平台清单（见 ``_options``）：否则 API 直接写一个
+            # 本平台没有的后端会被接受，重启后采集起不来。
+            options = self._options(spec)
+            if options is not None and value not in options:
                 rejected.append(
                     {
                         "field": path,
                         "code": "invalid_value",
-                        "message": f"只能是 {list(spec.options)}",
+                        "message": f"只能是 {list(options)}",
                     }
                 )
                 continue

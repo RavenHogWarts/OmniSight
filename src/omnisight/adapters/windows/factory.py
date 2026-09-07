@@ -85,12 +85,19 @@ def _pynput_available() -> bool:
 
 def detect() -> Capabilities:
     """环境能力：Windows 上这些 API 对普通进程一律开放，无需授权。"""
+    # 设置页下拉只列这台机器真选得了的后端：pynput 是可选依赖（08 文档 §8），
+    # 没装就不列——"让用户选一个选完就报错的值，比不给这个选项更糟"。
+    backends = ["auto", RAW_INPUT_BACKEND]
+    if _pynput_available():
+        backends.append("pynput")
+    backends.append("none")
     return Capabilities(
         platform_id=PLATFORM_ID,
         tier=TIER,
         os_version=_os_version(),
         keyboard=_has_export("user32", "RegisterRawInputDevices"),
         keyboard_backend=RAW_INPUT_BACKEND,
+        keyboard_backends=tuple(backends),
         keyboard_durations=True,
         key_position_stable=True,
         foreground=_has_export("user32", "GetForegroundWindow"),

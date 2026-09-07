@@ -26,6 +26,16 @@ def test_windows_is_tier_one_with_full_capabilities(monkeypatch):
     assert caps.tier == 1
     assert caps.keyboard_backend == "raw_input"
     assert caps.key_position_stable is True
+    # 可选后端清单只含本平台的值（pynput 装没装决定它在不在，19 文档 A4）。
+    assert {"auto", "raw_input", "none"} <= set(caps.keyboard_backends)
+    assert "event_tap" not in caps.keyboard_backends
+    assert "evdev" not in caps.keyboard_backends
+
+
+def test_generic_platform_lists_only_the_fallback_backend():
+    """通用降级路径的可选值最多是 auto/pynput/none——列进 raw_input 就是谎报。"""
+    caps = adapters.detect(adapters.Probe(platform="sunos5"))
+    assert set(caps.keyboard_backends) <= {"auto", "pynput", "none"}
 
 
 def test_wayland_session_is_not_mistaken_for_x11(monkeypatch):

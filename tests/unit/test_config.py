@@ -61,6 +61,18 @@ def test_invalid_values_are_rejected_not_silently_defaulted(payload, expected_fi
     assert exc.value.field_path == expected_field
 
 
+def test_keyboard_backend_vocabulary_is_cross_platform():
+    """后端名词表是**跨平台并集**：Mac 写的 config.json 在 Windows 上必须能加载。
+
+    "这台机器能不能用这个后端"由 ``adapters.detect()`` 回答、由设置页那一项的
+    ``options`` 表达；校验层拒绝一个在别的平台上完全合法的值，只会让配置文件
+    无法在两台机器间共享（19 文档 A4）。
+    """
+    for backend in cfgmod.KEYBOARD_BACKENDS:
+        cfg, _warnings = cfgmod.loads(f'{{"capture": {{"keyboard_backend": "{backend}"}}}}')
+        assert cfg.capture.keyboard_backend == backend
+
+
 def test_syntax_error_reports_position_and_does_not_touch_file(tmp_path: Path):
     path = tmp_path / "config.json"
     path.write_text('{"server": {', encoding="utf-8")
