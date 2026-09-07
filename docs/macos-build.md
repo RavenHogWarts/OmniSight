@@ -90,6 +90,24 @@ codesign --sign omnisight-dev --deep --force --options runtime dist/OmniSight.ap
 **终端**（Terminal/iTerm），打包后归因到 **OmniSight.app**——是两个不同的条目。
 虚拟机里这套与真机一致。
 
+## 进入网页控制台
+
+程序是**菜单栏常驻**应用，没有主窗口（Dock 图标点了不出窗口是正常的）。两个入口：
+
+- **正常入口**：屏幕顶部菜单栏右侧的 OmniSight 图标（蓝色"眼睛"）→「打开 OmniSight」，
+  浏览器会自动打开带令牌的仪表盘；
+- **手动入口**（菜单栏找不到图标 / 远程排查时）：
+
+```sh
+cat ~/Library/Application\ Support/Omnisight/runtime.json
+# {"port": 6100, "token": "……"}
+open "http://127.0.0.1:6100/?token=<上面读到的 token>"
+```
+
+`runtime.json` 只在程序运行期间存在（干净退出即删除）——它不在，多半是程序没起来。
+确认进程：`pgrep -fl OmniSight`。菜单栏图标被挤掉时，按住 ⌘ 拖动可以把它挪回可见
+区域；macOS 也可能在"控制中心"设置里隐藏了它。
+
 ## 出问题时看哪里
 
 - 数据与日志：`~/Library/Application Support/OmniSight/`（`logs/omnisight.log`、
