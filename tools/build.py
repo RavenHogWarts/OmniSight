@@ -33,6 +33,7 @@ import shutil
 import string
 import subprocess
 import sys
+import tarfile
 import zipfile
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -314,6 +315,41 @@ def sign(exe: Path, config: Signing) -> None:
         raise SystemExit(f"signtool 失败（退出码 {completed.returncode}）：构建中止，产物未签名")
 
 
+# ── macOS 代码签名（19 文档 §4.1：无 Apple 证书路线）───────────────────
+
+#: 自签名身份的名字（钥匙串访问本地生成的证书）。**不进 CI**：CI 产物只验证
+#: "构建能过"，实际分发的产物在本机用这个身份签完再上传（20 文档 C2）。
+CODESIGN_IDENTITY_ENV = "OMNISIGHT_CODESIGN_IDENTITY"
+
+
+def codesign_identity_from_env(env: Mapping[str, str] | None = None) -> str:
+    env = os.environ if env is None else env
+    return env.get(CODESIGN_IDENTITY_ENV, "").strip()
+
+
+def sign_macos(app: Path, identity: str) -> None:
+    """``codesign --deep``。与 :func:`sign` 同一条纪律：配置了就绝不静默跳过。
+
+    固定一个自签名身份是 macOS 路线的第一件事：TCC 的「输入监控」授权记录绑定
+    bundle id + 签名的 designated requirement，ad-hoc 签名每次构建都变，等于每个
+    版本都要求用户重新授权一次（19 文档 §4.1）。没有 notarytool 这一步——
+    Developer ID 与公证是另一条（不走的）路。
+    """
+    command = [
+        "codesign", "--sign", identity, "--deep", "--options", "runtime",
+        "--force", str(app),
+    ]
+    print(f"签名：{' '.join(command)}")
+    try:
+        completed = subprocess.run(command, check=False)
+    except FileNotFoundError as error:  # pragma: no cover - mac 上 codesign 总在
+        raise SystemExit(
+            "找不到 codesign——它随 Xcode 命令行工具分发（xcode-select --install）"
+        ) from error
+    if completed.returncode != 0:
+        raise SystemExit(f"codesign 失败（退出码 {completed.returncode}）：构建中止，产物未签名")
+
+
 # ── 发布物组装（10 文档 §10）────────────────────────────────────────────
 
 
@@ -368,8 +404,26 @@ def sha256_of(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _platform() -> str:
+    """产物形态三选一：Windows（便携 zip + 安装包）、macOS（.app → tar.gz）、Linux（待 M8）。
+
+    名单函数（``artifact_names`` / ``published_names``）与 ``assemble`` 的分派都走这里，
+    别处不许再写第二个 ``sys.platform`` 分支——两处各判一遍就会有一天只改了一边。
+    """
+    if sys.platform == "win32":
+        return "windows"
+    if sys.platform == "darwin":
+        return "macos"
+    return "linux"
+
+
 def _executable_name() -> str:
-    return f"{APP_NAME}.exe" if sys.platform == "win32" else APP_NAME
+    if sys.platform == "win32":
+        return f"{APP_NAME}.exe"
+    if sys.platform == "darwin":
+        # PyInstaller --windowed 在 mac 上的产物是 .app 包（一个目录）。
+        return f"{APP_NAME}.app"
+    return APP_NAME
 
 
 def portable_name() -> str:
@@ -380,23 +434,35 @@ def installer_name() -> str:
     return f"{APP_NAME}-Setup.exe"
 
 
+def macos_bundle_name() -> str:
+    """macOS 的发布形态：.app 打进 tar.gz。**不是 .dmg**——没有 Developer ID 的产物
+    一旦带上隔离标记，双击只会显示"已损坏，无法打开"；tar.gz 走 Homebrew cask /
+    本机构建通道，隔离标记根本不会被打上（19 文档 §4.1、§4.2）。"""
+    return f"{APP_NAME}-macos.tar.gz"
+
+
 def artifact_names() -> tuple[str, ...]:
-    """要留证的全部文件：``(EXE, 便携 zip, 安装包)``。
+    """要留证的全部文件，按平台。
 
     公开是为了让 ``tools/scan_record.py`` 按**同一份名单**找文件。名字在两处各写
     一遍的话，改名那天扫描记录会静默少一行——而"少一行"看起来和"这件产物没问题"
     一模一样。
     """
+    if _platform() == "macos":
+        return (_executable_name(), macos_bundle_name())
     return (_executable_name(), portable_name(), installer_name())
 
 
 def published_names() -> tuple[str, ...]:
-    """真正发出去的两件：便携 zip 与安装包（10 文档 §10）。
+    """真正发出去的东西，按平台。
 
-    ``dist/`` 里的裸 EXE 不在其中——它带不走许可正文与说明。两件产物的分工是
-    **安装位置**：安装版进 Program Files（普通用户不可写），因此它是"登录时以管理员
-    身份启动"唯一可以指向的目标；便携版解压即用，那个开关在它上面是禁用的。
+    - Windows 两件：便携 zip 与安装包（10 文档 §10）。``dist/`` 里的裸 EXE 不在其中
+      ——它带不走许可正文与说明。
+    - macOS 一件：tar.gz。**不做便携形态**（``.app`` 内部不可写，10 文档 §2.2），
+      也没有安装包。
     """
+    if _platform() == "macos":
+        return (macos_bundle_name(),)
     return (portable_name(), installer_name())
 
 
@@ -462,12 +528,112 @@ def _readme_uninstall(exe: str, *, portable: bool) -> str:
 """
 
 
+def _render_readme_macos(*, version: str, port: int | None, signed: bool) -> str:
+    """macOS 版 README。同样回答那四个问题，但答案没有一条与 Windows 相同。"""
+    port = port or _default_port()
+    app = _executable_name() if sys.platform == "darwin" else f"{APP_NAME}.app"
+    archive = macos_bundle_name()
+    trust = (
+        """本产物用本地自签名身份签署（未做 Apple 公证——本项目不购买 Developer ID）。
+自签名的意义是「输入监控」授权能跨版本存活；它与 Gatekeeper 无关。安装请走
+Homebrew 或本机构建（README 顶部有说明），不要从浏览器直接下载后绕过系统的
+安全提示。完整性核对："""
+        if signed
+        else """本产物仅保留链接器的 ad-hoc 签名，未配置固定签名身份
+（OMNISIGHT_CODESIGN_IDENTITY）。这意味着每次重新构建后，系统的「输入监控」
+授权都需要重新给予。完整性核对："""
+    )
+    return f"""OmniSight {version}
+本地运行的应用使用时长 + 键盘使用统计工具。
+
+数据只留在本机：无账号、不联网、无遥测。
+
+
+启动
+────────────────────────────────────────────────────────────
+解压后把 {app} 拖进「应用程序」（/Applications），双击打开。程序常驻菜单栏，
+不会自己弹出窗口。
+
+菜单栏图标 →「打开 OmniSight」在浏览器里打开仪表盘。地址是
+http://127.0.0.1:{port}/，只监听本机回环地址，局域网访问不到。
+
+仪表盘需要一个一次性令牌，菜单栏那一项会自动带上。直接手输地址会看到
+401——这是有意的：它挡住的是任意网页对本机接口的读取。
+
+首次使用需要在「系统设置 › 隐私与安全性 › 输入监控」里允许 {APP_NAME}
+记录键盘；应用时长统计不需要任何授权。撤销授权后键盘统计停止，
+应用统计照常记录。
+
+
+数据在哪
+────────────────────────────────────────────────────────────
+数据在用户主目录的惯例位置：
+
+    ~/Library/Application Support/{APP_NAME}/omnisight.db     数据库
+    ~/Library/Application Support/{APP_NAME}/logs/            运行日志与崩溃报告
+    ~/Library/Application Support/{APP_NAME}/config.json      配置
+
+菜单栏 →「打开数据目录」直接跳过去。macOS 没有便携形态（.app 包内部不可写），
+卸载后这些数据默认保留。
+
+
+暂停记录
+────────────────────────────────────────────────────────────
+菜单栏 →「暂停记录」立即停止一切写入，图标同时变灰。暂停期间缓冲的事件被
+丢弃，而不是延后落盘——你点暂停是希望这段不被记录，不是希望晚点记。
+
+
+端口被占用
+────────────────────────────────────────────────────────────
+{port} 端口被占时程序**不会静默换端口**，而是报错退出并说明原因。改
+config.json 里的 server.port（参照同目录的 config.example.json），或先关掉
+占用它的程序（常见情况是上一个 OmniSight 还没退干净）。
+
+启动失败且看不到任何提示时，看数据目录里的 STARTUP_ERROR.txt——无控制台
+程序唯一的错误出口。
+
+
+完全卸载
+────────────────────────────────────────────────────────────
+1. 菜单栏图标 →「退出」
+2. 关掉开机自启：系统设置 → 通用 → 登录项与扩展，移除 {APP_NAME}
+3. 删除数据目录 ~/Library/Application Support/{APP_NAME}/
+4. 删除 /Applications/{app}
+
+程序不装服务、不装驱动、不改系统设置；除登录项外不在系统里留任何东西。
+
+
+平台支持
+────────────────────────────────────────────────────────────
+当前版本支持 Windows（10 版本 1809 及以上 / 11）与 macOS 12+（Apple Silicon
+与 Intel）。Linux 在规划中，尚未实现。
+
+
+校验与安全提示
+────────────────────────────────────────────────────────────
+{trust}
+
+    shasum -a 256 ./{archive}
+
+与发布页上 {archive}.sha256 的内容比对（应完全一致）。
+
+隐私边界的完整说明见仓库里的 docs/privacy.md。
+
+
+许可
+────────────────────────────────────────────────────────────
+OmniSight 自身以 MIT 许可发布（见 LICENSE）。随产物分发的第三方开源包
+及其许可见 THIRD_PARTY_NOTICES.md 与 THIRD_PARTY_LICENSES.txt。
+"""
+
+
 def render_readme(
     *,
     version: str = __version__,
     port: int | None = None,
     signed: bool = False,
     portable: bool = True,
+    platform: str = "windows",
 ) -> str:
     """随产物分发的 ``README.txt``（10 文档 §10）。
 
@@ -484,7 +650,13 @@ def render_readme(
     ``portable`` 决定另外三段：启动方式、数据位置、卸载步骤。两种形态各发一份自己的
     README——把两套说明并排写进同一份文件，等于让每个用户先判断"我装的是哪一种"，
     而他手上只有一个 EXE。
+
+    ``platform="macos"`` 走一份完全独立的文本（20 文档 C1）：数据在 ``~/Library``、
+    校验命令是 ``shasum``、启动与卸载都是 mac 的说法——往 Windows 版里塞平台分支
+    会把"两种形态 × 两个平台"的四份组合揉成一团。
     """
+    if platform == "macos":
+        return _render_readme_macos(version=version, port=port, signed=signed)
     port = port or _default_port()
     exe = _executable_name()
     archive = portable_name() if portable else installer_name()
@@ -618,6 +790,9 @@ def assemble(
         raise SystemExit(f"找不到构建产物 {exe}——先跑一次 python tools/build.py")
     dist.mkdir(parents=True, exist_ok=True)
 
+    if _platform() == "macos":
+        return _assemble_macos(dist=dist, exe=exe, regenerate_licenses=regenerate_licenses)
+
     if regenerate_licenses:
         _regenerate_licenses()
 
@@ -694,7 +869,73 @@ def _stage_portable_files(staging: Path | None = None) -> Path:
     return staging
 
 
-# ── 安装包（10 文档 §10.1）──────────────────────────────────────────────
+# ── macOS 组装（20 文档 C1）─────────────────────────────────────────────
+
+
+def _stage_macos_files(staging: Path | None = None) -> Path:
+    """tar.gz 里随 .app 一起分发的文件。与便携包**不是同一套**：没有 ``portable.marker``
+    （macOS 不做便携形态），README 是 mac 的说法（数据在 ``~/Library``、卸载是删 .app）。"""
+    staging = staging or BUILD / "macos"
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True, exist_ok=True)
+
+    identity = codesign_identity_from_env()
+    (staging / "README.txt").write_text(
+        render_readme(signed=bool(identity), platform="macos"),
+        encoding="utf-8",
+        newline="\n",
+    )
+    missing = [name for name in RELEASE_FILES if not (ROOT / name).exists()]
+    if missing:
+        raise SystemExit(f"缺少随产物分发的文件：{'、'.join(missing)}")
+    for name in RELEASE_FILES:
+        shutil.copy2(ROOT / name, staging / name)
+    return staging
+
+
+def _assemble_macos(
+    *, dist: Path, exe: Path, regenerate_licenses: bool
+) -> list[Artifact]:
+    """把 PyInstaller 的 ``.app`` 组装成 tar.gz。一件发布物，无安装包、无便携形态。
+
+    签名同样发生在**算校验值与打包之前**（与 Windows 分支同一条顺序约束：签名改写
+    字节）。
+    """
+    if regenerate_licenses:
+        _regenerate_licenses()
+
+    identity = codesign_identity_from_env()
+    if identity:
+        sign_macos(exe, identity)
+    else:
+        print(
+            f"未配置签名身份（{CODESIGN_IDENTITY_ENV} 为空）：仅保留链接器的 ad-hoc 签名，"
+            "TCC 的「输入监控」授权将不能跨构建存活（19 文档 §4.1）"
+        )
+
+    staging = _stage_macos_files()
+    archive = dist / macos_bundle_name()
+    with tarfile.open(archive, "w:gz") as bundle:
+        bundle.add(exe, arcname=exe.name)
+        for name in ("README.txt", *RELEASE_FILES):
+            bundle.add(staging / name, arcname=name)
+
+    artifacts = [Artifact(path=archive, digest=sha256_of(archive))]
+    for artifact in artifacts:
+        (dist / f"{artifact.path.name}.sha256").write_text(
+            f"{artifact.digest}  {artifact.path.name}\n", encoding="utf-8"
+        )
+
+    print(f"\n发布物已组装（{dist}）：")
+    for artifact in artifacts:
+        print(f"  {artifact.describe()}")
+        print(f"  {artifact.path.name}.sha256")
+    print(f"tar.gz 内含：{_executable_name()}、README.txt、{'、'.join(RELEASE_FILES)}")
+    print("（分发通道：Homebrew cask 或本机构建；不要改走浏览器直下 .dmg 的路）")
+    return artifacts
+
+
+# ── 安装包（10 文档 §10.1，仅 Windows）─────────────────────────────────
 
 #: Inno Setup 的命令行编译器。**先看环境变量**：自动发现只能覆盖常见位置，而"我把
 #: Program Files 放在 D 盘"这类机器上它一定失败，那时报错信息必须指向这个变量。

@@ -535,3 +535,62 @@ def test_the_language_file_is_committed_not_just_present_locally():
         capture_output=True,
     )
     assert tracked.stdout.strip(), "把 installer/Languages/ChineseSimplified.isl 加进版本库"
+
+
+# ── macOS 分支（20 文档 C1：.app → tar.gz，不是 .dmg）──────────────────
+
+
+@pytest.fixture
+def macos_release_tree(tmp_path: Path, monkeypatch) -> Path:
+    """与 ``release_tree`` 同构，但产物是 .app（目录），平台走 darwin 分支。"""
+    root = tmp_path / "repo"
+    dist = root / "dist"
+    (root / "build").mkdir(parents=True)
+    dist.mkdir(parents=True)
+    for name in build.RELEASE_FILES:
+        (root / name).write_text(f"content of {name}\n", encoding="utf-8")
+    app = dist / "OmniSight.app"
+    (app / "Contents" / "MacOS").mkdir(parents=True)
+    (app / "Contents" / "MacOS" / "OmniSight").write_bytes(b"Mach-O fake payload")
+    monkeypatch.setattr(build, "ROOT", root)
+    monkeypatch.setattr(build, "BUILD", root / "build")
+    monkeypatch.setattr(build, "DIST", dist)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    return root
+
+
+def test_macos_publishes_one_tarball_not_a_dmg(macos_release_tree: Path):
+    """一件发布物：.app 打进 tar.gz。无安装包、无 portable.marker、无 .dmg——
+    没有 Developer ID 的产物走 cask / 本机构建通道，不走 Gatekeeper（19 §4.1）。"""
+    dist = macos_release_tree / "dist"
+    artifacts = build.assemble(dist=dist, regenerate_licenses=False)
+    bundle = build.macos_bundle_name()
+
+    assert [item.path.name for item in artifacts] == [bundle]
+    assert build.published_names() == (bundle,)
+    assert not (dist / build.PORTABLE_MARKER).exists()
+    assert not (dist / "README.txt").exists()
+
+    import tarfile
+
+    with tarfile.open(dist / bundle) as tar:
+        names = set(tar.getnames())
+    assert {"OmniSight.app", "OmniSight.app/Contents/MacOS/OmniSight"} <= names
+    assert {"README.txt", *build.RELEASE_FILES} <= names
+
+    content = (dist / f"{bundle}.sha256").read_text(encoding="utf-8")
+    assert content.startswith(build.sha256_of(dist / bundle))
+
+
+def test_macos_readme_answers_the_four_questions_the_mac_way():
+    """同一份模板结构、全是 mac 的说法：数据在 ~/Library、校验用 shasum、
+    卸载是删 .app 与登录项——没有 %LOCALAPPDATA%，也没有 Get-FileHash。"""
+    text = build.render_readme(port=6100, platform="macos")
+    assert "6100" in text
+    assert "完全卸载" in text
+    assert "~/Library/Application Support" in text
+    assert "输入监控" in text  # mac 版的"暂停"一节讲的是 TCC 授权，不是管理员权限
+    assert "shasum -a 256" in text
+    assert "Get-FileHash" not in text
+    assert "%LOCALAPPDATA%" not in text
+    assert "Windows" in text and "macOS" in text  # 平台支持一节如实列出两个平台

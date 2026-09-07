@@ -17,6 +17,9 @@ ASSETS = ROOT / "assets"
 ACCENT = (47, 141, 251, 255)
 WHITE = (255, 255, 255, 255)
 ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
+#: ICNS 要一张足够大的源图，由 Pillow 派生全部尺寸（16~1024）。1024 是
+#: Apple 对 "icon" 类型的上限，也覆盖带 Retina 的 ic10/ic14。
+ICNS_SIZE = 1024
 
 
 def render(size: int) -> Image.Image:
@@ -38,7 +41,11 @@ def main() -> int:
     render(256).save(png)
     ico = ASSETS / "omnisight.ico"
     render(256).save(ico, sizes=[(s, s) for s in ICO_SIZES])
-    print(f"已生成 {png.relative_to(ROOT)} 与 {ico.relative_to(ROOT)}")
+    # ICNS 用 Pillow 直接写（iconutil 只在 mac 上有；在 Windows 上生成、提交进仓库，
+    # 这样 mac 构建不依赖本脚本——20 文档 C1）。
+    icns = ASSETS / "omnisight.icns"
+    render(ICNS_SIZE).save(icns, format="ICNS")
+    print(f"已生成 {png.relative_to(ROOT)}、{ico.relative_to(ROOT)} 与 {icns.relative_to(ROOT)}")
     return 0
 
 
