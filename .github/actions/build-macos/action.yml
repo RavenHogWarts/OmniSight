@@ -1,5 +1,5 @@
 name: build-macos
-description: 构建 macOS 包并上传 artifact（build.yml 的两个架构 job 复用；runner 与是否构建由调用方的 job 决定）
+description: 构建 macOS 包并上传 artifact（build.yml 的两个架构 job 复用；runner 与是否构建由调用方的 job 决定）。**调用方必须先 actions/checkout**——本地 action 的解析发生在它自己的步骤运行之前，工作区为空时找不到 action.yml
 
 inputs:
   arch:
@@ -9,8 +9,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@v4
-
     - uses: actions/setup-python@v5
       with:
         python-version: "3.12"

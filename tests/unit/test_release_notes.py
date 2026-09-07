@@ -601,6 +601,12 @@ def test_there_is_exactly_one_workflow_and_it_only_releases():
     assert "inputs.windows" in build_text
     assert "inputs.macos_arm64" in build_text and "inputs.macos_x64" in build_text
     assert build_text.count("./.github/actions/build-macos") == 2, "两个架构 job 必须复用同一实现"
+    # 本地 action 在它自己的步骤运行**之前**就被解析——调用方必须先 checkout，
+    # 否则工作区为空、runner 找不到 action.yml（实测踩过：推送后两个 mac job
+    # 一起报 "Can't find 'action.yml' ... Did you forget to run actions/checkout"）。
+    assert build_text.index("actions/checkout@v4") < build_text.index(
+        "./.github/actions/build-macos"
+    ), "用本地 action 的 job 必须先 checkout"
     assert "upload-artifact" in build_text, "产物要走 artifact 下载，不建 Release"
     assert "contents: read" in build_text, "PR 流水线只读——发布写权限只属于 release.yml"
     # 测试与静态检查一条都不进 PR 流水线（同一决定，同一条边界）。
