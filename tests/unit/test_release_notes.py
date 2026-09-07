@@ -594,13 +594,13 @@ def test_there_is_exactly_one_workflow_and_it_only_releases():
     # mac 双架构矩阵：arm64（macos-latest）+ x86_64（macos-15-intel，Windows 宿主上的
     # 虚拟机是 x86_64）。universal2 被 binary 依赖的 wheel 选择挡着（PROGRESS M9）。
     assert "macos-latest" in build_text and "macos-15-intel" in build_text
-    assert "${{ matrix.arch }}" in build_text, "产物名必须带架构后缀区分"
     assert "retention-days: 1" in build_text, "PR 产物 24 小时过期——它是待验证件，不是存档"
-    # 手动运行可以只勾部分目标（PR 时全建，勾选只对手动运行生效）。windows 直接
-    # 引用 inputs.windows；mac 两个架构经 matrix.want 间接引用——输入名与机制都在。
+    # 手动运行可以只勾部分目标（PR 时全建，勾选只对手动运行生效）。job 级 if 不能
+    # 引用 matrix（GitHub 语义限制），所以是两个薄 job 各自直接引 inputs，共享
+    # ./.github/actions/build-macos 这一份实现——输入、勾选与复用点都要在。
     assert "inputs.windows" in build_text
-    assert "inputs[matrix.want]" in build_text
-    assert "want: macos_arm64" in build_text and "want: macos_x64" in build_text
+    assert "inputs.macos_arm64" in build_text and "inputs.macos_x64" in build_text
+    assert build_text.count("./.github/actions/build-macos") == 2, "两个架构 job 必须复用同一实现"
     assert "upload-artifact" in build_text, "产物要走 artifact 下载，不建 Release"
     assert "contents: read" in build_text, "PR 流水线只读——发布写权限只属于 release.yml"
     # 测试与静态检查一条都不进 PR 流水线（同一决定，同一条边界）。

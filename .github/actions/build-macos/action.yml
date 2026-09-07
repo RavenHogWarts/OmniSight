@@ -1,0 +1,54 @@
+name: build-macos
+description: 构建 macOS 包并上传 artifact（build.yml 的两个架构 job 复用；runner 与是否构建由调用方的 job 决定）
+
+inputs:
+  arch:
+    description: 目标架构后缀（arm64 / x64），用于 artifact 命名
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    # requirements-dev 已含 requirements：三条 pyobjc 带 darwin 环境标记，直接
+    # 可用；optional 里的 pynput 是兜底键盘后端。
+    - run: pip install -r requirements-dev.txt -r requirements-optional.txt
+      shell: bash
+      env:
+        PYTHONIOENCODING: utf-8
+
+    - uses: pnpm/action-setup@v4
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+
+    - run: pnpm install --frozen-lockfile
+      shell: bash
+
+    # --release 出 tar.gz（名字带架构后缀）。**不要改成直接上传 .app 目录**：
+    # upload-artifact 的 LCA 规则会剥掉 OmniSight.app 这层包装（解压出来是裸的
+    # Contents/），且不走 gzip——同一个包大出几十 MB。artifact 下载自带一层
+    # GitHub 的 zip 包装（平台行为，去不掉），里面就是 tar.gz 与它的 .sha256。
+    # CI 不配置签名身份（自签名私钥不进 CI，19 文档 §4.4）——ad-hoc 签名，TCC
+    # 授权不跨构建存活，属预期：测试机每次重新授权，或按 docs/macos-build.md
+    # 固定一个本地身份。
+    - run: python tools/build.py --release
+      shell: bash
+      env:
+        PYTHONIOENCODING: utf-8
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: OmniSight-macos-${{ inputs.arch }}
+        # PR 产物 24 小时过期：它是给"这轮改动马上要人工验证"用的，不是存档。
+        retention-days: 1
+        path: |
+          dist/OmniSight-macos-*.tar.gz
+          dist/OmniSight-macos-*.tar.gz.sha256

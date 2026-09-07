@@ -72,62 +72,29 @@ jobs:
             dist/OmniSight-portable.zip
             dist/OmniSight-portable.zip.sha256
 
-  # **双架构矩阵**：arm64（macos-latest 已是 Apple Silicon 镜像）+ x86_64
+  # **双架构**：arm64（macos-latest 已是 Apple Silicon 镜像）+ x86_64
   # （macos-15-intel；Windows 宿主上的 macOS 虚拟机只能是 x86_64）。universal2
   # 是更好的长期形态，但被 binary 依赖的 wheel 选择问题挡着（pip 在 arm64 上
   # 优先装 arm64-only wheel，--target-arch=universal2 会在 lipo 阶段失败），
   # 记账在 PROGRESS M9。
-  macos:
-    # PR 全建；手动运行时按勾选跳过对应架构（被跳过的矩阵项显示为 Skipped）。
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs[matrix.want] }}
-    strategy:
-      # 一个架构失败不该连坐另一个（它们验证的是同一份代码的不同编译目标）。
-      fail-fast: false
-      matrix:
-        include:
-          - arch: arm64
-            runner: macos-latest
-            want: macos_arm64
-          - arch: x64
-            runner: macos-15-intel
-            want: macos_x64
-    runs-on: ${{ matrix.runner }}
-    env:
-      PYTHONIOENCODING: utf-8
+  #
+  # **不用矩阵、拆成两个薄 job 复用同一个本地 composite action**：job 级 `if`
+  # 不能引用 matrix 上下文（GitHub 语义限制，step 级才可以），矩阵做不了
+  # "按架构勾选"；两个 job 各自直接引 inputs，被跳过的显示为 Skipped。
+  macos-arm64:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.macos_arm64 }}
+    runs-on: macos-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/build-macos
         with:
-          python-version: "3.12"
+          arch: arm64
 
-      # requirements-dev 已含 requirements：三条 pyobjc 带 darwin 环境标记，
-      # 在 mac 上直接安装；optional 里的 pynput 是兜底键盘后端。
-      - run: pip install -r requirements-dev.txt -r requirements-optional.txt
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
+  macos-x64:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.macos_x64 }}
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+    steps:
+      - uses: ./.github/actions/build-macos
         with:
-          node-version: 22
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
-      # --release 出 tar.gz（名字带架构后缀）。**不要改成直接上传 .app 目录**：
-      # upload-artifact 的 LCA 规则会剥掉 OmniSight.app 这层包装（解压出来是裸的
-      # Contents/），且不走 gzip——同一个包大出几十 MB。artifact 下载自带一层
-      # GitHub 的 zip 包装（平台行为，去不掉），里面就是 tar.gz 与它的 .sha256。
-      # CI 不配置签名身份（自签名私钥不进 CI，19 文档 §4.4）——ad-hoc 签名，TCC
-      # 授权不跨构建存活，属预期：测试机每次重新授权，或按 docs/macos-build.md
-      # 固定一个本地身份。
-      - run: python tools/build.py --release
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: OmniSight-macos-${{ matrix.arch }}
-          retention-days: 1
-          path: |
-            dist/OmniSight-macos-*.tar.gz
-            dist/OmniSight-macos-*.tar.gz.sha256
+          arch: x64
