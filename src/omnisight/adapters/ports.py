@@ -191,6 +191,14 @@ class KeyboardSource(Protocol):
     def needs_main_loop(self) -> bool:
         """True 表示调用方必须在主线程驱动一个 runloop。"""
 
+    def run_main_loop(self) -> None:
+        """阻塞调用线程，直到 :meth:`stop`。
+
+        **仅当 :attr:`needs_main_loop` 为真时才会被调用**（装配层的分派见 02 文档
+        §3）——不需要主循环的后端（Windows 的 Raw Input 自带消息泵）不实现它也
+        不会被碰到，因此它不在端口契约测试的无条件调用清单里。
+        """
+
 
 @runtime_checkable
 class IdleSource(Protocol):

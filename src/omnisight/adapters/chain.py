@@ -51,6 +51,19 @@ class ChainedKeyboardSource:
         active = self._active
         return bool(active.needs_main_loop) if active is not None else False
 
+    def run_main_loop(self) -> None:
+        """转发给实际生效的后端；不需要主循环时是空操作（19 文档 A2）。
+
+        只有 :attr:`needs_main_loop` 为真的后端会被装配层要求驱动主 runloop，
+        兜底后端（pynput 一类）都不需要——链上没起来或起来的不需要时，这里
+        什么都不做。
+        """
+        active = self._active
+        if active is not None and bool(getattr(active, "needs_main_loop", False)):
+            run = getattr(active, "run_main_loop", None)
+            if run is not None:
+                run()
+
     @property
     def running(self) -> bool:
         active = self._active

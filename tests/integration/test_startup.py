@@ -48,7 +48,7 @@ def isolated_root(tmp_path: Path, monkeypatch) -> Path:
 def _start_headless(monkeypatch, port: int = 6199) -> Lifecycle:
     """跳过托盘阻塞，其余启动步骤全部真实执行。"""
     lifecycle = Lifecycle()
-    monkeypatch.setattr(lifecycle, "_run_tray", lambda runtime: None)
+    monkeypatch.setattr(lifecycle, "_run_foreground", lambda runtime: None)
     monkeypatch.setattr(lifecycle, "_install_signal_handlers", lambda: None)
     return lifecycle
 

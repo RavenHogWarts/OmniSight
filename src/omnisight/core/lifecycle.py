@@ -27,6 +27,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .. import __version__, adapters
 from ..adapters.ports import (
@@ -59,6 +60,10 @@ from .clock import SystemClock, resolve_timezone, timezone_label
 from .config import Config, ConfigError
 from .config import load as load_config
 from .crash import install as install_crash_handler
+
+if TYPE_CHECKING:
+    # 只为注解服务：真实导入在 _build_tray 里，避免核心层在无 GUI 环境加载 pystray。
+    from ..tray import TrayIcon
 
 logger = logging.getLogger(__name__)
 
@@ -290,7 +295,7 @@ class Lifecycle:
         # 清掉上一次的 STARTUP_ERROR.txt 是收尾动作，不是启动条件——它失败不该
         # 毁掉一次已经完全成功的启动（协议见 Notifier.clear 的说明）。
         _guard("清掉上一次的启动错误留痕", adapter_set.notifier.clear)
-        self._run_tray(runtime)
+        self._run_foreground(runtime)
         return EXIT_OK
 
     def _start_capture(
@@ -632,7 +637,30 @@ class Lifecycle:
         security.write_runtime_file(runtime.data_dir, port=server.port, token=runtime.token)
         logger.info("仪表盘地址 %s", runtime.config.dashboard_url(runtime.token))
 
-    def _run_tray(self, runtime: Runtime) -> None:
+    def _run_foreground(self, runtime: Runtime) -> None:
+        """把主线程交给需要它的那一方（02 文档 §3、19 文档 A2）。
+
+        **决定权在端口，不在平台判断**：``needs_main_loop`` 为真的键盘后端
+        （macOS 的 event tap 需要主线程 CFRunLoop）拿主线程，托盘退到子线程；
+        为假时沿用原路径，托盘在主线程、键盘后端自带消息泵（Windows 的
+        Raw Input）——那条分支与改动前逐字相同，这是本次改动不碰 Windows
+        行为的机械保证（19 文档 R19）。
+        """
+        tray = self._build_tray(runtime)
+        source = runtime.adapter_set.keyboard
+        if source is not None and bool(getattr(source, "needs_main_loop", False)):
+            # 分派骨架先落地；主 runloop 的具体挂法（tap 挂托盘的 runloop，
+            # 还是后端自持主线程）由 B6 用真机定（20 文档 A2 的未决问题）。
+            self._run_tray_off_main_thread(tray)
+            source.run_main_loop()
+            return
+        tray.run()
+
+    def _run_tray_off_main_thread(self, tray: TrayIcon) -> None:
+        """托盘让出主线程。daemon：主循环随 ``stop()`` 返回后进程不该被托盘拖住。"""
+        threading.Thread(target=tray.run, name="omnisight-tray", daemon=True).start()
+
+    def _build_tray(self, runtime: Runtime) -> TrayIcon:
         from ..tray import TrayIcon
 
         elevation = runtime.adapter_set.elevation
@@ -673,7 +701,7 @@ class Lifecycle:
         if not runtime.capabilities.tray:
             # 没有托盘时这是用户唯一能看到访问地址的地方（10 文档 §5.1）。
             print(f"OmniSight 正在运行：{runtime.config.dashboard_url(runtime.token)}")
-        tray.run()
+        return tray
 
     def _set_paused(self, runtime: Runtime, paused: bool) -> None:
         """托盘的暂停开关。服务层不可用时退回直接掐采集组件——用户点了暂停，
