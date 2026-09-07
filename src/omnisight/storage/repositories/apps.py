@@ -380,12 +380,18 @@ class AppDirectory:
         用户的选择优先于规则。
         """
         rows = self._conn().execute(
-            "SELECT id, display_name, process_name, category FROM app "
+            "SELECT id, display_name, process_name, identity_kind, category FROM app "
             "WHERE category_source = 'auto' AND id <> 0"
         ).fetchall()
         updates = []
         for row in rows:
-            guess = categorize(row["display_name"] or "", row["process_name"] or "")
+            # 查哪张精确表由这一行自己的身份口径决定（bundle/process/desktop），
+            # 不是平台判断——同一台 Mac 上两种身份可以并存（19 文档 A3）。
+            guess = categorize(
+                row["display_name"] or "",
+                row["process_name"] or "",
+                row["identity_kind"] or "process",
+            )
             if guess != (row["category"] or "uncategorized"):
                 updates.append((guess, int(row["id"])))
         if not updates:

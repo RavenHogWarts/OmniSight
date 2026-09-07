@@ -80,6 +80,11 @@ EXACT_PROCESSES: dict[str, str] = {
 #: 关键词包含匹配，**按顺序**判定，第一个命中即返回。
 #:
 #: 顺序有意义：``game`` 放在最后，否则 ``GameBar`` 之类的系统组件会被算成娱乐。
+#:
+#: 历史上 ``system`` 行里还有 ``"microsoft."``——它是为 Windows 的 UWP 包名
+#: （``Microsoft.WindowsStore``）准备的，但在 bundle id 的世界里是个陷阱：
+#: ``com.microsoft.VSCode`` 会因此被判成"系统"。真正需要的名字进精确表
+#: （``photos`` 已经在），不留会跨口径误伤的关键词（19 文档 A3）。
 KEYWORD_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("development", (
         "visual studio", "jetbrains", "android studio", "terminal", "git",
@@ -93,12 +98,68 @@ KEYWORD_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("productivity", (
         "office", "pdf", "browser", "note", "draw", "design", "浏览器", "笔记",
     )),
-    ("system", ("windows", "microsoft.", "host", "service", "设置")),
+    ("system", ("windows", "host", "service", "设置")),
 )
+
+#: bundle id（casefold）→ 类别。macOS 的应用身份是 bundle id，与进程名表
+#: **按身份口径分家**：同一台 Mac 上 bundle id 与进程名可以并存，"查哪张表"
+#: 由数据行自己的 ``identity_kind`` 决定，不是由平台判断。
+#:
+#: 这张表**一定会漏**——漏了就是 ``uncategorized``，那是一个有颜色有文案的
+#: 合法类别，用户还能手工覆盖（``category_source='user'``）。首批约 50 条
+#: 覆盖常用应用（19 文档 A3、20 文档 A3），按用户反馈增量补。
+EXACT_BUNDLES: dict[str, str] = {
+    # 开发
+    "com.microsoft.vscode": "development", "com.apple.dt.xcode": "development",
+    "com.googlecode.iterm2": "development", "com.apple.terminal": "development",
+    "com.jetbrains.pycharm": "development", "com.jetbrains.intellij": "development",
+    "com.todesktop.230313mzl4w4u92": "development",  # Cursor
+    "com.sublimetext.4": "development", "com.docker.docker": "development",
+    "com.postmanlabs.mac": "development", "dev.warp.warp-stable": "development",
+    # 效率
+    "com.apple.safari": "productivity", "com.google.chrome": "productivity",
+    "com.microsoft.edgemac": "productivity", "org.mozilla.firefox": "productivity",
+    "com.apple.iwork.pages": "productivity", "com.apple.iwork.numbers": "productivity",
+    "com.apple.iwork.keynote": "productivity", "com.microsoft.word": "productivity",
+    "com.microsoft.excel": "productivity", "com.microsoft.powerpoint": "productivity",
+    "md.obsidian": "productivity", "abnerworks.typora": "productivity",
+    "notion.id": "productivity", "com.figma.desktop": "productivity",
+    "com.apple.preview": "productivity", "com.apple.notes": "productivity",
+    "com.adobe.acrobat.pro": "productivity",
+    # 沟通
+    "com.tencent.xinwechat": "communication", "com.tencent.qq": "communication",
+    "com.apple.mail": "communication", "ru.keepcoder.telegram": "communication",
+    "com.hnc.discord": "communication", "com.tinyspeck.slackmacgap": "communication",
+    "us.zoom.xos": "communication", "com.microsoft.teams2": "communication",
+    "com.electron.lark": "communication",  # 飞书
+    # 娱乐
+    "com.spotify.client": "entertainment", "com.netease.163music": "entertainment",
+    "com.apple.music": "entertainment", "tv.danmaku.bilianime": "entertainment",
+    "org.videolan.vlc": "entertainment", "io.mpv": "entertainment",
+    "com.valvesoftware.steam": "entertainment",
+    # 系统
+    "com.apple.finder": "system", "com.apple.systempreferences": "system",
+    "com.apple.activitymonitor": "system", "com.apple.dock": "system",
+    "com.apple.spotlight": "system",
+}
+
+#: .desktop id → 类别。Linux 的应用身份是 .desktop 文件 id（M8 填，19 文档 A3）。
+EXACT_DESKTOP_IDS: dict[str, str] = {}
+
+#: （identity_kind → 精确表）。哪张表由数据决定，不由平台名决定。
+EXACT_BY_KIND: dict[str, dict[str, str]] = {
+    "process": EXACT_PROCESSES,
+    "bundle": EXACT_BUNDLES,
+    "desktop": EXACT_DESKTOP_IDS,
+}
 
 
 def _stem(process_name: str) -> str:
-    """``"Code.exe"`` → ``"code"``。跨平台：Linux/macOS 的进程名本来就没有扩展名。"""
+    """``"Code.exe"`` → ``"code"``。仅用于**进程名**口径。
+
+    bundle id 的 ``.app`` 后缀是 id 的一部分（``com.foo.app`` 剥掉后缀就成了
+    ``com.foo``，查的是一张错误的表），因此剥离只发生在进程名上。
+    """
     name = (process_name or "").strip().casefold()
     for suffix in (".exe", ".app"):
         if name.endswith(suffix):
@@ -106,14 +167,24 @@ def _stem(process_name: str) -> str:
     return name
 
 
-def categorize(display_name: str = "", process_name: str = "") -> str:
+def categorize(
+    display_name: str = "", process_name: str = "", identity_kind: str = "process"
+) -> str:
     """自动分类。**永不抛异常**，认不出来就是 ``uncategorized``。
 
     "认不出来"必须是一个有名字的类别而不是空字符串：``uncategorized`` 在 UI 上有自己的
     颜色与文案（06 文档 §3.1），而空字符串会让分类饼图多出一块没有图例的扇形。
+
+    ``identity_kind`` 决定查哪张精确表——它是随每一行 ``app`` 一起存进数据库的
+    事实（03 文档 §2.2 的三元组身份），不是平台判断。默认 ``"process"`` 保住
+    全部既有调用点与 Windows 行为。
     """
-    stem = _stem(process_name)
-    exact = EXACT_PROCESSES.get(stem)
+    if identity_kind == "process":
+        key = _stem(process_name)
+    else:
+        # bundle / desktop id 整串就是键，不剥任何后缀。
+        key = (process_name or "").strip().casefold()
+    exact = EXACT_BY_KIND.get(identity_kind, {}).get(key)
     if exact:
         return exact
     haystack = f"{display_name or ''} {process_name or ''}".casefold()
@@ -147,6 +218,9 @@ __all__ = [
     "CATEGORIES",
     "CATEGORY_IDS",
     "CATEGORY_NAMES",
+    "EXACT_BUNDLES",
+    "EXACT_BY_KIND",
+    "EXACT_DESKTOP_IDS",
     "EXACT_PROCESSES",
     "KEYWORD_RULES",
     "UNCATEGORIZED",

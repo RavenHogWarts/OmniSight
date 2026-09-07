@@ -52,6 +52,51 @@ def test_substring_matching_does_not_leak_across_names():
     assert categories.categorize("Unicode 工具", "unicode.exe") == "uncategorized"
 
 
+# ── bundle id 口径（19 文档 A3）─────────────────────────────────────────
+def test_bundle_ids_categorize_by_their_own_table():
+    """macOS 的身份是 bundle id：查 bundle 表，不查进程名表。"""
+    assert (
+        categories.categorize("Google Chrome", "com.google.Chrome", identity_kind="bundle")
+        == "productivity"
+    )
+    assert (
+        categories.categorize("微信", "com.tencent.xinWeChat", identity_kind="bundle")
+        == "communication"
+    )
+
+
+def test_microsoft_bundle_ids_are_not_system_anymore():
+    """``"microsoft."`` 关键词曾把 ``com.microsoft.VSCode`` 静默判成"系统"——
+    一个开发工具被归类成系统组件，且分类错误在 UI 上完全静默（19 文档 A3）。"""
+    assert (
+        categories.categorize("Visual Studio Code", "com.microsoft.VSCode", identity_kind="bundle")
+        == "development"
+    )
+    # 关键词表里确实不再有它。
+    assert "microsoft." not in categories.KEYWORD_RULES[-1][1]
+
+
+def test_bundle_ids_are_not_suffix_stripped():
+    """``.app`` 是 bundle id 的一部分：剥掉后缀等于查一张错误的表。"""
+    guess = categories.categorize("示例", "com.example.app", identity_kind="bundle")
+    assert guess == "uncategorized"
+
+
+def test_every_bundle_entry_maps_to_a_known_category():
+    """首批 bundle 表的 49 条全部落在合法类别上——拼错类别 id 是静默的饼图缺角。"""
+    assert len(categories.EXACT_BUNDLES) >= 40
+    for bundle_id, category in categories.EXACT_BUNDLES.items():
+        assert categories.is_known(category), bundle_id
+        assert bundle_id == bundle_id.casefold(), bundle_id  # 键必须已是 casefold
+
+
+def test_process_kind_is_the_default_and_unchanged():
+    """默认口径是 process：既有调用点一个字不改，Windows 行为不变。"""
+    assert categories.categorize("PyCharm", "pycharm64.exe") == "development"
+    explicit = categories.categorize("PyCharm", "pycharm64.exe", identity_kind="process")
+    assert explicit == "development"
+
+
 def test_unknown_apps_get_a_named_category_not_an_empty_string():
     """空字符串会让分类饼图多出一块没有图例的扇形（06 文档 §3.1）。"""
     assert categories.categorize("某个自研工具", "acme-tool.exe") == categories.UNCATEGORIZED
