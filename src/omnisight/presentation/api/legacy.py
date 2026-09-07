@@ -45,10 +45,13 @@ _KEYTRACE_RANGES = ("day", "week", "month", "year", "total")
 _KEYTRACE_VIEWS = ("hours", "days", "months", "years")
 
 
-def _date_arg(name: str = "date") -> date:
-    raw = request.args.get("date", "")
+def _date_arg(context: Any, name: str = "date") -> date:
+    raw = request.args.get(name, "")
     if not raw:
-        return date.today()
+        # "今天"必须与新接口同源：走服务层注入的时钟，而不是这里的墙钟。
+        # 墙钟在测试里与数据集的固定时刻脱钩——/api/weekly 的 7 天窗口会随
+        # 真实日期漂移，数据集里最老的一天被切掉而测试悄悄变红。
+        return context.services.context.today()
     try:
         return date.fromisoformat(raw)
     except ValueError as exc:
@@ -83,13 +86,13 @@ def register(app: Flask, context: Any) -> None:
 
     @app.get("/api/daily")
     def legacy_daily():
-        day = _date_arg()
+        day = _date_arg(context)
         return _legacy(_timelens_period_payload(context, "day", day, services))
 
     @app.get("/api/weekly")
     def legacy_weekly():
         """旧语义是"最近 7 天"（今天收尾的滚动窗口），不是自然周。"""
-        today = _date_arg()
+        today = _date_arg(context)
         period = resolved_period(
             context,
             {
@@ -107,7 +110,7 @@ def register(app: Flask, context: Any) -> None:
         view = request.args.get("view", "daily")
         if view not in _LEGACY_VIEW_NAMES:
             view = "daily"
-        day = _date_arg()
+        day = _date_arg(context)
         if view == "weekly":
             period = resolved_period(
                 context,
@@ -127,7 +130,7 @@ def register(app: Flask, context: Any) -> None:
         view = request.args.get("view", "daily")
         if view not in _LEGACY_VIEW_NAMES:
             view = "daily"
-        day = _date_arg()
+        day = _date_arg(context)
         range_name = _LEGACY_VIEWS[view]
         period = _period_for(context, range_name, day)
         timeline = services.usage.timeline(period)
@@ -162,7 +165,7 @@ def register(app: Flask, context: Any) -> None:
         view = request.args.get("view", "daily")
         if view not in _LEGACY_VIEW_NAMES:
             view = "daily"
-        day = _date_arg()
+        day = _date_arg(context)
         range_name = _LEGACY_VIEWS[view]
         period = _period_for(context, range_name, day)
         heatmap = services.keyboard.heatmap(period)
@@ -229,7 +232,7 @@ def register(app: Flask, context: Any) -> None:
             raise ApiError(
                 "range 必须是 day、week、month、year 或 total", code="invalid_range"
             )
-        day = _date_arg()
+        day = _date_arg(context)
         period = _period_for(context, range_name, day)
         heatmap = services.keyboard.heatmap(period)
         return _legacy(
@@ -249,7 +252,7 @@ def register(app: Flask, context: Any) -> None:
             raise ApiError(
                 "view 必须是 hours、days、months 或 years", code="invalid_param"
             )
-        day = _date_arg()
+        day = _date_arg(context)
         timeline = services.keyboard.timeline((view,), anchor=PeriodRequest("day", anchor=day))
         return _legacy(
             {
@@ -270,7 +273,7 @@ def register(app: Flask, context: Any) -> None:
             raise ApiError("process_name 不能为空且不能超过 260 个字符",
                            code="invalid_param")
         meta = _find_by_process(services, process_name)
-        period = _period_for(context, "total", _date_arg())
+        period = _period_for(context, "total", _date_arg(context))
         heatmap = services.keyboard.heatmap(period, app_id=meta["app_id"])
         keys = [item for item in heatmap["keys"] if item["press_count"]]
         total_presses = sum(item["press_count"] for item in keys)
@@ -313,7 +316,7 @@ def register(app: Flask, context: Any) -> None:
             raise ApiError("process_name 不能为空且不能超过 260 个字符",
                            code="invalid_param")
         meta = _find_by_process(services, process_name)
-        period = _period_for(context, "total", _date_arg())
+        period = _period_for(context, "total", _date_arg(context))
         sessions = services.usage.sessions(period, app_id=meta["app_id"], limit=1000)
         intervals = _merge_intervals(
             (item["start"], item["end"]) for item in sessions["sessions"]
