@@ -10,9 +10,8 @@
    ``gap``）。有测试固定这一点：布局里出现一个拼错的 id，那个键会永远显示 0 而不报错。
 2. **几何在这里，标签不在这里。** 标签统一由 ``keymap.label_for`` 提供，否则同一个键
    在键盘图与 Top 榜里可能显示成两种写法。
-3. **只声明已实现的族。** 配置允许 ``tkl87`` / ``mac_ansi`` / ``mac_iso``（它们是
-   M8/M9 的事），但设置页的可选项只列 :data:`IMPLEMENTED_FAMILIES`——让用户选一个
-   选完就报错的值，比不给这个选项更糟。
+3. **只声明已实现的族。** 配置允许 ``tkl87``（M8 的事），但设置页的可选项只列
+   :data:`IMPLEMENTED_FAMILIES`——让用户选一个选完就报错的值，比不给这个选项更糟。
 """
 
 from __future__ import annotations
@@ -220,9 +219,122 @@ ISO105 = Layout(
 )
 
 
-#: 已实现的布局族。配置的取值范围更宽（含 M8/M9 的 ``tkl87`` / ``mac_*``），
-#: 但设置页只应列出这里的值——见模块文档第 3 条。
-FAMILIES: dict[str, Layout] = {ANSI104.family: ANSI104, ISO105.family: ISO105}
+# ── Mac 族（19 文档 §3.2）───────────────────────────────────────────────
+# Mac 内置键盘：无小键盘、无 PrtSc/ScrLk/Pause/Menu；字母区行宽与 PC 相同
+# （15 单位），全键盘 15 单位宽。两个族都**不带小键盘**——Mac 全尺寸键盘有，
+# 内置键盘没有，而默认族该长得像用户手里那一把；需要小键盘的用户手选 ansi104。
+
+#: 功能行到 F12 为止。F13~F20 只有苹果外接键盘才有，不进内置布局。
+_MAC_FUNCTION_ROW: tuple[KeySlot, ...] = (
+    _k("esc"),
+    _gap(1),
+    *_keys("f1", "f2", "f3", "f4"),
+    _gap(0.5),
+    *_keys("f5", "f6", "f7", "f8"),
+    _gap(0.5),
+    *_keys("f9", "f10", "f11", "f12"),
+)
+
+#: 修饰行：⌃ ⌥ ⌘ ␣ ⌘ ⌥——**⌘ 在 ⌥ 外侧**，与 PC 的 Win/Alt 顺序相反。
+#: 无 fn（它不产生事件，keymap 里没有它）、无 Menu、无右 ⌃。方向键倒 T。
+_MAC_MODIFIER_ROW: tuple[KeySlot, ...] = (
+    _k("control_left", 1),
+    _k("alt_left", 1),
+    _k("win_left", 1.25),
+    _k("space", 5.5),
+    _k("win_right", 1.25),
+    _k("alt_right", 1),
+    _gap(0.5),
+    *_keys("arrow_left", "arrow_down", "arrow_right"),
+    _gap(0.5),
+)
+
+#: 数字行与 PC 相同（grave…backspace 共 15 单位），只是右侧没有导航簇与小键盘。
+_MAC_NUMBER_ROW: tuple[KeySlot, ...] = (
+    _k("grave"),
+    *_keys(*(f"digit{index}" for index in (*range(1, 10), 0))),
+    *_keys("minus", "equal"),
+    _k("backspace", 2),
+)
+
+#: 倒 T 的 ↑，与 ANSI104 的 _ARROW_UP 同一个模式：单独一行、靠右对齐。
+_MAC_ARROW_ROW: tuple[KeySlot, ...] = (
+    _gap(11),
+    _gap(0.5),
+    _gap(1),
+    _k("arrow_up"),
+    _gap(1),
+    _gap(0.5),
+)
+
+MAC_ANSI = Layout(
+    family="mac_ansi",
+    name="Mac ANSI（76 键）",
+    rows=(
+        _MAC_FUNCTION_ROW,
+        _MAC_NUMBER_ROW,
+        (
+            _k("tab", 1.5),
+            *_letters("qwertyuiop"),
+            *_keys("bracket_left", "bracket_right"),
+            _k("backslash", 1.5),
+        ),
+        (
+            _k("caps_lock", 1.75),
+            *_letters("asdfghjkl"),
+            *_keys("semicolon", "quote"),
+            _k("enter", 2.25),
+        ),
+        (
+            _k("shift_left", 2.25),
+            *_letters("zxcvbnm"),
+            *_keys("comma", "period", "slash"),
+            _k("shift_right", 2.75),
+        ),
+        _MAC_ARROW_ROW,
+        _MAC_MODIFIER_ROW,
+    ),
+)
+
+MAC_ISO = Layout(
+    family="mac_iso",
+    name="Mac ISO（77 键）",
+    rows=(
+        _MAC_FUNCTION_ROW,
+        _MAC_NUMBER_ROW,
+        (
+            _k("tab", 1.5),
+            *_letters("qwertyuiop"),
+            *_keys("bracket_left", "bracket_right"),
+            _k("enter", 1.5, 2, shape="iso_enter"),
+        ),
+        (
+            _k("caps_lock", 1.75),
+            *_letters("asdfghjkl"),
+            *_keys("semicolon", "quote", "backslash"),
+            _gap(1.25),
+        ),
+        (
+            _k("shift_left", 1.25),
+            _k("iso_backslash"),
+            *_letters("zxcvbnm"),
+            *_keys("comma", "period", "slash"),
+            _k("shift_right", 2.75),
+        ),
+        _MAC_ARROW_ROW,
+        _MAC_MODIFIER_ROW,
+    ),
+)
+
+
+#: 已实现的布局族。配置的取值范围更宽（含 M8 的 ``tkl87``），但设置页只应列出
+#: 这里的值——见模块文档第 3 条。
+FAMILIES: dict[str, Layout] = {
+    ANSI104.family: ANSI104,
+    ISO105.family: ISO105,
+    MAC_ANSI.family: MAC_ANSI,
+    MAC_ISO.family: MAC_ISO,
+}
 
 IMPLEMENTED_FAMILIES: tuple[str, ...] = tuple(FAMILIES)
 
@@ -234,9 +346,8 @@ _PLATFORM_DEFAULT: dict[str, str] = {
     "linux_x11": "ansi104",
     "linux_wayland": "ansi104",
     "generic": "ansi104",
-    # macOS 的 mac_ansi / mac_iso 排在 M9；在它到来之前如实退回 ansi104，
-    # 而不是声明一个不存在的族。
-    "macos": "ansi104",
+    # Mac 内置键盘是 76/77 键形态（无小键盘）；ANSI 比 ISO 覆盖面广，作默认。
+    "macos": "mac_ansi",
 }
 
 
@@ -262,6 +373,8 @@ __all__ = [
     "GAP",
     "IMPLEMENTED_FAMILIES",
     "ISO105",
+    "MAC_ANSI",
+    "MAC_ISO",
     "KeySlot",
     "Layout",
     "all_layout_key_ids",

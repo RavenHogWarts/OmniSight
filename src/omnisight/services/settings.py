@@ -156,6 +156,7 @@ SPECS: tuple[SettingSpec, ...] = (
         "enum",
         HOT,
         options=("auto", *layouts.IMPLEMENTED_FAMILIES),
+        note="Mac 两个族都不带小键盘（内置键盘没有）；外接全尺寸键盘请选 ANSI 104 键",
     ),
     SettingSpec(
         "ui.shell",

@@ -267,7 +267,7 @@ def test_usage_sessions_can_be_filtered_by_app(seeded_client, seeded):
 def test_keyboard_layout_is_the_single_source_of_key_positions(seeded_client):
     payload = seeded_client.get("/api/v1/keyboard/layout").get_json()
     assert payload["family"] == "ansi104"
-    assert payload["available_families"] == ["ansi104", "iso105"]
+    assert payload["available_families"] == ["ansi104", "iso105", "mac_ansi", "mac_iso"]
     assert len(payload["rows"]) == 6
     assert payload["unit_hint"] == {"max_units": 23.0, "rows": 6}
     # 每个键位都自带宽度：前端不需要知道任何一个键有多宽。

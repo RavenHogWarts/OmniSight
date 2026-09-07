@@ -33,7 +33,17 @@ def test_every_row_has_the_same_total_width(family: str):
     assert widths == {layout.max_units}, f"{family} 各行宽度不一致：{sorted(widths)}"
 
 
-@pytest.mark.parametrize(("family", "count"), [("ansi104", 104), ("iso105", 105)])
+@pytest.mark.parametrize(
+    ("family", "count"),
+    [
+        ("ansi104", 104),
+        ("iso105", 105),
+        # Mac 族名字里没有数字，键数更要显式钉住——差一个说明漏了或多了一格
+        # （20 文档 B2）。76 = 内置 ANSI；77 = ISO 多出第 102 键。
+        ("mac_ansi", 76),
+        ("mac_iso", 77),
+    ],
+)
 def test_families_have_the_key_count_their_name_claims(family: str, count: int):
     """名字里写着 104 就必须是 104 个键——差一个说明漏了或多了一格。"""
     layout = layouts.FAMILIES[family]
@@ -67,9 +77,27 @@ def test_iso_has_the_extra_key_ansi_lacks():
     assert extra <= keymap.KEY_IDS
 
 
+def test_mac_iso_has_the_extra_key_mac_ansi_lacks():
+    """Mac 族同样：77 − 76 = 1，多出的还是那颗第 102 键。"""
+    extra = layouts.FAMILIES["mac_iso"].key_ids - layouts.FAMILIES["mac_ansi"].key_ids
+    assert extra == {"iso_backslash"}
+
+
+def test_mac_families_drop_the_keys_mac_keyboards_do_not_have():
+    """无小键盘、无 PrtSc/ScrLk/Pause、无 Menu、无右 ⌃——默认族要长得像用户
+    手里那一把内置键盘（19 文档 §3.2）。"""
+    mac = layouts.FAMILIES["mac_ansi"].key_ids
+    for absent in (
+        "print_screen", "scroll_lock", "pause", "menu", "control_right",
+        "numpad_0", "numpad_enter", "num_lock",
+        *(f"f{index}" for index in range(13, 25)),
+    ):
+        assert absent not in mac, absent
+
+
 @pytest.mark.parametrize(
     ("platform_id", "family"),
-    [("windows", "ansi104"), ("macos", "ansi104"), ("linux", "ansi104"), ("unknown", "ansi104")],
+    [("windows", "ansi104"), ("macos", "mac_ansi"), ("linux", "ansi104"), ("unknown", "ansi104")],
 )
 def test_default_family_is_defined_for_every_platform(platform_id: str, family: str):
     """未知平台也要有默认值：没有布局等于键盘页整页空白。"""
