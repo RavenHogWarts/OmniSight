@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
 PlatformId = Literal["windows", "macos", "linux_x11", "linux_wayland", "generic"]
@@ -327,5 +327,7 @@ class AdapterSet:
     keyboard: KeyboardSource | None = None
     idle: IdleSource | None = None
     icons: IconSource | None = None
-    tray_factory: Callable[..., object] | None = None
-    extra: dict[str, object] = field(default_factory=dict)
+    # 历史备注：这里曾有 ``tray_factory`` 与 ``extra`` 两个预留字段，全仓无人读取
+    # ——"留好接口"与"留了一个没人接的插座"是两回事，后者会让下一个人以为它已经
+    # 生效。已删（19 文档 A5）；macOS 若最终要自己的托盘实现，届时它会有唯一的
+    # 调用点，再加回来。
