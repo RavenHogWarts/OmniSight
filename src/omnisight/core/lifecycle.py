@@ -287,7 +287,9 @@ class Lifecycle:
         self._build_services(runtime)
         self._start_web(runtime)
         self._install_signal_handlers()
-        adapter_set.notifier.clear()
+        # 清掉上一次的 STARTUP_ERROR.txt 是收尾动作，不是启动条件——它失败不该
+        # 毁掉一次已经完全成功的启动（协议见 Notifier.clear 的说明）。
+        _guard("清掉上一次的启动错误留痕", adapter_set.notifier.clear)
         self._run_tray(runtime)
         return EXIT_OK
 

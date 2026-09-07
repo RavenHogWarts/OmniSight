@@ -287,6 +287,15 @@ class Notifier(Protocol):
 
     def error(self, title: str, message: str) -> None: ...
 
+    def clear(self) -> None:
+        """启动成功后清掉上一次留下的错误线索。
+
+        **不是可选的。** ``lifecycle`` 在启动流程的最后一步无条件调用它，因此漏实现
+        它的适配器会恰好在"启动完全成功"的那一刻抛 ``AttributeError``——而崩溃栈指向
+        通知模块，与真正的原因（新适配器没照完整契约写）毫无关系。协议里补上这一条，
+        代价是三行，换来的是第二平台落地时少一类极难归因的故障。
+        """
+
 
 @dataclass(frozen=True, slots=True)
 class AdapterSet:

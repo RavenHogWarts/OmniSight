@@ -71,6 +71,39 @@ def test_first_run_creates_config_database_and_logs(isolated_root: Path, monkeyp
     assert security.read_runtime_file(lifecycle.runtime.data_dir) is None
 
 
+def test_failing_notifier_clear_does_not_undo_successful_startup(
+    isolated_root: Path, monkeypatch
+):
+    """启动最后一步是清掉上一次的错误留痕——它是收尾动作，不是启动条件。
+
+    一个 ``clear()`` 会抛异常的 Notifier（第二平台照协议新写时最可能出岔子的地方）
+    只该在日志里留一条堆栈，不该把一次已经完全成功的启动变成崩溃退出
+    （19 文档 A1：崩溃栈指向 lifecycle 末尾，与真正的原因相距甚远）。
+    """
+
+    class ExplodingNotifier:
+        def error(self, title: str, message: str) -> None:
+            pass
+
+        def clear(self) -> None:
+            raise RuntimeError("clear 失败")
+
+    from omnisight.adapters.generic import factory as generic_factory
+
+    monkeypatch.setattr(generic_factory, "FileNotifier", lambda root: ExplodingNotifier())
+    if sys.platform == "win32":
+        from omnisight.adapters.windows import factory as windows_factory
+
+        monkeypatch.setattr(
+            windows_factory, "MessageBoxNotifier", lambda root: ExplodingNotifier()
+        )
+    lifecycle = _start_headless(monkeypatch)
+    try:
+        assert lifecycle.start() == 0
+    finally:
+        lifecycle.shutdown()
+
+
 def test_capability_row_written_for_today(isolated_root: Path, monkeypatch):
     """``capture_capability`` 必须记下**实际生效**的能力，而不是探测到的能力。
 
