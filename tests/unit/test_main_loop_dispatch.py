@@ -2,12 +2,22 @@
 
 ``needs_main_loop`` 在端口上声明了三个里程碑、被 chain 转发，却没有任何调用者——
 而 macOS 的 event tap **必须**挂在主线程 runloop 上，不接上它就是"tap 创建成功、
-回调永不触发、状态页一切正常"的最坏失败。这里钉住分派的两条分支：
+回调永不触发、状态页一切正常"的最坏失败。
 
-* ``needs_main_loop=False``（Windows 恒如此）：托盘留在主线程，逐字原路径；
-* ``=True``（未来的 macOS）：托盘退到子线程，主线程交给 ``run_main_loop()``。
+**主线程归谁，真机已经定了（R23，原为 20 文档 A2 的未决问题）。** 原设计是
+"谁需要主线程谁拿"：后端 ``needs_main_loop=True`` 时托盘退到子线程。真机（macOS
+26.6.2 / Apple Silicon）证明这条分派不可用——pystray 的 darwin 后端要在
+``Icon.__init__`` 里建 ``NSApplication`` 与 ``NSStatusBar``，AppKit 强制主线程，
+子线程初始化必抛 ``NSInternalInconsistencyException``；托盘线程一死，用户既没有
+菜单栏图标（打不开仪表盘、也退不出程序），又因为 ``NSApplication`` 从未建立而让
+Dock 图标永远停在"启动中"的弹跳状态。
 
-决定权在端口属性，不在平台判断——这是跨平台策略的全部要点（13 文档 §4）。
+现在的分派是**托盘恒在主线程**，后端不再独占：需要主 runloop 的后端在 ``start()``
+时已把 tap 挂到主 runloop 的 ``kCFRunLoopCommonModes``，而 pystray 的 ``NSApp.run()``
+驱动的就是同一个主 CFRunLoop，两者共用一条循环。因此 ``run_main_loop()`` 不再被调用。
+
+决定权仍在端口属性，不在平台判断——这是跨平台策略的全部要点（13 文档 §4）；
+改变的只是"端口说需要主循环"时该怎么满足它。
 """
 
 from __future__ import annotations
@@ -66,17 +76,21 @@ def test_windows_shaped_backend_keeps_tray_on_main_thread(monkeypatch):
     assert tray.threads == [threading.current_thread().name]
 
 
-def test_loop_backend_takes_the_main_thread(monkeypatch):
-    """needs_main_loop=True：托盘退到子线程，主线程交给 run_main_loop。"""
+def test_tray_keeps_the_main_thread_even_with_a_loop_backend(monkeypatch):
+    """needs_main_loop=True：托盘仍在主线程，后端不再单独驱动主 runloop（R23）。
+
+    这条断言的是被真机推翻后改定的分派：让后端拿走主线程会连托盘一起丢掉
+    （AppKit 主线程规则），而 tap 早已挂在主 runloop 上，靠托盘的 ``NSApp.run()``
+    驱动同一条循环即可，所以 ``run_main_loop()`` 应当是**一次都不被调用**。
+    """
     tray = RecordingTray()
     lifecycle = _lifecycle_with(tray, monkeypatch)
     backend = LoopBackend()
     lifecycle._run_foreground(
         SimpleNamespace(adapter_set=SimpleNamespace(keyboard=backend))
     )
-    assert backend.main_loop_threads == [threading.current_thread().name]
-    assert tray.threads, "托盘也要跑起来——只是不在主线程"
-    assert threading.current_thread().name not in tray.threads
+    assert tray.threads == [threading.current_thread().name]
+    assert not backend.main_loop_threads, "托盘的 NSApp.run() 已驱动同一条主 runloop"
 
 
 def test_missing_keyboard_source_keeps_the_original_path(monkeypatch):

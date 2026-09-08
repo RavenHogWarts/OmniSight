@@ -639,39 +639,29 @@ class Lifecycle:
         logger.info("仪表盘地址 %s", runtime.config.dashboard_url(runtime.token))
 
     def _run_foreground(self, runtime: Runtime) -> None:
-        """把主线程交给需要它的那一方（02 文档 §3、19 文档 A2）。
+        """把主线程交给托盘（02 文档 §3、19 文档 A2、20 文档 A2 已决）。
 
-        **决定权在端口，不在平台判断**：``needs_main_loop`` 为真的键盘后端
-        （macOS 的 event tap 需要主线程 CFRunLoop）拿主线程，托盘退到子线程；
-        为假时沿用原路径，托盘在主线程、键盘后端自带消息泵（Windows 的
-        Raw Input）——那条分支与改动前逐字相同，这是本次改动不碰 Windows
-        行为的机械保证（19 文档 R19）。
+        原先的写法是"谁需要主线程谁拿"：``needs_main_loop`` 为真的键盘后端
+        （macOS 的 event tap）拿走主线程，托盘退到子线程。**真机证明这条分派
+        是错的**（R23）：pystray 的 darwin 后端在 ``Icon.__init__`` 里建
+        ``NSApplication`` 与 ``NSStatusBar``，AppKit 强制主线程，子线程初始化
+        必抛 ``NSInternalInconsistencyException - NSWindow should only be
+        instantiated on the main thread!``。后果是双向的——不只丢菜单栏图标：
+
+        * 托盘线程死掉，用户既打不开仪表盘也退不出程序；
+        * ``NSApplication`` 从未在主线程建立，应用因此永远完不成"启动报到"，
+          而 bundle 里没有 ``LSUIElement``，Dock 图标就一直停在启动中的弹跳状态。
+
+        正确的分派是**托盘恒在主线程**，键盘后端不再独占：需要主 runloop 的
+        后端在 ``start()`` 时已把 tap 挂到主 runloop 的 ``kCFRunLoopCommonModes``，
+        而 pystray 的 ``NSApp.run()`` 驱动的就是同一个主 CFRunLoop——两者共用
+        一条循环即可，因此这里不再调用 ``run_main_loop()``。
+
+        Windows 路径不受影响：Raw Input 自带消息泵、``needs_main_loop`` 为假，
+        走的仍是"托盘在主线程"这一条，与改动前逐字相同（19 文档 R19）。
         """
         tray = self._build_tray(runtime)
-        source = runtime.adapter_set.keyboard
-        if source is not None and bool(getattr(source, "needs_main_loop", False)):
-            # 分派骨架先落地；主 runloop 的具体挂法（tap 挂托盘的 runloop，
-            # 还是后端自持主线程）由 B6 用真机定（20 文档 A2 的未决问题）。
-            self._run_tray_off_main_thread(tray)
-            source.run_main_loop()
-            return
         tray.run()
-
-    def _run_tray_off_main_thread(self, tray: TrayIcon) -> None:
-        """托盘让出主线程。daemon：主循环随 ``stop()`` 返回后进程不该被托盘拖住。
-
-        pystray 的 darwin 后端可能拒绝在子线程初始化（R23，真机待验证）——
-        那也只是丢菜单栏图标：主线程的 runloop 仍由键盘后端驱动，数据照收，
-        仪表盘照常。方向上宁可丢托盘不丢数据，所以这里吞掉异常而不是让启动崩。
-        """
-
-        def _run() -> None:
-            try:
-                tray.run()
-            except Exception:  # pragma: no cover - R23 的触发点
-                logger.exception("托盘在子线程初始化失败（R23）——继续无托盘运行")
-
-        threading.Thread(target=_run, name="omnisight-tray", daemon=True).start()
 
     def _build_tray(self, runtime: Runtime) -> TrayIcon:
         from ..tray import TrayIcon
