@@ -918,16 +918,68 @@ def _stage_macos_files(staging: Path | None = None) -> Path:
     return staging
 
 
+def _flatten_bundle_symlinks(app: Path) -> int:
+    """把 .app 里 ``Contents/Frameworks`` 一侧的符号链接替换成目标实体，返回处理数。
+
+    PyInstaller 的 macOS one-dir 布局带约 65 个符号链接，其中 32 个在 Frameworks
+    一侧——**全部在加载路径上**：引导层按字面路径 dlopen ``Frameworks/Python``，
+    并预加载全部顶层 ``lib*.dylib`` 链接与 ``base_library.zip``、包目录
+    （``omnisight`` 等，引导层的 sys.path 指向 Frameworks）；实测这些链接断掉一个
+    的症状就是"双击后 Dock 弹一下就没了"，且零日志（2026-09-08：VM 里把 tar.gz
+    解进 VMware 共享目录，HGFS 不支持符号链接，链接全部静默丢失）。
+
+    ``tar.gz`` 本身保留链接没有问题，问题在**下游任何一环不解符号链接**——HGFS
+    共享目录、Windows 侧解压、部分 GUI 工具都会丢。因此在打包前把 Frameworks
+    一侧拍平成实体文件。Resources 一侧的约 33 个链接是 macOS bundle 惯例，实测
+    （扫描全部 Mach-O：零条 ``LC_RPATH``、零条指向 Resources 的引用——加载全靠
+    引导层按 Frameworks 路径预加载 + install name 匹配）不在任何加载路径上，
+    保留为链接，解压丢了也不影响运行。
+
+    代价约 55MB 未压缩 / 18MB tar.gz——换"怎么解压都能跑"。指向包外的链接
+    （不该存在）原样保留并打印，留给人工看一眼。
+    """
+    frameworks = app / "Contents" / "Frameworks"
+    flattened = 0
+    if not frameworks.is_dir():  # pragma: no cover - 非 .app 结构,无事可做
+        return 0
+    links: list[Path] = []
+    for root, dirs, files in os.walk(frameworks, followlinks=False):
+        for name in (*dirs, *files):
+            candidate = Path(root) / name
+            if candidate.is_symlink():
+                links.append(candidate)
+    for link in links:
+        resolved = Path(os.path.realpath(link))
+        try:
+            resolved.relative_to(app)
+        except ValueError:
+            print(f"  保留包外链接：{link.relative_to(frameworks)} -> {os.readlink(link)}")
+            continue
+        if not resolved.exists():  # pragma: no cover - 构建产物不该有悬空链接
+            print(f"  跳过悬空链接：{link.relative_to(frameworks)}")
+            continue
+        link.unlink()
+        if resolved.is_dir():
+            shutil.copytree(resolved, link)
+        else:
+            shutil.copy2(resolved, link)
+        flattened += 1
+    return flattened
+
+
 def _assemble_macos(
     *, dist: Path, exe: Path, regenerate_licenses: bool
 ) -> list[Artifact]:
     """把 PyInstaller 的 ``.app`` 组装成 tar.gz。一件发布物，无安装包、无便携形态。
 
     签名同样发生在**算校验值与打包之前**（与 Windows 分支同一条顺序约束：签名改写
-    字节）。
+    字节）——拍平符号链接同理排在签名之前：它改写包内容。
     """
     if regenerate_licenses:
         _regenerate_licenses()
+
+    flattened = _flatten_bundle_symlinks(exe)
+    print(f"已把 {flattened} 个 Frameworks 侧符号链接拍平为实体（防解压链路丢链接）")
 
     identity = codesign_identity_from_env()
     if identity:

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import sys
 import zipfile
+from os import symlink as os_symlink
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -615,3 +616,75 @@ def test_macos_bundle_names_carry_the_arch_suffix():
     assert build.macos_bundle_name("arm64").endswith("macos-arm64.tar.gz")
     assert build.macos_bundle_name("x64").endswith("macos-x64.tar.gz")
     assert build.macos_bundle_name("arm64") != build.macos_bundle_name("x64")
+
+
+# ── 符号链接拍平（mac 产物的解压链路加固）──────────────────────────────
+
+
+def _make_linked_bundle(base: Path) -> Path:
+    """一个带 PyInstaller mac 布局骨架的假 .app：Frameworks 侧三类链接 + Resources 侧一个。"""
+    frameworks = base / "Contents" / "Frameworks"
+    resources = base / "Contents" / "Resources"
+    (frameworks / "Python.framework" / "Versions" / "3.12").mkdir(parents=True)
+    python_bin = frameworks / "Python.framework" / "Versions" / "3.12" / "Python"
+    python_bin.write_bytes(b"Mach-O fake libpython")
+    resources.mkdir(parents=True)
+    (resources / "base_library.zip").write_bytes(b"zip payload")
+    (frameworks / "PIL" / "__dot__dylibs").mkdir(parents=True)
+    dylib = frameworks / "PIL" / "__dot__dylibs" / "libjpeg.dylib"
+    dylib.write_bytes(b"fake dylib")
+    (frameworks / "PIL" / "_imaging.so").write_bytes(b"fake so")
+
+    os_symlink("Python.framework/Versions/3.12/Python", frameworks / "Python")
+    os_symlink("../Resources/base_library.zip", frameworks / "base_library.zip")
+    os_symlink("__dot__dylibs", frameworks / "PIL" / ".dylibs")
+    os_symlink("PIL/.dylibs/libjpeg.dylib", frameworks / "libjpeg.dylib")
+    os_symlink("../Frameworks/PIL", resources / "PIL")  # Resources 侧:惯例,须保留
+    return base
+
+
+@pytest.fixture
+def linked_app(tmp_path: Path) -> Path:
+    try:
+        return _make_linked_bundle(tmp_path / "OmniSight.app")
+    except OSError as error:  # Windows 无符号链接权限时整个夹具不可用
+        pytest.skip(f"此环境创建不了符号链接：{error}")
+
+
+def test_flatten_replaces_frameworks_links_with_real_copies(linked_app: Path):
+    """Frameworks 一侧的链接全部换成实体：文件链接、目录链接、跨目录引用都要在。"""
+    count = build._flatten_bundle_symlinks(linked_app)
+    assert count == 4
+
+    fw = linked_app / "Contents" / "Frameworks"
+    # 引导层 dlopen 的那一个（VM 上真实断掉过的就是它）。
+    assert (fw / "Python").is_file()
+    assert (fw / "Python").read_bytes() == b"Mach-O fake libpython"
+    assert (fw / "base_library.zip").read_bytes() == b"zip payload"
+    # 目录链接与经它解析的顶层 dylib 链接。
+    assert (fw / "PIL" / ".dylibs" / "libjpeg.dylib").is_file()
+    assert (fw / "libjpeg.dylib").read_bytes() == b"fake dylib"
+    # 全包再无 Frameworks 侧链接。
+    assert not any(p.is_symlink() for p in fw.rglob("*"))
+
+
+def test_flatten_keeps_resources_side_convention_links(linked_app: Path):
+    """Resources 侧是 bundle 惯例、不在加载路径上（345 个 Mach-O 零条 LC_RPATH 的
+    实测结论）——拍平只动 Frameworks，别把体积白白翻倍。"""
+    build._flatten_bundle_symlinks(linked_app)
+    convention = linked_app / "Contents" / "Resources" / "PIL"
+    assert convention.is_symlink()
+
+
+def test_flatten_leaves_outside_links_alone(tmp_path: Path):
+    """指向包外的链接（不该存在）保留并靠调用方日志暴露,而不是悄悄拍平。"""
+    app = tmp_path / "OmniSight.app"
+    (app / "Contents" / "Frameworks").mkdir(parents=True)
+    outside = tmp_path / "outside.dylib"
+    outside.write_bytes(b"outside")
+    try:
+        os_symlink(str(outside), app / "Contents" / "Frameworks" / "stray.dylib")
+    except OSError as error:
+        pytest.skip(f"此环境创建不了符号链接：{error}")
+    assert build._flatten_bundle_symlinks(app) == 0
+    assert (app / "Contents" / "Frameworks" / "stray.dylib").is_symlink()
