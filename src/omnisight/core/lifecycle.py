@@ -658,8 +658,20 @@ class Lifecycle:
         tray.run()
 
     def _run_tray_off_main_thread(self, tray: TrayIcon) -> None:
-        """托盘让出主线程。daemon：主循环随 ``stop()`` 返回后进程不该被托盘拖住。"""
-        threading.Thread(target=tray.run, name="omnisight-tray", daemon=True).start()
+        """托盘让出主线程。daemon：主循环随 ``stop()`` 返回后进程不该被托盘拖住。
+
+        pystray 的 darwin 后端可能拒绝在子线程初始化（R23，真机待验证）——
+        那也只是丢菜单栏图标：主线程的 runloop 仍由键盘后端驱动，数据照收，
+        仪表盘照常。方向上宁可丢托盘不丢数据，所以这里吞掉异常而不是让启动崩。
+        """
+
+        def _run() -> None:
+            try:
+                tray.run()
+            except Exception:  # pragma: no cover - R23 的触发点
+                logger.exception("托盘在子线程初始化失败（R23）——继续无托盘运行")
+
+        threading.Thread(target=_run, name="omnisight-tray", daemon=True).start()
 
     def _build_tray(self, runtime: Runtime) -> TrayIcon:
         from ..tray import TrayIcon

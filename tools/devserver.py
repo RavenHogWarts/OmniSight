@@ -95,8 +95,11 @@ PRESETS: dict[str, Capabilities] = {
         os_version="15.5",
         keyboard_backend="event_tap",
         keyboard_backends=("auto", "event_tap", "pynput", "none"),
-        keyboard_durations=False,
-        permissions_required=("accessibility", "input_monitoring"),
+        # event tap 的 KeyDown/KeyUp 配对完整（修饰键靠 FlagsChanged×上一状态合成），
+        # 能算按压时长——B6 落地后此预设如实翻转（20 文档 B6 末尾点名要改的那条）。
+        keyboard_durations=True,
+        key_position_stable=True,
+        permissions_required=("input_monitoring",),
         permissions_granted=("accessibility",),
         setup_hint="在「系统设置 › 隐私与安全性 › 输入监控」中勾选 OmniSight",
     ),

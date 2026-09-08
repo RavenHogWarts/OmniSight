@@ -1,29 +1,12 @@
-"""macOS（二级平台，M9 实现） —— 占位包。
+"""macOS（二级平台）适配器包——M9 实现（19 文档批次 B / 20 文档 B4–B7）。
 
-首期不实现任何采集，只保证 ``adapters.detect()`` 能识别出这个平台并**如实
-上报"适配器未实现"**，装配退回通用降级。目录与工厂函数现在就位，是为了让后续
-里程碑只需填充本包，不必改动核心层（13 文档 §7.9）。
+端口对应表见 19 文档 §2.1。两个刻意留 ``None`` 的端口：``ElevationControl`` 与
+``ElevatedAutostartControl``（root 换不来任何采集能力，§0 第 3 条），
+托盘那一项与设置页那一行整条不下发。
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from ..generic import factory as _generic
-from ..ports import AdapterOptions, AdapterSet, Capabilities
-
-PLATFORM_ID = "macos"
-TIER = 2
-
-
-def detect() -> Capabilities:
-    return _generic.detect(platform_id=PLATFORM_ID, tier=TIER)
-
-
-def build(
-    environment: Capabilities, *, app_root: Path, options: AdapterOptions | None = None
-) -> AdapterSet:
-    return _generic.build(environment, app_root=app_root, options=options)
-
+from .factory import PLATFORM_ID, TIER, build, detect
 
 __all__ = ["PLATFORM_ID", "TIER", "build", "detect"]

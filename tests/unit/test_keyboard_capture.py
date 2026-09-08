@@ -243,3 +243,12 @@ def test_start_failure_is_raised_for_the_caller_to_degrade():
     with pytest.raises(CaptureUnavailable):
         capture.start()
     assert capture.running is False
+
+
+def test_tap_disabled_count_is_surfaced_from_the_backend():
+    """event tap 的自愈计数与 unmapped_events 同一条通道（19 文档 §2.4）：进不了
+    status 接口的计数等于不存在——"半小时后静默停摆"就只能靠用户猜。"""
+    clock = FakeClock()
+    capture, source, _queue, _ = _capture(clock)
+    source.tap_disabled_count = 2
+    assert capture.snapshot()["tap_disabled_count"] == 2

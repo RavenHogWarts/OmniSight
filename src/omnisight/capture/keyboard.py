@@ -124,6 +124,9 @@ class KeyboardCapture:
             "paused": self._paused,
             "pressed_now": len(self._pressed),
             "unmapped_events": int(getattr(self._source, "unmapped_events", 0)),
+            # event tap 被系统禁用后自愈的次数（macOS 专属诊断，其他平台恒 0）：
+            # 持续增长说明系统认为回调太慢——19 文档 §2.4 的"半小时后静默停摆"据此可诊断。
+            "tap_disabled_count": int(getattr(self._source, "tap_disabled_count", 0)),
             **self.stats.as_dict(),
         }
 
