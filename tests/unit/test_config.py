@@ -25,6 +25,18 @@ def test_window_titles_default_off():
     assert cfgmod.default_config().privacy.record_window_titles is False
 
 
+def test_open_dashboard_on_start_default_off():
+    """后台统计工具随登录自启时弹浏览器是打扰，因此默认关——显式开启才生效。"""
+    assert cfgmod.default_config().ui.open_dashboard_on_start is False
+
+
+def test_open_dashboard_on_start_round_trips():
+    cfg, warnings = cfgmod.loads('{"ui": {"open_dashboard_on_start": true}}')
+    assert cfg.ui.open_dashboard_on_start is True
+    assert not warnings
+    assert json.loads(cfgmod.dumps(cfg))["ui"]["open_dashboard_on_start"] is True
+
+
 def test_missing_file_generates_default(tmp_path: Path):
     path = tmp_path / "config.json"
     cfg, warnings = cfgmod.load(path)

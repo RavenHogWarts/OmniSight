@@ -26,6 +26,7 @@
     "keyboard_layout": "auto",
     "settings_surface": "drawer",
     "shell": "browser",
+    "open_dashboard_on_start": false,
     "week_starts_on": 0
   },
   "privacy": {
