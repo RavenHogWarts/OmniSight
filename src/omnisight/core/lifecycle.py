@@ -637,6 +637,13 @@ class Lifecycle:
         runtime.web = server
         security.write_runtime_file(runtime.data_dir, port=server.port, token=runtime.token)
         logger.info("仪表盘地址 %s", runtime.config.dashboard_url(runtime.token))
+        if runtime.config.ui.open_dashboard_on_start:
+            # 自动手动二选一：托盘「打开 OmniSight」与这里是同一条 _open_external 路径，
+            # 因此"谁打开"只差触发时机，不会出现两套打开方式。macOS 上双击 .app 只是
+            # 启动程序（菜单栏常驻、无窗口），这个开关是"双击就想看到页面"的正解——
+            # 比"点托盘图标再点菜单项"少两步，也比"书签"可靠（令牌每次启动都轮换，
+            # 书签里的裸地址永远缺令牌）。
+            self._open_external(runtime, runtime.config.dashboard_url(runtime.token))
 
     def _run_foreground(self, runtime: Runtime) -> None:
         """把主线程交给托盘（02 文档 §3、19 文档 A2、20 文档 A2 已决）。

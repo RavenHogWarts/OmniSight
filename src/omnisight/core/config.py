@@ -100,6 +100,10 @@ class UiConfig:
     #: 原地，而"改完看效果"是绝大多数改动的下一步。
     settings_surface: str = "drawer"
     shell: str = "browser"
+    #: 启动后是否用默认浏览器自动打开仪表盘。默认关：这是后台统计工具，随登录
+    #: 自启时弹浏览器是打扰。打开时令牌经 URL 交接一次（08 文档 §3.2b），随后前端
+    #: 把它从地址栏抹掉并存进 sessionStorage——同一标签页刷新仍然有效，新标签页没有。
+    open_dashboard_on_start: bool = False
     #: 一周从哪天开始：0 = 周一（ISO / 中国大陆），6 = 周日（美国习惯）。
     #: 05 文档 §1.2 要求"周"统一为自然周且起始日可配置，§9 的示例直接引用了
     #: ``settings.ui.week_starts_on``——M2 落地周期计算时才需要它，故此时补上。
