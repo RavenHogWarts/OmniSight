@@ -104,12 +104,18 @@ codesign --sign omnisight-dev --deep --force --options runtime dist/OmniSight.ap
 - **手动入口**（菜单栏找不到图标 / 远程排查时）：
 
 ```sh
-cat ~/Library/Application\ Support/Omnisight/runtime.json
-# {"port": 6100, "token": "……"}
+cat ~/Library/Application\ Support/OmniSight/data/runtime.json
+# {"port": 6100, "token": "……", "pid": 58194}
 open "http://127.0.0.1:6100/?token=<上面读到的 token>"
 ```
 
-`runtime.json` 只在程序运行期间存在（干净退出即删除）——它不在，多半是程序没起来。
+`runtime.json` 落在**数据目录的 `data/` 下**（不是 `~/Library/Application Support/OmniSight/`
+的根），由 `security.write_runtime_file(runtime.data_dir, ...)` 写入。它只在程序运行
+期间存在（干净退出即删除）——它不在，多半是程序没起来。
+
+直接打开 `http://127.0.0.1:6100/` 也能 200，但那只是页面外壳：令牌经 URL 交接一次后
+存进 sessionStorage，新标签页里没有它，页面会显示「缺少访问令牌」那张卡——不是服务
+端故障，从托盘或上面这条带 token 的地址重新打开即可。
 确认进程：`pgrep -fl OmniSight`。菜单栏图标被挤掉时，按住 ⌘ 拖动可以把它挪回可见
 区域；macOS 也可能在"控制中心"设置里隐藏了它。
 
